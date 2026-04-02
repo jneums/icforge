@@ -1,32 +1,99 @@
 import { readFile, writeFile } from "fs/promises";
 import { existsSync } from "fs";
 import { join } from "path";
+import { parse as parseYaml } from "yaml";
 
-const CONFIG_FILE = "icforge.json";
+// ============================================================
+// ICForge config — thin wrapper, icp.yaml is source of truth
+// ============================================================
 
-export interface ProjectConfig {
-  name: string;
-  projectId?: string;
-  framework?: "static" | "react" | "nextjs" | "svelte" | "motoko" | "rust";
-  buildCommand?: string;
-  outputDir?: string;
-  canisters?: CanisterConfig[];
+const ICFORGE_FILE = ".icforge";
+const ICP_MANIFEST = "icp.yaml";
+
+/** ICForge-specific config (stored in .icforge) */
+export interface ICForgeConfig {
+  projectId: string;
+  /** Optional: only deploy these canisters (default: all from icp.yaml) */
+  canisters?: string[];
+  /** Optional: custom subdomain override */
+  subdomain?: string;
 }
 
-export interface CanisterConfig {
+/** Canister definition parsed from icp.yaml */
+export interface IcpCanister {
   name: string;
-  type: "frontend" | "backend";
+  type?: string;
+  recipe?: {
+    type: string;
+    configuration?: Record<string, unknown>;
+  };
+  build?: string[];
   source?: string;
 }
 
-export async function loadConfig(dir: string = process.cwd()): Promise<ProjectConfig | null> {
-  const configPath = join(dir, CONFIG_FILE);
-  if (!existsSync(configPath)) return null;
-  const raw = await readFile(configPath, "utf-8");
-  return JSON.parse(raw) as ProjectConfig;
+/** Parsed icp.yaml manifest */
+export interface IcpManifest {
+  canisters: IcpCanister[];
+  environments?: Array<{
+    name: string;
+    [key: string]: unknown;
+  }>;
+  defaults?: Record<string, unknown>;
 }
 
-export async function saveConfig(config: ProjectConfig, dir: string = process.cwd()) {
-  const configPath = join(dir, CONFIG_FILE);
+/**
+ * Load the .icforge project link file.
+ * Returns null if not initialized.
+ */
+export async function loadICForgeConfig(dir: string = process.cwd()): Promise<ICForgeConfig | null> {
+  const configPath = join(dir, ICFORGE_FILE);
+  if (!existsSync(configPath)) return null;
+  const raw = await readFile(configPath, "utf-8");
+  return JSON.parse(raw) as ICForgeConfig;
+}
+
+/**
+ * Save the .icforge project link file.
+ */
+export async function saveICForgeConfig(config: ICForgeConfig, dir: string = process.cwd()) {
+  const configPath = join(dir, ICFORGE_FILE);
   await writeFile(configPath, JSON.stringify(config, null, 2) + "\n");
+}
+
+/**
+ * Load and parse the icp.yaml manifest.
+ * This is the source of truth for canister definitions.
+ * Returns null if no icp.yaml found.
+ */
+export async function loadIcpManifest(dir: string = process.cwd()): Promise<IcpManifest | null> {
+  const manifestPath = join(dir, ICP_MANIFEST);
+  if (!existsSync(manifestPath)) return null;
+  const raw = await readFile(manifestPath, "utf-8");
+  return parseYaml(raw) as IcpManifest;
+}
+
+/**
+ * Detect canister type from icp.yaml recipe.
+ * Maps IC recipe types to ICForge's frontend/backend classification.
+ */
+export function classifyCanister(canister: IcpCanister): "frontend" | "backend" {
+  const recipe = canister.recipe?.type?.toLowerCase() ?? "";
+  if (recipe.includes("asset-canister") || recipe.includes("asset")) {
+    return "frontend";
+  }
+  return "backend";
+}
+
+/**
+ * Check if the current directory is an IC project.
+ */
+export function isIcProject(dir: string = process.cwd()): boolean {
+  return existsSync(join(dir, ICP_MANIFEST));
+}
+
+/**
+ * Check if the current directory is linked to ICForge.
+ */
+export function isLinked(dir: string = process.cwd()): boolean {
+  return existsSync(join(dir, ICFORGE_FILE));
 }

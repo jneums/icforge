@@ -138,10 +138,10 @@ npx icforge deploy    # Ship it 🚀
 
 **Deploy Flow:**
 ```
-1. Read icforge.json for project config
-2. Detect icp.yaml and determine canister types
-3. For each canister:
-   a. Run build (icp build / npm run build / cargo build)
+1. Read .icforge for project ID
+2. Read icp.yaml for canister definitions, build recipes, and config
+3. For each canister (or subset specified in .icforge):
+   a. Run build via icp-cli recipe (e.g., `icp build <name>`)
    b. Collect artifacts (.wasm, .did, asset files)
    c. Upload to ICForge API (multipart, chunked for large assets)
 4. API returns deployment ID + status URL
@@ -149,26 +149,52 @@ npx icforge deploy    # Ship it 🚀
 6. On completion: print canister URL
 ```
 
-**Project Config (`icforge.json`):**
+**Config Philosophy: `icp.yaml` is the source of truth.**
+
+ICForge reads canister definitions, build recipes, and project structure directly
+from the developer's existing `icp.yaml`. No duplication. ICForge only stores a
+thin link file for its own concerns:
+
+**`.icforge` (project link file):**
+```json
+{
+  "projectId": "proj_abc123"
+}
+```
+
+**Optional fields in `.icforge`:**
 ```json
 {
   "projectId": "proj_abc123",
-  "name": "my-dapp",
-  "canisters": [
-    {
-      "name": "frontend",
-      "type": "frontend",
-      "buildCommand": "npm run build",
-      "outputDir": "dist"
-    },
-    {
-      "name": "backend",
-      "type": "backend",
-      "buildCommand": "icp build backend"
-    }
-  ]
+  "canisters": ["frontend", "backend"],
+  "subdomain": "myapp"
 }
 ```
+
+- `canisters` — whitelist of canisters to deploy (default: all from icp.yaml)
+- `subdomain` — custom subdomain override for `<slug>.icforge.dev`
+
+**icp.yaml (already exists — created by `icp new`):**
+```yaml
+canisters:
+  - name: frontend
+    recipe:
+      type: "@dfinity/asset-canister@v1.0.0"
+    source: dist/
+
+  - name: backend
+    recipe:
+      type: "@dfinity/rust@v3.0.0"
+      configuration:
+        package: my-backend
+
+environments:
+  - name: ic
+```
+
+ICForge detects canister types from recipes: `asset-canister` → frontend,
+`rust`/`motoko` → backend. Zero config needed from the developer beyond
+`icforge init` to link their project.
 
 ### 5.2 Backend (`backend/` — Rust)
 

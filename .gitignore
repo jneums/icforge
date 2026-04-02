@@ -1,3 +1,6 @@
+# ICForge project link (contains project ID — safe to commit or gitignore per preference)
+# .icforge
+
 # Dependencies
 node_modules/
 target/

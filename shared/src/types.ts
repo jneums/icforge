@@ -77,10 +77,12 @@ export interface DeployLog {
 
 export interface CreateProjectRequest {
   name: string;
-  framework?: string;
+  /** Canisters parsed from the developer's icp.yaml */
   canisters: {
     name: string;
     type: "frontend" | "backend";
+    /** Recipe type from icp.yaml (e.g., "@dfinity/rust@v3.0.0") */
+    recipe?: string;
   }[];
 }
 

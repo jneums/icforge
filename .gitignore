@@ -27,6 +27,9 @@ Thumbs.db
 
 # Rust
 backend/target/
+*.db
+*.db-shm
+*.db-wal
 
 # Misc
 *.log

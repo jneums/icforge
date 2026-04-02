@@ -1,13 +1,13 @@
-# ☁️ AtlasCloud
+# ☁️ ICForge
 
 **Deploy to the Internet Computer like Netlify/Vercel.**
 
-AtlasCloud abstracts away IC identity management, cycles, and canister operations so you can deploy with a single command. No crypto wallet needed.
+ICForge abstracts away IC identity management, cycles, and canister operations so you can deploy with a single command. No crypto wallet needed.
 
 ```bash
-npx atlascloud login    # Authenticate via browser
-npx atlascloud init     # Initialize your project
-npx atlascloud deploy   # Ship it 🚀
+npx icforge login    # Authenticate via browser
+npx icforge init     # Initialize your project
+npx icforge deploy   # Ship it 🚀
 ```
 
 ## Why?
@@ -18,13 +18,13 @@ The Internet Computer has powerful on-chain hosting, but deploying to mainnet re
 - Converting ICP to cycles
 - Managing canister lifecycle and top-ups
 
-**AtlasCloud handles all of this.** Pay with a credit card, deploy with a CLI command.
+**ICForge handles all of this.** Pay with a credit card, deploy with a CLI command.
 
 ## Architecture
 
 | Component | Stack | Purpose |
 |-----------|-------|---------|
-| `cli/` | TypeScript | CLI tool (`npx atlascloud`) |
+| `cli/` | TypeScript | CLI tool (`npx icforge`) |
 | `backend/` | Rust (Axum) | API server, IC agent, deploy pipeline |
 | `dashboard/` | TBD (Next.js/SvelteKit) | Web UI for project management |
 | `shared/` | TypeScript | Shared types between CLI & dashboard |

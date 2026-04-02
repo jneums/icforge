@@ -2,7 +2,7 @@ import { readFile, writeFile } from "fs/promises";
 import { existsSync } from "fs";
 import { join } from "path";
 
-const CONFIG_FILE = "atlascloud.json";
+const CONFIG_FILE = "icforge.json";
 
 export interface ProjectConfig {
   name: string;

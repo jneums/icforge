@@ -1,4 +1,4 @@
-# AtlasCloud — Architecture & Design Spec
+# ICForge — Architecture & Design Spec
 
 **Status:** Draft v0.1
 **Authors:** Jesse Neumann
@@ -23,13 +23,13 @@ DFINITY's new AI skills (`dfinity/icskills`) make it easy to **build** IC apps w
 
 ## 2. Vision
 
-AtlasCloud is a **PaaS for the Internet Computer**. Deploy to IC like you deploy to Netlify or Vercel:
+ICForge is a **PaaS for the Internet Computer**. Deploy to IC like you deploy to Netlify or Vercel:
 
 ```bash
-npx atlascloud login     # OAuth in browser
-npx atlascloud init      # Set up project
-npx atlascloud deploy    # Ship it 🚀
-# → https://myapp.atlascloud.dev is live
+npx icforge login     # OAuth in browser
+npx icforge init      # Set up project
+npx icforge deploy    # Ship it 🚀
+# → https://myapp.icforge.dev is live
 ```
 
 **No crypto wallet. No ICP tokens. No cycles management. Just deploy.**
@@ -47,10 +47,10 @@ npx atlascloud deploy    # Ship it 🚀
 │                        Developer Machine                         │
 │                                                                  │
 │  ┌────────────────────┐    ┌──────────────────────────────────┐  │
-│  │  atlascloud CLI    │    │  Project Source                  │  │
+│  │  icforge CLI    │    │  Project Source                  │  │
 │  │  (TypeScript/npm)  │    │  - icp.yaml                     │  │
 │  │                    │    │  - src/ (Motoko, Rust, or JS)    │  │
-│  │  Commands:         │    │  - atlascloud.json (project cfg) │  │
+│  │  Commands:         │    │  - icforge.json (project cfg) │  │
 │  │  - login           │    └──────────────────────────────────┘  │
 │  │  - init            │                                          │
 │  │  - deploy ─────────┼──── Build locally (optional) ───────┐   │
@@ -63,7 +63,7 @@ npx atlascloud deploy    # Ship it 🚀
                             HTTPS API                          │
                                                                ▼
 ┌──────────────────────────────────────────────────────────────────┐
-│                      AtlasCloud Backend (Rust)                   │
+│                      ICForge Backend (Rust)                   │
 │                                                                  │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────────────┐  │
 │  │  Auth     │  │  Deploy  │  │  Billing │  │  Identity      │  │
@@ -109,47 +109,47 @@ npx atlascloud deploy    # Ship it 🚀
 
 ### 5.1 CLI (`cli/` — TypeScript)
 
-**Why TypeScript:** npm ecosystem = `npx atlascloud` just works. Familiar to target users. Fast iteration on UX.
+**Why TypeScript:** npm ecosystem = `npx icforge` just works. Familiar to target users. Fast iteration on UX.
 
 **Commands:**
 
 | Command | Description |
 |---------|-------------|
-| `atlascloud login` | Open browser for OAuth, save token locally |
-| `atlascloud init` | Create `atlascloud.json`, detect framework, link project |
-| `atlascloud deploy` | Build locally → upload artifacts → trigger deploy |
-| `atlascloud status` | Show project status, canister info, cycles usage |
-| `atlascloud logs` | Stream deployment and runtime logs |
-| `atlascloud env` | Manage environment variables for canisters |
-| `atlascloud whoami` | Show current user and linked project |
-| `atlascloud link` | Link existing IC canister to AtlasCloud |
-| `atlascloud export-keys` | Export custodial identity (escape hatch) |
+| `icforge login` | Open browser for OAuth, save token locally |
+| `icforge init` | Create `icforge.json`, detect framework, link project |
+| `icforge deploy` | Build locally → upload artifacts → trigger deploy |
+| `icforge status` | Show project status, canister info, cycles usage |
+| `icforge logs` | Stream deployment and runtime logs |
+| `icforge env` | Manage environment variables for canisters |
+| `icforge whoami` | Show current user and linked project |
+| `icforge link` | Link existing IC canister to ICForge |
+| `icforge export-keys` | Export custodial identity (escape hatch) |
 
 **Auth Flow:**
 ```
 1. CLI starts local HTTP server on random port
-2. Opens browser to: https://app.atlascloud.dev/auth?redirect=http://localhost:{port}/callback
+2. Opens browser to: https://app.icforge.dev/auth?redirect=http://localhost:{port}/callback
 3. User authenticates (GitHub OAuth or email)
 4. Browser redirects to local server with auth code
 5. CLI exchanges code for access + refresh tokens
-6. Tokens saved to ~/.config/atlascloud/credentials.json
+6. Tokens saved to ~/.config/icforge/credentials.json
 7. CLI confirms: "Logged in as jesse@example.com"
 ```
 
 **Deploy Flow:**
 ```
-1. Read atlascloud.json for project config
+1. Read icforge.json for project config
 2. Detect icp.yaml and determine canister types
 3. For each canister:
    a. Run build (icp build / npm run build / cargo build)
    b. Collect artifacts (.wasm, .did, asset files)
-   c. Upload to AtlasCloud API (multipart, chunked for large assets)
+   c. Upload to ICForge API (multipart, chunked for large assets)
 4. API returns deployment ID + status URL
 5. CLI streams logs from status URL via SSE
 6. On completion: print canister URL
 ```
 
-**Project Config (`atlascloud.json`):**
+**Project Config (`icforge.json`):**
 ```json
 {
   "projectId": "proj_abc123",
@@ -213,24 +213,24 @@ npx atlascloud deploy    # Ship it 🚀
 
 ### 5.3 Identity Manager
 
-Each AtlasCloud user gets a **custodial IC identity** generated server-side.
+Each ICForge user gets a **custodial IC identity** generated server-side.
 
 **Key Management:**
 - Identity = Ed25519 keypair (same as icp-cli generates)
 - Private keys encrypted at rest (AES-256-GCM, key from HSM/KMS in production)
 - One identity per user account
-- AtlasCloud's principal is set as controller of all user canisters
+- ICForge's principal is set as controller of all user canisters
 - User's principal is added as secondary controller (enables future self-custody)
 
 **Export Flow:**
 - User requests key export via CLI or dashboard
 - Require re-authentication (password or OAuth re-consent)
 - Generate PEM file compatible with `icp identity import`
-- After export, user can add their own controller and remove AtlasCloud's
+- After export, user can add their own controller and remove ICForge's
 
 ### 5.4 Cycles Pool
 
-AtlasCloud maintains a pool of cycles funded by bulk ICP purchases.
+ICForge maintains a pool of cycles funded by bulk ICP purchases.
 
 **Economics:**
 - Buy ICP in bulk (OTC or exchange) at market rate
@@ -272,7 +272,7 @@ AtlasCloud maintains a pool of cycles funded by bulk ICP purchases.
 
 ## 7. CI/CD — GitHub Actions Integration
 
-**GitHub Action: `atlascloud/deploy-action`**
+**GitHub Action: `icforge/deploy-action`**
 
 ```yaml
 # .github/workflows/deploy.yml
@@ -286,17 +286,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: atlascloud/deploy-action@v1
+      - uses: icforge/deploy-action@v1
         with:
           project-id: ${{ secrets.ATLASCLOUD_PROJECT_ID }}
           token: ${{ secrets.ATLASCLOUD_TOKEN }}
 ```
 
 **How it works:**
-1. Action installs atlascloud CLI
+1. Action installs icforge CLI
 2. Authenticates via service token (not OAuth — machine-to-machine)
 3. Runs build (detects framework, runs build command)
-4. Uploads artifacts to AtlasCloud API
+4. Uploads artifacts to ICForge API
 5. Streams deploy logs in GitHub Actions output
 6. Fails the workflow if deploy fails
 
@@ -309,18 +309,18 @@ jobs:
 ## 8. Custom Domains
 
 **Subdomain (automatic):**
-- Every project gets `<slug>.atlascloud.dev`
-- AtlasCloud runs a reverse proxy that maps subdomain → `<canister-id>.ic0.app`
+- Every project gets `<slug>.icforge.dev`
+- ICForge runs a reverse proxy that maps subdomain → `<canister-id>.ic0.app`
 
 **Custom domain (Dev+ plans):**
-- User adds CNAME record: `app.example.com → custom.atlascloud.dev`
-- AtlasCloud provisions TLS certificate (Let's Encrypt)
+- User adds CNAME record: `app.example.com → custom.icforge.dev`
+- ICForge provisions TLS certificate (Let's Encrypt)
 - Proxy routes custom domain → canister
 
 **IC native domains (future):**
 - Register custom domain directly with IC boundary nodes
 - Requires DNS TXT record with canister ID
-- AtlasCloud automates the 3-step IC domain registration process
+- ICForge automates the 3-step IC domain registration process
 
 ## 9. Security Considerations
 
@@ -350,13 +350,13 @@ jobs:
 ### v0.1 — "Hello World Deploy" (MVP)
 - [ ] CLI: login, init, deploy commands working
 - [ ] Backend: OAuth, identity generation, single frontend canister deploy
-- [ ] Deploy a static HTML/JS site to IC mainnet via `atlascloud deploy`
+- [ ] Deploy a static HTML/JS site to IC mainnet via `icforge deploy`
 - [ ] Return `<canister-id>.ic0.app` URL
 
 ### v0.2 — "Real Projects"
 - [ ] Backend canister support (Rust + Motoko)
 - [ ] Multi-canister projects
-- [ ] `atlascloud.dev` subdomain routing
+- [ ] `icforge.dev` subdomain routing
 - [ ] Deploy status + log streaming
 - [ ] Dashboard: project list, deploy history
 
@@ -372,7 +372,7 @@ jobs:
 - [ ] Team/org accounts
 - [ ] Cloud builds (Docker containers for Motoko/Rust)
 - [ ] Framework auto-detection and zero-config deploy
-- [ ] `atlascloud link` for existing canisters
+- [ ] `icforge link` for existing canisters
 
 ## 12. Open Questions
 

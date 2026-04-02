@@ -1,6 +1,6 @@
-# AtlasCloud Dashboard
+# ICForge Dashboard
 
-Web dashboard for managing AtlasCloud projects, deployments, and billing.
+Web dashboard for managing ICForge projects, deployments, and billing.
 
 **Tech decision pending:** Next.js vs SvelteKit
 

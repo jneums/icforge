@@ -1,5 +1,5 @@
 {
-  "name": "atlascloud",
+  "name": "icforge",
   "private": true,
   "workspaces": [
     "cli",

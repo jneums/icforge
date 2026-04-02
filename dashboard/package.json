@@ -1,7 +1,7 @@
 {
-  "name": "@atlascloud/dashboard",
+  "name": "@icforge/dashboard",
   "version": "0.1.0",
-  "description": "AtlasCloud web dashboard",
+  "description": "ICForge web dashboard",
   "private": true,
   "scripts": {
     "dev": "echo 'TODO: scaffold with Next.js or SvelteKit'",

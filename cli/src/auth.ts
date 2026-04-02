@@ -7,7 +7,7 @@ interface AuthConfig {
 }
 
 const config = new Conf<AuthConfig>({
-  projectName: "atlascloud",
+  projectName: "icforge",
 });
 
 export function getToken(): string | undefined {

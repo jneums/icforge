@@ -32,7 +32,7 @@ async fn main() {
         .await
         .expect("Failed to bind");
 
-    tracing::info!("AtlasCloud API listening on 0.0.0.0:8080");
+    tracing::info!("ICForge API listening on 0.0.0.0:8080");
     axum::serve(listener, app).await.expect("Server failed");
 }
 

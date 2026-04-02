@@ -7,19 +7,19 @@ import { statusCommand } from "./commands/status.js";
 import { logsCommand } from "./commands/logs.js";
 
 program
-  .name("atlascloud")
+  .name("icforge")
   .description("Deploy to the Internet Computer — zero config, zero crypto")
   .version("0.1.0");
 
 program
   .command("init")
-  .description("Initialize an AtlasCloud project in the current directory")
+  .description("Initialize an ICForge project in the current directory")
   .option("-n, --name <name>", "Project name")
   .action(initCommand);
 
 program
   .command("login")
-  .description("Authenticate with AtlasCloud via browser")
+  .description("Authenticate with ICForge via browser")
   .action(loginCommand);
 
 program

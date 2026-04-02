@@ -1,10 +1,10 @@
 {
-  "name": "@atlascloud/cli",
+  "name": "@icforge/cli",
   "version": "0.1.0",
-  "description": "AtlasCloud CLI — deploy to the Internet Computer like Netlify",
+  "description": "ICForge CLI — deploy to the Internet Computer like Netlify",
   "type": "module",
   "bin": {
-    "atlascloud": "./dist/index.js"
+    "icforge": "./dist/index.js"
   },
   "scripts": {
     "build": "tsc",

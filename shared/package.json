@@ -1,7 +1,7 @@
 {
-  "name": "@atlascloud/shared",
+  "name": "@icforge/shared",
   "version": "0.1.0",
-  "description": "Shared types and utilities for AtlasCloud",
+  "description": "Shared types and utilities for ICForge",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

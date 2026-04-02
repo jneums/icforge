@@ -1,5 +1,5 @@
 [package]
-name = "atlascloud-backend"
+name = "icforge-backend"
 version = "0.1.0"
 edition = "2021"
 
@@ -19,5 +19,5 @@ uuid = { version = "1", features = ["v4"] }
 # candid = "0.10"
 
 # Auth & billing
-# jsonwebtoken = "9"
+# jsonwebtoken="***"
 # stripe-rust = "0.39"

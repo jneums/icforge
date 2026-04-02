@@ -1,3 +1,4 @@
+import path from "node:path";
 import chalk from "chalk";
 import {
   loadIcpManifest,
@@ -7,6 +8,7 @@ import {
   isIcProject,
 } from "../config.js";
 import { isAuthenticated } from "../auth.js";
+import { apiFetch } from "../api.js";
 
 export async function initCommand(options: Record<string, unknown> = {}) {
   // 1. Check auth
@@ -51,13 +53,30 @@ export async function initCommand(options: Record<string, unknown> = {}) {
   console.log();
 
   // 6. Create project on ICForge backend
-  // TODO: POST /api/v1/projects with canister info from manifest
-  const projectId = `proj_${Date.now()}`; // placeholder until backend is wired
+  const resp = await apiFetch('/api/v1/projects', {
+    method: 'POST',
+    body: JSON.stringify({
+      name: (options.name as string) || path.basename(process.cwd()),
+      canisters: manifest.canisters.map(c => ({
+        name: c.name,
+        type: classifyCanister(c),
+      })),
+      subnet: undefined,
+    }),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.text();
+    console.log(chalk.red('Failed to create project:'), err);
+    process.exit(1);
+  }
+
+  const { id: projectId, slug } = await resp.json() as { id: string; slug?: string };
 
   // 7. Save .icforge link file
   await saveICForgeConfig({ projectId });
 
-  console.log(chalk.green("✓"), "Project linked:", chalk.cyan(projectId));
+  console.log(chalk.green("✓"), "Project linked:", chalk.cyan(slug ?? projectId));
   console.log(chalk.dim("  Config saved to .icforge"));
   console.log();
   console.log("Next: run", chalk.cyan("icforge deploy"), "to deploy to the Internet Computer.");

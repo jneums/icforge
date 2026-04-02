@@ -27,6 +27,7 @@ program
   .description("Build and deploy your project to the Internet Computer")
   .option("--skip-build", "Skip the local build step")
   .option("-e, --env <environment>", "Target environment", "production")
+  .option("-w, --wasm <path>", "Path to a pre-built .wasm file")
   .action(deployCommand);
 
 program

@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+target/
+
+# Build output
+dist/
+build/
+*.js.map
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Rust
+backend/target/
+
+# Misc
+*.log
+.turbo/

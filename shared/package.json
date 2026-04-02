@@ -1,0 +1,14 @@
+{
+  "name": "@atlascloud/shared",
+  "version": "0.1.0",
+  "description": "Shared types and utilities for AtlasCloud",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}

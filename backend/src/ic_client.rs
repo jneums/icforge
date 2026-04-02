@@ -1,5 +1,4 @@
 use candid::{CandidType, Decode, Encode, Principal};
-use ic_agent::agent::http_transport::reqwest_transport::ReqwestTransport;
 use ic_agent::identity::BasicIdentity;
 use ic_agent::Agent;
 use serde::Deserialize;
@@ -42,7 +41,7 @@ struct InstallCodeArgs {
     arg: Vec<u8>,
 }
 
-#[derive(CandidType)]
+#[derive(CandidType, serde::Serialize)]
 enum InstallMode {
     #[serde(rename = "install")]
     Install,
@@ -81,11 +80,8 @@ impl IcClient {
         let identity = BasicIdentity::from_pem(identity_pem.as_bytes())
             .map_err(|e| AppError::Internal(format!("Failed to parse PEM identity: {e}")))?;
 
-        let transport = ReqwestTransport::create(IC_URL)
-            .map_err(|e| AppError::Internal(format!("Failed to create transport: {e}")))?;
-
         let agent = Agent::builder()
-            .with_transport(transport)
+            .with_url(IC_URL)
             .with_identity(identity)
             .build()
             .map_err(|e| AppError::Internal(format!("Failed to build IC agent: {e}")))?;

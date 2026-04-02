@@ -208,25 +208,31 @@ pub async fn create_project(
     })))
 }
 
-/// POST /api/v1/deploy — Deploy (stub)
-pub async fn deploy(State(_state): State<AppState>) -> Json<Value> {
-    Json(json!({ "status": "not_implemented" }))
+/// POST /api/v1/deploy — Deploy a wasm to a canister
+pub async fn deploy(
+    state: State<AppState>,
+    auth_user: AuthUser,
+    multipart: axum::extract::Multipart,
+) -> Result<Json<Value>, AppError> {
+    crate::deploy::deploy(state, auth_user, multipart).await
 }
 
-/// GET /api/v1/deploy/{deploy_id}/status — Deploy status (stub)
+/// GET /api/v1/deploy/{deploy_id}/status — Deploy status
 pub async fn deploy_status(
-    State(_state): State<AppState>,
-    Path(deploy_id): Path<String>,
-) -> Json<Value> {
-    Json(json!({ "deploy_id": deploy_id, "status": "not_implemented" }))
+    state: State<AppState>,
+    auth_user: AuthUser,
+    path: Path<String>,
+) -> Result<Json<Value>, AppError> {
+    crate::deploy::deploy_status(state, auth_user, path).await
 }
 
-/// GET /api/v1/deploy/{deploy_id}/logs — Deploy logs (stub)
+/// GET /api/v1/deploy/{deploy_id}/logs — Deploy logs
 pub async fn deploy_logs(
-    State(_state): State<AppState>,
-    Path(deploy_id): Path<String>,
-) -> Json<Value> {
-    Json(json!({ "deploy_id": deploy_id, "logs": [] }))
+    state: State<AppState>,
+    auth_user: AuthUser,
+    path: Path<String>,
+) -> Result<Json<Value>, AppError> {
+    crate::deploy::deploy_logs(state, auth_user, path).await
 }
 
 /// Simple slug generation from a name

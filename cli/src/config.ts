@@ -17,6 +17,8 @@ export interface ICForgeConfig {
   canisters?: string[];
   /** Optional: custom subdomain override */
   subdomain?: string;
+  /** Optional: target subnet ID for canister creation */
+  subnet?: string;
 }
 
 /** Canister definition parsed from icp.yaml */

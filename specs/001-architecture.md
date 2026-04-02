@@ -319,12 +319,16 @@ jobs:
 ```
 
 **How it works:**
-1. Action installs icforge CLI
-2. Authenticates via service token (not OAuth — machine-to-machine)
-3. Runs build (detects framework, runs build command)
-4. Uploads artifacts to ICForge API
+1. Action installs `icp-cli` and project dependencies
+2. Authenticates with ICForge via service token (not OAuth — machine-to-machine)
+3. Runs `icp build` to compile canisters (using icp.yaml recipes)
+4. Uploads .wasm + .did + asset artifacts to ICForge API
 5. Streams deploy logs in GitHub Actions output
 6. Fails the workflow if deploy fails
+
+**Build in CI:** All builds happen in GitHub Actions using `icp-cli` directly.
+The action installs the IC SDK, runs `icp build`, and uploads artifacts to ICForge.
+No proprietary build system needed — we piggyback on icp-cli's recipe system.
 
 **Preview Deployments (future):**
 - On PR open/update: deploy to a preview canister
@@ -367,9 +371,10 @@ jobs:
 | Auth | OAuth2 (GitHub, Google) | Familiar to developers |
 | Billing | Stripe | Industry standard, subscription + metering |
 | IC Agent | `ic-agent` Rust crate | First-party DFINITY SDK |
-| Dashboard | Next.js or SvelteKit | TBD |
-| Infra | Fly.io or Railway | Simple deployment for the deployer |
-| CI/CD | GitHub Actions | Where IC developers already are |
+| Dashboard | React (Vite) on IC canister | Dogfood our own product |
+| Backend Hosting | Render.com | Existing account, simple deploy |
+| CI/CD | GitHub Actions + `icp-cli` | Builds use IC SDK directly |
+| Cycles Funding | cycles.express (initial) | Credit card → cycles, no exchange needed |
 
 ## 11. Milestones
 
@@ -388,25 +393,36 @@ jobs:
 
 ### v0.3 — "Production Ready"
 - [ ] Stripe billing integration
-- [ ] GitHub Actions deploy action
+- [ ] GitHub Actions deploy action (builds with `icp-cli` in CI)
 - [ ] Custom domain support
 - [ ] Cycles monitoring + auto top-up alerts
 - [ ] Identity export flow
+- [ ] Subnet selection (in .icforge or dashboard)
 
 ### v0.4 — "Growth"
 - [ ] Preview deployments on PRs
 - [ ] Team/org accounts
-- [ ] Cloud builds (Docker containers for Motoko/Rust)
 - [ ] Framework auto-detection and zero-config deploy
 - [ ] `icforge link` for existing canisters
+- [ ] Canister metrics dashboard (cycles burn rate, memory usage, call volume)
+- [ ] Log aggregation — collect and persist canister logs beyond IC's ~20 line window
 
-## 12. Open Questions
+## 12. Resolved Decisions
 
-1. **Build location:** v0.1 builds locally. When do we add cloud builds? Is it blocking for GitHub Actions?
-2. **Dashboard framework:** Next.js (SSR, large ecosystem) vs SvelteKit (lighter, faster)?
-3. **Hosting the backend:** Fly.io, Railway, or self-hosted? Need persistent storage for SQLite.
-4. **ICP acquisition:** How do we bulk-purchase ICP? OTC desk? Exchange API? Treasury management?
-5. **Canister upgrade safety:** How do we handle breaking upgrades (stable memory incompatibility)?
-6. **Multi-region:** IC has subnets in different regions. Do we let users choose?
-7. **Rate limiting:** What deploy frequency limits per plan?
-8. **Monitoring:** Do we expose canister metrics (cycles burn rate, memory usage, call volume)?
+| Question | Decision | Rationale |
+|----------|----------|-----------|
+| **Build location** | GitHub Actions with `icp-cli` | No proprietary build infra needed. `icp build` in CI using recipes from icp.yaml. CLI can also build locally for `icforge deploy`. |
+| **Dashboard framework** | React (Vite), hosted on IC canister | Dogfood our own product. No SSR needed for a dashboard. |
+| **Backend hosting** | Render.com | Jesse has existing account. Simple Rust deploy. |
+| **Cycles acquisition** | cycles.express (initial) | Credit card → cycles without needing an exchange. Evaluate bulk OTC later at scale. |
+| **Breaking upgrades** | Let them fail, surface error to user | Motoko compiler already rejects incompatible upgrades. Rust is less strict but the IC management canister returns an error. Surface the error clearly in deploy logs. |
+| **Subnet selection** | User-configurable in .icforge or dashboard | Optional field, defaults to IC-selected subnet. Power users can pin to specific subnets. |
+| **Rate limiting** | Defer to later | Not a priority until there's meaningful traffic. |
+| **Canister metrics** | Yes, planned for v0.4 | Expose cycles burn rate, memory usage, call volume via dashboard. |
+
+## 13. Open Questions
+
+1. **Log aggregation architecture:** IC exposes ~20 lines of canister logs with a very short retention window. To provide useful logging, ICForge needs to poll/collect logs and store them. Options: (a) background job polling canister logs via `icp canister logs`, (b) users add a logging library that pushes to ICForge, (c) intercept logs at the boundary node level. Need to research IC logging APIs.
+2. **cycles.express reliability:** Is it suitable for automated/programmatic purchases, or is it manual-only? Need to check if they have an API.
+3. **Identity backup/recovery:** If ICForge goes down, users need their keys. Should we require email-based key escrow at signup?
+4. **Free tier abuse:** How do we prevent spam canister creation on the free tier?

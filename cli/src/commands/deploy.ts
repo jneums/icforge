@@ -1,6 +1,9 @@
 import { execSync } from "node:child_process";
-import { readFileSync, existsSync, readdirSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync, createReadStream } from "node:fs";
+import { writeFile, unlink } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { createGzip } from "node:zlib";
+import { pipeline } from "node:stream/promises";
 import chalk from "chalk";
 import ora from "ora";
 import {
@@ -120,14 +123,38 @@ function buildCanister(canister: IcpCanister): boolean {
 }
 
 /**
+ * Create a .tar.gz from a directory. Uses the `tar` command for simplicity.
+ * Returns the path to the created tarball.
+ */
+async function createAssetsTarball(sourceDir: string, canisterName: string): Promise<string | null> {
+  const resolvedSource = resolve(sourceDir);
+  if (!existsSync(resolvedSource)) {
+    console.log(chalk.yellow(`  ⚠ Source directory not found: ${resolvedSource}`));
+    return null;
+  }
+
+  const tarballPath = join("/tmp", `icforge_assets_${canisterName}_${Date.now()}.tar.gz`);
+  try {
+    execSync(`tar -czf ${tarballPath} -C ${resolvedSource} .`, {
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    return tarballPath;
+  } catch (e) {
+    console.log(chalk.yellow(`  ⚠ Failed to create assets tarball: ${e}`));
+    return null;
+  }
+}
+
+/**
  * Upload a wasm artifact to the ICForge backend.
  */
 async function uploadArtifact(
   projectId: string,
   canisterName: string,
   wasmPath: string,
+  assetsTarballPath?: string | null,
 ): Promise<{ deploymentId: string; statusUrl: string } | null> {
-  const token = getToken();
+  const token=getToken();
   const apiUrl = getApiUrl();
 
   const wasmBytes = readFileSync(wasmPath);
@@ -137,6 +164,13 @@ async function uploadArtifact(
   formData.append("project_id", projectId);
   formData.append("canister_name", canisterName);
   formData.append("wasm", wasmBlob, `${canisterName}.wasm`);
+
+  // Attach assets tarball if provided
+  if (assetsTarballPath) {
+    const assetsBytes = readFileSync(assetsTarballPath);
+    const assetsBlob = new Blob([assetsBytes], { type: "application/gzip" });
+    formData.append("assets", assetsBlob, "assets.tar.gz");
+  }
 
   // Attach git info if available
   const git = getGitInfo();
@@ -302,9 +336,28 @@ export async function deployCommand(options: DeployOptions = {}) {
     }
     console.log(chalk.dim(`  → Found: ${wasmPath}`));
 
-    // Step 3: Upload to ICForge
+    // Step 3: For frontend canisters, create assets tarball from source dir
+    let assetsTarball: string | null = null;
+    const canisterType = classifyCanister(canister);
+    if (canisterType === "frontend" && canister.source) {
+      console.log(chalk.dim(`  → Packaging static assets from ${canister.source}...`));
+      assetsTarball = await createAssetsTarball(canister.source, canister.name);
+      if (assetsTarball) {
+        console.log(chalk.green("  ✓ Assets packaged"));
+      } else {
+        console.log(chalk.yellow("  ⚠ No assets to upload — deploying WASM only"));
+      }
+    }
+
+    // Step 4: Upload to ICForge
     console.log(chalk.dim("  → Uploading artifact to ICForge..."));
-    const deployment = await uploadArtifact(config.projectId, canister.name, wasmPath);
+    const deployment = await uploadArtifact(config.projectId, canister.name, wasmPath, assetsTarball);
+
+    // Clean up local tarball
+    if (assetsTarball) {
+      try { execSync(`rm -f ${assetsTarball}`, { stdio: "pipe" }); } catch {}
+    }
+
     if (!deployment) {
       allSucceeded = false;
       console.log(chalk.red(`  ✗ Upload failed for ${canister.name}\n`));

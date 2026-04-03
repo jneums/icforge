@@ -82,6 +82,11 @@ pub enum CanisterStatus {
 }
 
 impl IcClient {
+    /// Get a reference to the inner Agent.
+    pub fn agent(&self) -> &Agent {
+        &self.agent
+    }
+
     /// Create a new IcClient from a PEM-encoded identity.
     /// `ic_url` should be "https://ic0.app" for mainnet or "http://localhost:4943" for local.
     /// When pointing at a local replica, we automatically fetch the root key.

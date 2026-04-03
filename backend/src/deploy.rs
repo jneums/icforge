@@ -2,6 +2,7 @@ use axum::{
     extract::{Multipart, Path, State},
     Json,
 };
+use candid::Principal;
 use serde::Serialize;
 use serde_json::{json, Value};
 
@@ -88,6 +89,7 @@ pub async fn deploy(
     let mut project_id: Option<String> = None;
     let mut canister_name: Option<String> = None;
     let mut wasm_bytes: Option<Vec<u8>> = None;
+    let mut assets_bytes: Option<Vec<u8>> = None;
     let mut commit_sha: Option<String> = None;
     let mut commit_message: Option<String> = None;
 
@@ -120,6 +122,15 @@ pub async fn deploy(
                         .bytes()
                         .await
                         .map_err(|e| AppError::BadRequest(format!("Failed to read wasm file: {e}")))?
+                        .to_vec(),
+                );
+            }
+            "assets" => {
+                assets_bytes = Some(
+                    field
+                        .bytes()
+                        .await
+                        .map_err(|e| AppError::BadRequest(format!("Failed to read assets tarball: {e}")))?
                         .to_vec(),
                 );
             }
@@ -188,6 +199,21 @@ pub async fn deploy(
         .await
         .map_err(|e| AppError::Internal(format!("Failed to save wasm to temp: {e}")))?;
 
+    // Save assets tarball to /tmp if provided
+    let assets_path = if let Some(assets) = assets_bytes {
+        if assets.is_empty() {
+            None
+        } else {
+            let path = format!("/tmp/icforge_assets_{}.tar.gz", deployment_id);
+            tokio::fs::write(&path, &assets)
+                .await
+                .map_err(|e| AppError::Internal(format!("Failed to save assets to temp: {e}")))?;
+            Some(path)
+        }
+    } else {
+        None
+    };
+
     // Create deployment record with status='building'
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
     sqlx::query(
@@ -224,6 +250,7 @@ pub async fn deploy(
             ic_pem,
             ic_url,
             wasm_path,
+            assets_path,
             existing_canister_id,
             canister_db_id,
         )
@@ -245,6 +272,7 @@ async fn run_deploy_pipeline(
     ic_pem: String,
     ic_url: String,
     wasm_path: String,
+    assets_path: Option<String>,
     existing_canister_id: Option<String>,
     canister_db_id: String,
 ) {
@@ -344,6 +372,73 @@ async fn run_deploy_pipeline(
             update_deployment_status(&db, &deployment_id, "failed", Some(&msg)).await;
             return;
         }
+    }
+
+    // Step 4.5: Sync static assets if a tarball was provided
+    if let Some(tarball_path) = assets_path {
+        insert_log(&db, &deployment_id, "info", "Syncing static assets...").await;
+
+        // Extract tarball to a temp directory
+        let assets_dir = format!("/tmp/icforge_assets_extracted_{}", deployment_id);
+        match extract_assets_tarball(&tarball_path, &assets_dir).await {
+            Ok(()) => {}
+            Err(e) => {
+                let msg = format!("Failed to extract assets tarball: {e}");
+                insert_log(&db, &deployment_id, "error", &msg).await;
+                update_deployment_status(&db, &deployment_id, "failed", Some(&msg)).await;
+                let _ = tokio::fs::remove_file(&tarball_path).await;
+                let _ = tokio::fs::remove_dir_all(&assets_dir).await;
+                return;
+            }
+        }
+
+        // Clean up tarball
+        let _ = tokio::fs::remove_file(&tarball_path).await;
+
+        // Build Canister object and sync assets
+        let canister_principal = match Principal::from_text(&canister_id) {
+            Ok(p) => p,
+            Err(e) => {
+                let msg = format!("Invalid canister principal for asset sync: {e}");
+                insert_log(&db, &deployment_id, "error", &msg).await;
+                update_deployment_status(&db, &deployment_id, "failed", Some(&msg)).await;
+                let _ = tokio::fs::remove_dir_all(&assets_dir).await;
+                return;
+            }
+        };
+
+        let canister = match ic_utils::Canister::builder()
+            .with_canister_id(canister_principal)
+            .with_agent(client.agent())
+            .build()
+        {
+            Ok(c) => c,
+            Err(e) => {
+                let msg = format!("Failed to build Canister object for asset sync: {e}");
+                insert_log(&db, &deployment_id, "error", &msg).await;
+                update_deployment_status(&db, &deployment_id, "failed", Some(&msg)).await;
+                let _ = tokio::fs::remove_dir_all(&assets_dir).await;
+                return;
+            }
+        };
+
+        let logger = slog::Logger::root(slog::Discard, slog::o!());
+        let assets_path_buf = std::path::PathBuf::from(&assets_dir);
+        match ic_asset::sync(&canister, &[assets_path_buf.as_path()], false, &logger, None).await {
+            Ok(()) => {
+                insert_log(&db, &deployment_id, "info", "Assets synced successfully").await;
+            }
+            Err(e) => {
+                let msg = format!("Asset sync failed: {e}");
+                insert_log(&db, &deployment_id, "error", &msg).await;
+                update_deployment_status(&db, &deployment_id, "failed", Some(&msg)).await;
+                let _ = tokio::fs::remove_dir_all(&assets_dir).await;
+                return;
+            }
+        }
+
+        // Clean up extracted assets
+        let _ = tokio::fs::remove_dir_all(&assets_dir).await;
     }
 
     // Step 5: Update canister status
@@ -478,4 +573,33 @@ pub async fn deploy_logs(
     Ok(Json(json!({
         "logs": log_entries,
     })))
+}
+
+// -- Helper: extract a .tar.gz assets tarball to a directory --
+
+async fn extract_assets_tarball(tarball_path: &str, dest_dir: &str) -> Result<(), String> {
+    let tarball_path = tarball_path.to_string();
+    let dest_dir = dest_dir.to_string();
+
+    // Do blocking I/O in a spawn_blocking context
+    tokio::task::spawn_blocking(move || {
+        use flate2::read::GzDecoder;
+        use tar::Archive;
+
+        let file = std::fs::File::open(&tarball_path)
+            .map_err(|e| format!("Failed to open tarball {tarball_path}: {e}"))?;
+        let gz = GzDecoder::new(file);
+        let mut archive = Archive::new(gz);
+
+        std::fs::create_dir_all(&dest_dir)
+            .map_err(|e| format!("Failed to create assets dir {dest_dir}: {e}"))?;
+
+        archive
+            .unpack(&dest_dir)
+            .map_err(|e| format!("Failed to extract tarball: {e}"))?;
+
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking failed: {e}"))?
 }

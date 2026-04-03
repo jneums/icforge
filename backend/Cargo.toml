@@ -21,7 +21,12 @@ jsonwebtoken = "9"
 chrono = { version = "0.4", features = ["serde"] }
 
 # IC-specific
-ic-agent = "0.39"
+ic-agent = { version = "0.47", features = ["pem"] }
+ic-utils = "0.47"
+ic-asset = "0.29"
 candid = "0.10"
+slog = "2"
 ring = "0.17"
 pem = "3"
+flate2 = "1"
+tar = "0.4"

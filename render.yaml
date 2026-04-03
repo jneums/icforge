@@ -37,7 +37,6 @@ services:
     buildCommand: cd dashboard && npm install && npm run build
     staticPublishPath: ./dashboard/dist
     rootDir: .
-    region: oregon
     envVars:
       - key: VITE_API_URL
         value: "https://icforge-backend.onrender.com"

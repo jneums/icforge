@@ -5,12 +5,12 @@ use serde::Deserialize;
 
 use crate::error::AppError;
 
-const IC_URL: &str = "https://ic0.app";
 const MANAGEMENT_CANISTER_ID: &str = "aaaaa-aa";
 
 /// Wrapper around ic-agent for IC management canister interactions.
 pub struct IcClient {
     agent: Agent,
+    is_local: bool,
 }
 
 // -- Candid types for management canister calls --
@@ -31,6 +31,13 @@ struct CanisterSettings {
 #[derive(CandidType, Deserialize)]
 struct CreateCanisterResult {
     canister_id: Principal,
+}
+
+// For provisional_create_canister_with_cycles on local replicas
+#[derive(CandidType)]
+struct ProvisionalCreateArgs {
+    amount: Option<candid::Nat>,
+    settings: Option<CanisterSettings>,
 }
 
 #[derive(CandidType)]
@@ -76,38 +83,63 @@ pub enum CanisterStatus {
 
 impl IcClient {
     /// Create a new IcClient from a PEM-encoded identity.
-    pub async fn new(identity_pem: &str) -> Result<Self, AppError> {
+    /// `ic_url` should be "https://ic0.app" for mainnet or "http://localhost:4943" for local.
+    /// When pointing at a local replica, we automatically fetch the root key.
+    pub async fn new(identity_pem: &str, ic_url: &str) -> Result<Self, AppError> {
         let identity = BasicIdentity::from_pem(identity_pem.as_bytes())
             .map_err(|e| AppError::Internal(format!("Failed to parse PEM identity: {e}")))?;
 
         let agent = Agent::builder()
-            .with_url(IC_URL)
+            .with_url(ic_url)
             .with_identity(identity)
             .build()
             .map_err(|e| AppError::Internal(format!("Failed to build IC agent: {e}")))?;
 
-        // Do NOT call agent.fetch_root_key() on mainnet
+        // Fetch root key for local replicas (NOT mainnet)
+        let is_local = !ic_url.contains("ic0.app") && !ic_url.contains("icp0.io");
+        if is_local {
+            agent.fetch_root_key().await
+                .map_err(|e| AppError::Internal(format!("Failed to fetch root key from {ic_url}: {e}")))?;
+        }
 
-        Ok(Self { agent })
+        Ok(Self { agent, is_local })
     }
 
     /// Create a new canister on the IC via the management canister.
+    /// On local replicas, uses provisional_create_canister_with_cycles (no real cycles needed).
+    /// On mainnet, uses create_canister (requires cycles).
     /// Returns the canister ID as a text string.
     pub async fn create_canister(&self) -> Result<String, AppError> {
         let management = Principal::from_text(MANAGEMENT_CANISTER_ID)
             .map_err(|e| AppError::Internal(format!("Invalid management canister ID: {e}")))?;
 
-        let args = CreateCanisterArgs { settings: None };
-        let arg_bytes = Encode!(&args)
-            .map_err(|e| AppError::Internal(format!("Failed to encode create_canister args: {e}")))?;
-
-        let response = self
-            .agent
-            .update(&management, "create_canister")
-            .with_arg(arg_bytes)
-            .call_and_wait()
-            .await
-            .map_err(|e| AppError::Internal(format!("create_canister call failed: {e}")))?;
+        let response = if self.is_local {
+            // Local replica: use provisional API with the well-known effective canister ID
+            let effective = Principal::from_text("rwlgt-iiaaa-aaaaa-aaaaa-cai")
+                .map_err(|e| AppError::Internal(format!("Invalid effective canister ID: {e}")))?;
+            let args = ProvisionalCreateArgs { amount: None, settings: None };
+            let arg_bytes = Encode!(&args)
+                .map_err(|e| AppError::Internal(format!("Failed to encode args: {e}")))?;
+            self.agent
+                .update(&management, "provisional_create_canister_with_cycles")
+                .with_arg(arg_bytes)
+                .with_effective_canister_id(effective)
+                .call_and_wait()
+                .await
+                .map_err(|e| AppError::Internal(format!("provisional_create_canister_with_cycles failed: {e}")))?
+        } else {
+            // Mainnet: use create_canister (requires cycles in the call)
+            let args = CreateCanisterArgs { settings: None };
+            let arg_bytes = Encode!(&args)
+                .map_err(|e| AppError::Internal(format!("Failed to encode args: {e}")))?;
+            self.agent
+                .update(&management, "create_canister")
+                .with_arg(arg_bytes)
+                .with_effective_canister_id(management)
+                .call_and_wait()
+                .await
+                .map_err(|e| AppError::Internal(format!("create_canister failed: {e}")))?
+        };
 
         let result = Decode!(&response, CreateCanisterResult)
             .map_err(|e| AppError::Internal(format!("Failed to decode create_canister response: {e}")))?;
@@ -148,6 +180,7 @@ impl IcClient {
         self.agent
             .update(&management, "install_code")
             .with_arg(arg_bytes)
+            .with_effective_canister_id(canister_id)
             .call_and_wait()
             .await
             .map_err(|e| AppError::Internal(format!("install_code call failed: {e}")))?;
@@ -174,6 +207,7 @@ impl IcClient {
             .agent
             .update(&management, "canister_status")
             .with_arg(arg_bytes)
+            .with_effective_canister_id(canister_id)
             .call_and_wait()
             .await
             .map_err(|e| AppError::Internal(format!("canister_status call failed: {e}")))?;

@@ -170,7 +170,7 @@ pub async fn deploy(
 
     // Find canister record
     let canister_row: Option<crate::models::CanisterRecord> = sqlx::query_as(
-        "SELECT id, project_id, name, type AS canister_type, canister_id, subnet_id, status, cycles_balance, created_at, updated_at FROM canisters WHERE project_id = ? AND name = ?",
+        "SELECT * FROM canisters WHERE project_id = ? AND name = ?",
     )
     .bind(&project_id)
     .bind(&canister_name)
@@ -214,6 +214,7 @@ pub async fn deploy(
     let canister_db_id = canister.id.clone();
     let db = state.db.clone();
     let deploy_id = deployment_id.clone();
+    let ic_url = state.config.ic_url.clone();
 
     // Spawn background deploy pipeline
     tokio::spawn(async move {
@@ -221,6 +222,7 @@ pub async fn deploy(
             db,
             deploy_id,
             ic_pem,
+            ic_url,
             wasm_path,
             existing_canister_id,
             canister_db_id,
@@ -241,6 +243,7 @@ async fn run_deploy_pipeline(
     db: DbPool,
     deployment_id: String,
     ic_pem: String,
+    ic_url: String,
     wasm_path: String,
     existing_canister_id: Option<String>,
     canister_db_id: String,
@@ -264,7 +267,7 @@ async fn run_deploy_pipeline(
     let _ = tokio::fs::remove_file(&wasm_path).await;
 
     // Step 2: Create IC agent
-    let client = match IcClient::new(&ic_pem).await {
+    let client = match IcClient::new(&ic_pem, &ic_url).await {
         Ok(c) => c,
         Err(e) => {
             let msg = format!("Failed to create IC agent: {e}");
@@ -398,7 +401,7 @@ pub async fn deploy_status(
 
     // Find canister_id for this deployment's canister
     let canister: Option<crate::models::CanisterRecord> = sqlx::query_as(
-        "SELECT id, project_id, name, type AS canister_type, canister_id, subnet_id, status, cycles_balance, created_at, updated_at FROM canisters WHERE project_id = ? AND name = ?",
+        "SELECT * FROM canisters WHERE project_id = ? AND name = ?",
     )
     .bind(&deployment.project_id)
     .bind(&deployment.canister_name)

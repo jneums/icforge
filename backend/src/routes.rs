@@ -117,7 +117,7 @@ pub async fn list_projects(
     let mut result: Vec<ProjectWithCanisters> = Vec::new();
     for project in projects {
         let canisters: Vec<CanisterRecord> = sqlx::query_as(
-            "SELECT id, project_id, name, type AS canister_type, canister_id, subnet_id, status, cycles_balance, created_at, updated_at FROM canisters WHERE project_id = ?",
+            "SELECT * FROM canisters WHERE project_id = ?",
         )
         .bind(&project.id)
         .fetch_all(&state.db)
@@ -245,4 +245,57 @@ fn slugify(name: &str) -> String {
         .filter(|s| !s.is_empty())
         .collect::<Vec<_>>()
         .join("-")
+}
+
+/// POST /api/v1/auth/dev-token — Dev-mode only: create a test user and return a JWT.
+/// Only available when DEV_MODE=true.
+pub async fn dev_token(
+    State(state): State<AppState>,
+) -> Result<Json<Value>, AppError> {
+    if !state.config.dev_mode {
+        return Err(AppError::NotFound("Not found".into()));
+    }
+
+    let user_id = "dev-user-001".to_string();
+    let github_id: i64 = 99999;
+
+    // Check if dev user exists
+    let existing: Option<crate::models::User> =
+        sqlx::query_as("SELECT * FROM users WHERE id = ?")
+            .bind(&user_id)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(AppError::Database)?;
+
+    if existing.is_none() {
+        // Create dev user with a fresh IC identity
+        let (ic_pem, ic_principal) = crate::identity::generate_identity()?;
+        let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+        sqlx::query(
+            "INSERT INTO users (id, github_id, email, name, avatar_url, ic_identity_pem, ic_principal, plan, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'free', ?, ?)",
+        )
+        .bind(&user_id)
+        .bind(github_id)
+        .bind("dev@icforge.local")
+        .bind("Dev User")
+        .bind::<Option<&str>>(None)
+        .bind(&ic_pem)
+        .bind(&ic_principal)
+        .bind(&now)
+        .bind(&now)
+        .execute(&state.db)
+        .await
+        .map_err(AppError::Database)?;
+
+        tracing::info!(principal = %ic_principal, "Created dev user with IC identity");
+    }
+
+    let token = auth::create_token(&user_id, &state.config.jwt_secret)?;
+
+    Ok(Json(json!({
+        "token": token,
+        "user_id": user_id,
+        "dev_mode": true,
+    })))
 }

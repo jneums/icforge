@@ -47,6 +47,7 @@ async fn main() {
         .route("/api/v1/auth/login", get(routes::auth_login))
         .route("/api/v1/auth/callback", get(routes::auth_callback))
         .route("/api/v1/auth/me", get(routes::auth_me))
+        .route("/api/v1/auth/dev-token", post(routes::dev_token))
         .route("/api/v1/projects", get(routes::list_projects))
         .route("/api/v1/projects", post(routes::create_project))
         .route("/api/v1/deploy", post(routes::deploy))

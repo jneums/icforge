@@ -69,22 +69,26 @@ export default function Login() {
           Login with GitHub
         </button>
 
-        <div style={styles.divider}>
-          <span style={styles.dividerText}>or</span>
-        </div>
+        {import.meta.env.DEV && (
+          <>
+            <div style={styles.divider}>
+              <span style={styles.dividerText}>or</span>
+            </div>
 
-        <button
-          className="btn-secondary"
-          style={{ ...styles.githubBtn, marginTop: 0 }}
-          onClick={handleDevLogin}
-          disabled={loading}
-        >
-          {loading ? 'Signing in...' : '🔧 Dev Mode Login'}
-        </button>
+            <button
+              className="btn-secondary"
+              style={{ ...styles.githubBtn, marginTop: 0 }}
+              onClick={handleDevLogin}
+              disabled={loading}
+            >
+              {loading ? 'Signing in...' : '🔧 Dev Mode Login'}
+            </button>
 
-        <p style={styles.footnote}>
-          Dev login creates a test account — no GitHub needed.
-        </p>
+            <p style={styles.footnote}>
+              Dev login creates a test account — no GitHub needed.
+            </p>
+          </>
+        )}
       </div>
     </div>
   );

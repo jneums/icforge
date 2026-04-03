@@ -145,6 +145,36 @@ pub async fn create_project(
     let slug = slugify(&req.name);
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
+    // Check if project already exists for this user+slug (idempotent init)
+    let existing: Option<(String, String, String)> = sqlx::query_as(
+        "SELECT id, name, slug FROM projects WHERE user_id = ? AND slug = ?",
+    )
+    .bind(&auth_user.user.id)
+    .bind(&slug)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(AppError::Database)?;
+
+    if let Some((existing_id, existing_name, existing_slug)) = existing {
+        // Return existing project with its canisters
+        let canisters: Vec<CanisterRecord> = sqlx::query_as(
+            "SELECT * FROM canisters WHERE project_id = ?",
+        )
+        .bind(&existing_id)
+        .fetch_all(&state.db)
+        .await
+        .map_err(AppError::Database)?;
+
+        return Ok(Json(serde_json::json!({
+            "project": {
+                "id": existing_id,
+                "name": existing_name,
+                "slug": existing_slug,
+                "canisters": canisters,
+            }
+        })));
+    }
+
     // Insert project
     sqlx::query(
         "INSERT INTO projects (id, user_id, name, slug, subnet_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",

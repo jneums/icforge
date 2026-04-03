@@ -3,6 +3,7 @@ import { program } from "commander";
 import { initCommand } from "./commands/init.js";
 import { deployCommand } from "./commands/deploy.js";
 import { loginCommand } from "./commands/login.js";
+import { devAuthCommand } from "./commands/dev-auth.js";
 import { statusCommand } from "./commands/status.js";
 import { logsCommand } from "./commands/logs.js";
 
@@ -21,6 +22,11 @@ program
   .command("login")
   .description("Authenticate with ICForge via browser")
   .action(loginCommand);
+
+program
+  .command("dev-auth")
+  .description("Authenticate with a local dev backend (requires DEV_MODE=true)")
+  .action(devAuthCommand);
 
 program
   .command("deploy")

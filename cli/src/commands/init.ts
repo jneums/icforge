@@ -71,7 +71,10 @@ export async function initCommand(options: Record<string, unknown> = {}) {
     process.exit(1);
   }
 
-  const { id: projectId, slug } = await resp.json() as { id: string; slug?: string };
+  const body = await resp.json() as { project: { id: string; slug?: string } } | { id: string; slug?: string };
+  // Handle both wrapped and unwrapped response shapes
+  const projectData = 'project' in body ? body.project : body;
+  const { id: projectId, slug } = projectData;
 
   // 7. Save .icforge link file
   await saveICForgeConfig({ projectId });

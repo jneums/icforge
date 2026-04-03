@@ -1,5 +1,6 @@
 # ── Build stage ──
-FROM rust:slim-bookworm AS builder
+# Using latest stable Rust (needs ≥1.88 for time crate)
+FROM rust:1.88-slim-bookworm AS builder
 
 RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
 

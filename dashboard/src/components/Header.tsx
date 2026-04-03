@@ -1,4 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 
 const navItems = [
   { path: '/', label: 'Home' },
@@ -7,6 +8,7 @@ const navItems = [
 
 export default function Header() {
   const location = useLocation();
+  const { user, logout } = useAuth();
 
   return (
     <header style={styles.header}>
@@ -27,11 +29,22 @@ export default function Header() {
               {item.label}
             </Link>
           ))}
-          <Link to="/login">
-            <button className="btn-primary" style={{ fontSize: '0.8rem' }}>
-              Login
-            </button>
-          </Link>
+          {user ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                {user.name ?? user.email ?? 'User'}
+              </span>
+              <button className="btn-secondary" style={{ fontSize: '0.8rem' }} onClick={logout}>
+                Logout
+              </button>
+            </div>
+          ) : (
+            <Link to="/login">
+              <button className="btn-primary" style={{ fontSize: '0.8rem' }}>
+                Login
+              </button>
+            </Link>
+          )}
         </nav>
       </div>
     </header>

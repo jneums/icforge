@@ -70,6 +70,19 @@ export async function loginCommand(_options: Record<string, unknown> = {}) {
                 console.log(chalk.underline(loginUrl));
                 console.log();
             });
+
+            // Also listen for a non-redirect error (e.g. OAuth not configured)
+            fetch(loginUrl, { redirect: 'manual' }).then(resp => {
+                if (resp.status >= 400) {
+                    resp.text().then(body => {
+                        spinner.fail('Login failed');
+                        console.log(chalk.red(body || `HTTP ${resp.status}`));
+                        console.log(chalk.dim('\nFor local development, use:'), chalk.cyan('icforge dev-auth'));
+                        server.close();
+                        reject(new Error('Login endpoint returned error'));
+                    });
+                }
+            }).catch(() => { /* ignore fetch errors — browser handles it */ });
         });
     });
 

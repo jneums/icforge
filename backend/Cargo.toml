@@ -27,6 +27,8 @@ ic-asset = "0.29"
 candid = "0.10"
 slog = "2"
 ring = "0.17"
+
 pem = "3"
 flate2 = "1"
 tar = "0.4"
+urlencoding = "2.1.3"

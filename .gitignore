@@ -34,3 +34,4 @@ backend/target/
 # Misc
 *.log
 .turbo/
+cli/tsconfig.tsbuildinfo

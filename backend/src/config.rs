@@ -7,7 +7,11 @@ pub struct AppConfig {
     pub github_client_secret: String,
     pub jwt_secret: String,
     pub frontend_url: String,
+    pub backend_url: String,
     pub ic_url: String,
+    /// Platform-level IC identity PEM (holds the cycles pool).
+    /// If not set, cycles balance checks will fail on mainnet.
+    pub ic_identity_pem: Option<String>,
     pub dev_mode: bool,
     pub port: u16,
 }
@@ -25,8 +29,11 @@ impl AppConfig {
                 .unwrap_or_else(|_| "dev-secret-change-me".to_string()),
             frontend_url: env::var("FRONTEND_URL")
                 .unwrap_or_else(|_| "http://localhost:3000".to_string()),
+            backend_url: env::var("BACKEND_URL")
+                .unwrap_or_else(|_| "http://localhost:8080".to_string()),
             ic_url: env::var("IC_URL")
                 .unwrap_or_else(|_| "https://ic0.app".to_string()),
+            ic_identity_pem: env::var("IC_IDENTITY_PEM").ok(),
             dev_mode: env::var("DEV_MODE")
                 .map(|v| v == "1" || v.to_lowercase() == "true")
                 .unwrap_or(false),

@@ -12,27 +12,59 @@ use crate::models::{CanisterRecord, CreateProjectRequest, Project, ProjectWithCa
 use crate::AppState;
 
 #[derive(Debug, Deserialize)]
+pub struct AuthLoginParams {
+    pub redirect: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct AuthCallbackParams {
     pub code: String,
+    pub state: Option<String>,
 }
 
 /// GET /api/v1/auth/login — Redirects to GitHub OAuth authorize URL
-pub async fn auth_login(State(state): State<AppState>) -> Redirect {
+///
+/// If `?redirect=<url>` is provided (e.g. from the CLI), we encode it into the
+/// OAuth `state` parameter so the callback can relay the JWT back to the caller.
+pub async fn auth_login(
+    State(state): State<AppState>,
+    Query(params): Query<AuthLoginParams>,
+) -> Result<Redirect, AppError> {
     let client_id = &state.config.github_client_id;
-    let redirect_uri = format!("{}/api/v1/auth/callback", state.config.frontend_url);
+    if client_id.is_empty() {
+        return Err(AppError::BadRequest(
+            "GitHub OAuth is not configured. Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET, or use `icforge dev-auth` for local development.".into(),
+        ));
+    }
+
+    // Backend handles the OAuth callback, then redirects to the CLI's local server
+    let backend_url = &state.config.backend_url;
+    let redirect_uri = format!("{backend_url}/api/v1/auth/callback");
+
+    // Encode the CLI's redirect URL into the state param so callback knows where to send the token
+    let oauth_state = params.redirect.unwrap_or_default();
+    let encoded_state = urlencoding::encode(&oauth_state);
+
     let url = format!(
-        "https://github.com/login/oauth/authorize?client_id={client_id}&redirect_uri={redirect_uri}&scope=user:email"
+        "https://github.com/login/oauth/authorize?client_id={client_id}&redirect_uri={}&scope=user:email&state={encoded_state}",
+        urlencoding::encode(&redirect_uri)
     );
-    Redirect::temporary(&url)
+    Ok(Redirect::temporary(&url))
 }
 
 /// GET /api/v1/auth/callback — GitHub OAuth callback
+///
+/// If the OAuth `state` param contains a redirect URL (from the CLI), we redirect
+/// there with `?token=<jwt>&username=<login>` so the CLI's local server can capture it.
+/// Otherwise we return JSON (for dashboard/API callers).
 pub async fn auth_callback(
     State(state): State<AppState>,
     Query(params): Query<AuthCallbackParams>,
-) -> Result<Json<Value>, AppError> {
+) -> Result<axum::response::Response, AppError> {
+    use axum::response::IntoResponse;
+
     // Exchange code for GitHub access token
-    let access_token = auth::exchange_github_code(
+    let access_token=auth::exchange_github_code(
         &state.config.github_client_id,
         &state.config.github_client_secret,
         &params.code,
@@ -50,7 +82,7 @@ pub async fn auth_callback(
             .await
             .map_err(AppError::Database)?;
 
-    let user_id = if let Some(user) = existing_user {
+    let (user_id, username) = if let Some(user) = existing_user {
         // Update existing user
         sqlx::query(
             "UPDATE users SET email = ?, name = ?, avatar_url = ?, updated_at = datetime('now') WHERE id = ?",
@@ -62,11 +94,10 @@ pub async fn auth_callback(
         .execute(&state.db)
         .await
         .map_err(AppError::Database)?;
-        user.id
+        (user.id, github_user.login)
     } else {
         // Create new user with IC identity
         let user_id = uuid::Uuid::new_v4().to_string();
-
         let (ic_pem, ic_principal) = crate::identity::generate_identity()?;
 
         sqlx::query(
@@ -83,16 +114,34 @@ pub async fn auth_callback(
         .await
         .map_err(AppError::Database)?;
 
-        user_id
+        (user_id, github_user.login)
     };
 
     // Create JWT
     let token = auth::create_token(&user_id, &state.config.jwt_secret)?;
 
+    // If the OAuth state contains a CLI redirect URL, redirect there with the token
+    if let Some(ref cli_redirect) = params.state {
+        let cli_redirect = urlencoding::decode(cli_redirect)
+            .unwrap_or_else(|_| cli_redirect.clone().into())
+            .to_string();
+        if !cli_redirect.is_empty() && cli_redirect.starts_with("http") {
+            let sep = if cli_redirect.contains('?') { "&" } else { "?" };
+            let redirect_url = format!(
+                "{cli_redirect}{sep}token={}&username={}",
+                urlencoding::encode(&token),
+                urlencoding::encode(&username)
+            );
+            return Ok(Redirect::temporary(&redirect_url).into_response());
+        }
+    }
+
+    // Default: return JSON (for dashboard / direct API callers)
     Ok(Json(json!({
         "token": token,
         "user_id": user_id,
-    })))
+        "username": username,
+    })).into_response())
 }
 
 /// GET /api/v1/auth/me — Get current user info
@@ -238,6 +287,42 @@ pub async fn create_project(
     })))
 }
 
+/// GET /api/v1/projects/:id — Get a single project with canisters and deployments
+pub async fn get_project(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+    Path(project_id): Path<String>,
+) -> Result<Json<Value>, AppError> {
+    let project: Project =
+        sqlx::query_as("SELECT * FROM projects WHERE id = ? AND user_id = ?")
+            .bind(&project_id)
+            .bind(&auth_user.user.id)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(AppError::Database)?
+            .ok_or_else(|| AppError::NotFound("Project not found".into()))?;
+
+    let canisters: Vec<CanisterRecord> =
+        sqlx::query_as("SELECT * FROM canisters WHERE project_id = ?")
+            .bind(&project.id)
+            .fetch_all(&state.db)
+            .await
+            .map_err(AppError::Database)?;
+
+    let deployments: Vec<crate::models::DeploymentRecord> = sqlx::query_as(
+        "SELECT * FROM deployments WHERE project_id = ? ORDER BY started_at DESC LIMIT 50",
+    )
+    .bind(&project.id)
+    .fetch_all(&state.db)
+    .await
+    .map_err(AppError::Database)?;
+
+    Ok(Json(json!({
+        "project": ProjectWithCanisters { project, canisters },
+        "deployments": deployments,
+    })))
+}
+
 /// POST /api/v1/deploy — Deploy a wasm to a canister
 pub async fn deploy(
     state: State<AppState>,
@@ -275,6 +360,25 @@ fn slugify(name: &str) -> String {
         .filter(|s| !s.is_empty())
         .collect::<Vec<_>>()
         .join("-")
+}
+
+/// GET /api/v1/cycles/balance — Check the platform cycles pool balance.
+/// Uses the platform IC identity (IC_IDENTITY_PEM env var).
+pub async fn cycles_balance(
+    State(state): State<AppState>,
+    _auth_user: AuthUser,
+) -> Result<Json<Value>, AppError> {
+    let pem = state.config.ic_identity_pem.as_deref()
+        .ok_or_else(|| AppError::Internal("IC_IDENTITY_PEM not configured".into()))?;
+
+    let client = crate::ic_client::IcClient::new(pem, &state.config.ic_url).await?;
+    let balance = client.cycles_balance().await?;
+
+    Ok(Json(json!({
+        "principal": client.identity_principal().to_text(),
+        "cycles_balance": balance,
+        "cycles_balance_t": format!("{:.2}T", balance as f64 / 1_000_000_000_000.0),
+    })))
 }
 
 /// POST /api/v1/auth/dev-token — Dev-mode only: create a test user and return a JWT.

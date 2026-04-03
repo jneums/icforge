@@ -352,7 +352,73 @@ No proprietary build system needed — we piggyback on icp-cli's recipe system.
 - Requires DNS TXT record with canister ID
 - ICForge automates the 3-step IC domain registration process
 
-## 9. Security Considerations
+## 9. Cloud Engine Vision (Future)
+
+ICForge is built for **public subnets today**, but architected to support **ICP Cloud Engines tomorrow**.
+
+### What Are Cloud Engines?
+
+Cloud Engines (introduced in DFINITY's Mission 70 initiative, NNS Proposal 140888) are configurable, application-specific execution environments on ICP. Each Cloud Engine is a **private subnet** owned and controlled by a person, organization, or SNS DAO. Owners select the exact nodes powering their engine by geographic region, jurisdiction, and hardware provider — enabling sovereign, GDPR-compliant, multi-cloud-portable infrastructure.
+
+Key properties:
+- **Private subnet** — no co-hosting, no noisy neighbors
+- **Node selection** — pick nodes by region (EU-only), jurisdiction (Swiss-only), or provider (Amazon, Google, sovereign hardware)
+- **Configurable replication** — default 7x, adjustable for CDN-like query scaling
+- **Elastic scaling** — add nodes to scale, no code changes
+- **Multi-cloud portability** — migrate between infrastructure providers without interrupting running applications
+- **80/20 economics** — 80% of revenue to node providers, 20% auto-buys and burns ICP
+
+### How ICForge Fits
+
+ICForge becomes the **deployment and management layer** that abstracts away infrastructure complexity — whether that infrastructure is a shared public subnet or the customer's own Cloud Engine:
+
+```
+Developer Experience (unchanged):
+  icforge deploy          # same command, always
+
+Infrastructure Target (configured once):
+  Free/Dev  → public subnet (IC-selected, shared)
+  Pro       → public subnet (user-selected region)
+  Enterprise → customer's Cloud Engine (private, sovereign)
+```
+
+The developer doesn't think about infrastructure on every deploy. They configure their target once in the dashboard or `icforge.json`, and `icforge deploy` does the right thing.
+
+### Architecture Seeds (planted now, built later)
+
+Several current design decisions anticipate Cloud Engine support:
+
+1. **Subnet selection (v0.3):** The `.icforge` config already plans for user-specified subnet targeting. This is the exact hook where Cloud Engine IDs plug in.
+
+2. **Identity Manager:** Cloud Engine owners control who can deploy to their engine. ICForge's custodial identity model naturally extends — the user's ICForge-managed identity gets authorized on the target engine.
+
+3. **`.icforge` config extension (future):**
+```json
+{
+  "projectId": "proj_abc123",
+  "target": {
+    "type": "cloud-engine",
+    "engineId": "engine_xyz789",
+    "region": "eu-west"
+  }
+}
+```
+
+4. **Billing model fork:** Public subnet deployments use ICForge's cycles pool (current model). Cloud Engine deployments bill differently — the engine owner funds cycles directly via the 80/20 node provider model. ICForge would charge a platform/management fee rather than reselling cycles.
+
+### Strategic Position
+
+**Today:** ICForge fills the gap Fleek left — simple PaaS for indie devs and AI-agent builders on public subnets.
+
+**Tomorrow:** ICForge becomes the deployment UX layer for Cloud Engine operators — the "Netlify that targets your own sovereign cloud hardware." Nobody else can tell this story:
+
+- Netlify/Vercel can't offer decentralized sovereign compute
+- AWS can't offer tamper-proof infrastructure
+- Raw ICP tooling can't offer `npx icforge deploy`
+
+The progression is natural: start free on shared infra, graduate to your own Cloud Engine when the business demands it.
+
+## 10. Security Considerations
 
 - **Key custody:** Private keys encrypted at rest, accessed only during deploy operations
 - **Blast radius:** Each user has isolated identity — compromise of one user doesn't affect others
@@ -361,7 +427,7 @@ No proprietary build system needed — we piggyback on icp-cli's recipe system.
 - **Audit log:** All deploy operations logged with timestamps and actor
 - **Export escape hatch:** Users can always export keys and take full ownership
 
-## 10. Tech Stack Summary
+## 11. Tech Stack Summary
 
 | Layer | Technology | Rationale |
 |-------|-----------|-----------|
@@ -376,7 +442,7 @@ No proprietary build system needed — we piggyback on icp-cli's recipe system.
 | CI/CD | GitHub Actions + `icp-cli` | Builds use IC SDK directly |
 | Cycles Funding | cycles.express (initial) | Credit card → cycles, no exchange needed |
 
-## 11. Milestones
+## 12. Milestones
 
 ### v0.1 — "Hello World Deploy" (MVP)
 - [ ] CLI: login, init, deploy commands working
@@ -407,7 +473,15 @@ No proprietary build system needed — we piggyback on icp-cli's recipe system.
 - [ ] Canister metrics dashboard (cycles burn rate, memory usage, call volume)
 - [ ] Log aggregation — collect and persist canister logs beyond IC's ~20 line window
 
-## 12. Resolved Decisions
+### v0.5 — "Cloud Engines"
+- [ ] Cloud Engine targeting — deploy to a specific engine via `.icforge` config or dashboard
+- [ ] Engine discovery — list available Cloud Engines the user has access to
+- [ ] Engine-aware identity authorization — register ICForge-managed identity with target engine
+- [ ] Dual billing model — cycles pool for public subnets, platform fee for Cloud Engine deploys
+- [ ] Region/jurisdiction display — show node geography and compliance metadata in dashboard
+- [ ] Migration path — move existing project from public subnet to Cloud Engine without redeploying from scratch
+
+## 13. Resolved Decisions
 
 | Question | Decision | Rationale |
 |----------|----------|-----------|
@@ -416,13 +490,17 @@ No proprietary build system needed — we piggyback on icp-cli's recipe system.
 | **Backend hosting** | Render.com | Jesse has existing account. Simple Rust deploy. |
 | **Cycles acquisition** | cycles.express (initial) | Credit card → cycles without needing an exchange. Evaluate bulk OTC later at scale. |
 | **Breaking upgrades** | Let them fail, surface error to user | Motoko compiler already rejects incompatible upgrades. Rust is less strict but the IC management canister returns an error. Surface the error clearly in deploy logs. |
-| **Subnet selection** | User-configurable in .icforge or dashboard | Optional field, defaults to IC-selected subnet. Power users can pin to specific subnets. |
+| **Subnet selection** | User-configurable in .icforge or dashboard | Optional field, defaults to IC-selected subnet. Power users can pin to specific subnets. Generalizes naturally to Cloud Engine targeting in v0.5. |
 | **Rate limiting** | Defer to later | Not a priority until there's meaningful traffic. |
 | **Canister metrics** | Yes, planned for v0.4 | Expose cycles burn rate, memory usage, call volume via dashboard. |
 
-## 13. Open Questions
+## 14. Open Questions
 
 1. **Log aggregation architecture:** IC exposes ~20 lines of canister logs with a very short retention window. To provide useful logging, ICForge needs to poll/collect logs and store them. Options: (a) background job polling canister logs via `icp canister logs`, (b) users add a logging library that pushes to ICForge, (c) intercept logs at the boundary node level. Need to research IC logging APIs.
 2. **cycles.express reliability:** Is it suitable for automated/programmatic purchases, or is it manual-only? Need to check if they have an API.
 3. **Identity backup/recovery:** If ICForge goes down, users need their keys. Should we require email-based key escrow at signup?
 4. **Free tier abuse:** How do we prevent spam canister creation on the free tier?
+5. **Cloud Engine API surface:** DFINITY hasn't published Cloud Engine management APIs yet. ICForge's v0.5 depends on programmatic access to: engine creation/discovery, node selection, identity authorization, and billing integration. Need to track DFINITY's Cloud Engine SDK/API development.
+6. **Cloud Engine billing model:** How does ICForge charge for Cloud Engine deploys? Options: (a) flat platform fee per project, (b) percentage of engine spend, (c) per-deploy fee. The cycles pool model doesn't apply since engine owners fund cycles directly via the 80/20 model.
+7. **Caffeine overlap:** Caffeine.ai (DFINITY's AI coding platform) can build AND deploy to IC. If Caffeine's deploy story matures, how does ICForge differentiate? Likely answer: ICForge is the "production/CI/CD" path for serious projects vs. Caffeine's "vibe coding" path — but need to monitor this.
+8. **Cloud Engine canister migration:** Can an existing canister on a public subnet be migrated to a Cloud Engine without losing state? If not, ICForge needs a migration workflow (deploy fresh + data export/import). Need to research IC canister migration primitives.

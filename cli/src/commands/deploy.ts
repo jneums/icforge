@@ -56,8 +56,8 @@ function getGitInfo(): { sha?: string; message?: string } {
  * Find the .wasm artifact for a canister.
  * Search order:
  *   1. Explicit --wasm path
- *   2. .icp/cache/ directory (icp-cli projects)
- *   3. .dfx/local/canisters/{name}/ directory (dfx projects)
+ *   2. .icp/cache/artifacts/<name> (icp-cli build output — may be gzipped)
+ *   3. .icp/cache/ directory (other .wasm files)
  */
 function findWasm(canisterName: string, explicitPath?: string): string | null {
   // 1. Explicit path
@@ -68,17 +68,16 @@ function findWasm(canisterName: string, explicitPath?: string): string | null {
     return null;
   }
 
-  // 2. .icp/cache/ directory
+  // 2. icp-cli artifact: .icp/cache/artifacts/<name> (gzipped wasm, no extension)
+  const icpArtifact = join(process.cwd(), ".icp", "cache", "artifacts", canisterName);
+  if (existsSync(icpArtifact)) {
+    return icpArtifact;
+  }
+
+  // 3. .icp/cache/ directory (scan for .wasm files)
   const icpCacheDir = join(process.cwd(), ".icp", "cache");
   if (existsSync(icpCacheDir)) {
     const wasm = findWasmInDir(icpCacheDir, canisterName);
-    if (wasm) return wasm;
-  }
-
-  // 3. .dfx/local/canisters/{name}/
-  const dfxDir = join(process.cwd(), ".dfx", "local", "canisters", canisterName);
-  if (existsSync(dfxDir)) {
-    const wasm = findWasmInDir(dfxDir, canisterName);
     if (wasm) return wasm;
   }
 
@@ -103,22 +102,16 @@ function findWasmInDir(dir: string, canisterName: string): string | null {
 }
 
 /**
- * Build a canister. Tries `icp build` first, then falls back to `dfx build`.
+ * Build a canister using `icp build`.
  */
 function buildCanister(canister: IcpCanister): boolean {
-  // Try icp-cli first
   if (tryExec(`icp build ${canister.name}`, `Building with icp-cli...`)) {
     return true;
   }
-  console.log(chalk.dim("  → icp-cli not available, trying dfx..."));
 
-  // Fallback to dfx
-  if (tryExec(`dfx build ${canister.name}`, `Building with dfx...`)) {
-    return true;
-  }
-
-  console.log(chalk.red("  ✗ Build failed. Neither icp nor dfx succeeded."));
-  console.log(chalk.dim("    Use --skip-build and --wasm <path> to provide a pre-built artifact."));
+  console.log(chalk.red("  ✗ Build failed. Is icp-cli installed?"));
+  console.log(chalk.dim("    Install: npm install -g @icp-sdk/icp-cli"));
+  console.log(chalk.dim("    Or use --skip-build and --wasm <path> to provide a pre-built artifact."));
   return false;
 }
 
@@ -329,7 +322,7 @@ export async function deployCommand(options: DeployOptions = {}) {
     if (!wasmPath) {
       allSucceeded = false;
       console.log(chalk.red(`  ✗ No .wasm file found for ${canister.name}`));
-      console.log(chalk.dim("    Checked: .icp/cache/, .dfx/local/canisters/"));
+      console.log(chalk.dim("    Checked: .icp/cache/artifacts/, .icp/cache/"));
       console.log(chalk.dim("    Hint: use --wasm <path> to specify the artifact manually"));
       console.log();
       continue;
@@ -339,9 +332,13 @@ export async function deployCommand(options: DeployOptions = {}) {
     // Step 3: For frontend canisters, create assets tarball from source dir
     let assetsTarball: string | null = null;
     const canisterType = classifyCanister(canister);
-    if (canisterType === "frontend" && canister.source) {
-      console.log(chalk.dim(`  → Packaging static assets from ${canister.source}...`));
-      assetsTarball = await createAssetsTarball(canister.source, canister.name);
+    // Source dir: explicit `source` field, or `recipe.configuration.dir` for asset canisters
+    const assetSourceDir = canister.source
+      ?? (canister.recipe?.configuration?.dir as string | undefined)
+      ?? null;
+    if (canisterType === "frontend" && assetSourceDir) {
+      console.log(chalk.dim(`  → Packaging static assets from ${assetSourceDir}...`));
+      assetsTarball = await createAssetsTarball(assetSourceDir, canister.name);
       if (assetsTarball) {
         console.log(chalk.green("  ✓ Assets packaged"));
       } else {
@@ -388,6 +385,8 @@ export async function deployCommand(options: DeployOptions = {}) {
 
   if (allSucceeded) {
     console.log(chalk.green("✅ All canisters deployed successfully!"));
+    const dashboardUrl = process.env.ICFORGE_DASHBOARD_URL ?? "https://icforge.dev";
+    console.log(chalk.dim(`\n  Dashboard: ${dashboardUrl}/projects/${config.projectId}`));
   } else {
     console.log(chalk.yellow("⚠️  Some canisters failed to deploy. Check the output above."));
     process.exit(1);

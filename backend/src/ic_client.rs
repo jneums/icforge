@@ -1,31 +1,27 @@
-use candid::{CandidType, Decode, Encode, Principal};
-use ic_agent::identity::BasicIdentity;
+use candid::{CandidType, Decode, Encode, Nat, Principal};
+use ic_agent::identity::{BasicIdentity, Secp256k1Identity};
 use ic_agent::Agent;
 use serde::Deserialize;
 
 use crate::error::AppError;
 
 const MANAGEMENT_CANISTER_ID: &str = "aaaaa-aa";
+const CYCLES_LEDGER_ID: &str = "um5iw-rqaaa-aaaaq-qaaba-cai";
 
-/// Wrapper around ic-agent for IC management canister interactions.
-pub struct IcClient {
-    agent: Agent,
-    is_local: bool,
-}
+/// Default cycles to spend per canister creation (1.3T — covers 1T creation + 0.2T buffer + 0.1T fee)
+const DEFAULT_CREATE_CYCLES: u128 = 1_300_000_000_000;
 
-// -- Candid types for management canister calls --
+/// Cycles ledger transfer fee
+const CYCLES_LEDGER_FEE: u128 = 100_000_000; // 100M cycles
 
-#[derive(CandidType)]
-struct CreateCanisterArgs {
-    settings: Option<CanisterSettings>,
-}
+// -- Management canister types --
 
 #[derive(CandidType)]
-struct CanisterSettings {
+struct MgmtCanisterSettings {
     controllers: Option<Vec<Principal>>,
-    compute_allocation: Option<candid::Nat>,
-    memory_allocation: Option<candid::Nat>,
-    freezing_threshold: Option<candid::Nat>,
+    compute_allocation: Option<Nat>,
+    memory_allocation: Option<Nat>,
+    freezing_threshold: Option<Nat>,
 }
 
 #[derive(CandidType, Deserialize)]
@@ -33,11 +29,10 @@ struct CreateCanisterResult {
     canister_id: Principal,
 }
 
-// For provisional_create_canister_with_cycles on local replicas
 #[derive(CandidType)]
 struct ProvisionalCreateArgs {
-    amount: Option<candid::Nat>,
-    settings: Option<CanisterSettings>,
+    amount: Option<Nat>,
+    settings: Option<MgmtCanisterSettings>,
 }
 
 #[derive(CandidType)]
@@ -67,8 +62,8 @@ struct CanisterIdRecord {
 pub struct CanisterStatusResult {
     pub status: CanisterStatus,
     pub module_hash: Option<Vec<u8>>,
-    pub memory_size: candid::Nat,
-    pub cycles: candid::Nat,
+    pub memory_size: Nat,
+    pub cycles: Nat,
 }
 
 #[derive(CandidType, Deserialize, Debug)]
@@ -81,6 +76,104 @@ pub enum CanisterStatus {
     Stopped,
 }
 
+// -- Cycles Ledger types (ICRC-1 + extensions) --
+
+#[derive(CandidType)]
+struct CyclesAccount {
+    owner: Principal,
+    subaccount: Option<Vec<u8>>,
+}
+
+#[derive(CandidType)]
+struct CyclesCreateCanisterArgs {
+    from_subaccount: Option<Vec<u8>>,
+    created_at_time: Option<u64>,
+    amount: Nat,
+    creation_args: Option<CmcCreateCanisterArgs>,
+}
+
+#[derive(CandidType)]
+struct CmcCreateCanisterArgs {
+    settings: Option<CyclesCanisterSettings>,
+    subnet_selection: Option<CyclesSubnetSelection>,
+}
+
+#[derive(CandidType)]
+struct CyclesCanisterSettings {
+    controllers: Option<Vec<Principal>>,
+    compute_allocation: Option<Nat>,
+    memory_allocation: Option<Nat>,
+    freezing_threshold: Option<Nat>,
+}
+
+#[derive(CandidType)]
+enum CyclesSubnetSelection {
+    Subnet { subnet: Principal },
+    Filter(CyclesSubnetFilter),
+}
+
+#[derive(CandidType)]
+struct CyclesSubnetFilter {
+    subnet_type: Option<String>,
+}
+
+#[derive(CandidType, Deserialize, Debug)]
+struct CyclesCreateSuccess {
+    block_id: Nat,
+    canister_id: Principal,
+}
+
+#[derive(CandidType, Deserialize, Debug)]
+enum CyclesRejectionCode {
+    NoError,
+    CanisterError,
+    SysTransient,
+    DestinationInvalid,
+    Unknown,
+    SysFatal,
+    CanisterReject,
+}
+
+#[derive(CandidType, Deserialize, Debug)]
+enum CyclesCreateError {
+    InsufficientFunds { balance: Nat },
+    TooOld,
+    CreatedInFuture { ledger_time: u64 },
+    TemporarilyUnavailable,
+    Duplicate { duplicate_of: Nat, canister_id: Option<Principal> },
+    FailedToCreate { fee_block: Option<Nat>, refund_block: Option<Nat>, error: String },
+    GenericError { message: String, error_code: Nat },
+}
+
+// Withdraw (top-up existing canister)
+#[derive(CandidType)]
+struct WithdrawArgs {
+    amount: Nat,
+    from_subaccount: Option<Vec<u8>>,
+    to: Principal,
+    created_at_time: Option<u64>,
+}
+
+#[derive(CandidType, Deserialize, Debug)]
+enum WithdrawError {
+    GenericError { message: String, error_code: Nat },
+    TemporarilyUnavailable,
+    FailedToWithdraw { fee_block: Option<Nat>, rejection_code: CyclesRejectionCode, rejection_reason: String },
+    Duplicate { duplicate_of: Nat },
+    BadFee { expected_fee: Nat },
+    InvalidReceiver { receiver: Principal },
+    CreatedInFuture { ledger_time: u64 },
+    TooOld,
+    InsufficientFunds { balance: Nat },
+}
+
+// -- IcClient --
+
+pub struct IcClient {
+    agent: Agent,
+    is_local: bool,
+}
+
 impl IcClient {
     /// Get a reference to the inner Agent.
     pub fn agent(&self) -> &Agent {
@@ -88,19 +181,27 @@ impl IcClient {
     }
 
     /// Create a new IcClient from a PEM-encoded identity.
-    /// `ic_url` should be "https://ic0.app" for mainnet or "http://localhost:4943" for local.
-    /// When pointing at a local replica, we automatically fetch the root key.
+    /// Supports both Ed25519 (BasicIdentity) and secp256k1 key types.
     pub async fn new(identity_pem: &str, ic_url: &str) -> Result<Self, AppError> {
-        let identity = BasicIdentity::from_pem(identity_pem.as_bytes())
-            .map_err(|e| AppError::Internal(format!("Failed to parse PEM identity: {e}")))?;
+        // Try Ed25519 first, then secp256k1 — icp CLI generates secp256k1 by default
+        let agent = if let Ok(identity) = BasicIdentity::from_pem(identity_pem.as_bytes()) {
+            Agent::builder()
+                .with_url(ic_url)
+                .with_identity(identity)
+                .build()
+                .map_err(|e| AppError::Internal(format!("Failed to build IC agent: {e}")))?
+        } else if let Ok(identity) = Secp256k1Identity::from_pem(identity_pem.as_bytes()) {
+            Agent::builder()
+                .with_url(ic_url)
+                .with_identity(identity)
+                .build()
+                .map_err(|e| AppError::Internal(format!("Failed to build IC agent: {e}")))?
+        } else {
+            return Err(AppError::Internal(
+                "Failed to parse PEM identity: not a valid Ed25519 or secp256k1 key".to_string(),
+            ));
+        };
 
-        let agent = Agent::builder()
-            .with_url(ic_url)
-            .with_identity(identity)
-            .build()
-            .map_err(|e| AppError::Internal(format!("Failed to build IC agent: {e}")))?;
-
-        // Fetch root key for local replicas (NOT mainnet)
         let is_local = !ic_url.contains("ic0.app") && !ic_url.contains("icp0.io");
         if is_local {
             agent.fetch_root_key().await
@@ -110,46 +211,113 @@ impl IcClient {
         Ok(Self { agent, is_local })
     }
 
-    /// Create a new canister on the IC via the management canister.
-    /// On local replicas, uses provisional_create_canister_with_cycles (no real cycles needed).
-    /// On mainnet, uses create_canister (requires cycles).
-    /// Returns the canister ID as a text string.
+    /// Get the principal of the identity this client is using.
+    pub fn identity_principal(&self) -> Principal {
+        self.agent.get_principal().expect("agent has identity")
+    }
+
+    /// Check cycles balance on the cycles ledger for the agent's principal.
+    pub async fn cycles_balance(&self) -> Result<u128, AppError> {
+        let ledger = Principal::from_text(CYCLES_LEDGER_ID)
+            .map_err(|e| AppError::Internal(format!("Invalid cycles ledger ID: {e}")))?;
+
+        let account = CyclesAccount {
+            owner: self.identity_principal(),
+            subaccount: None,
+        };
+        let arg_bytes = Encode!(&account)
+            .map_err(|e| AppError::Internal(format!("Failed to encode icrc1_balance_of args: {e}")))?;
+
+        let response = self.agent
+            .query(&ledger, "icrc1_balance_of")
+            .with_arg(arg_bytes)
+            .call()
+            .await
+            .map_err(|e| AppError::Internal(format!("icrc1_balance_of query failed: {e}")))?;
+
+        let balance = Decode!(&response, Nat)
+            .map_err(|e| AppError::Internal(format!("Failed to decode balance: {e}")))?;
+
+        // Convert candid::Nat to u128
+        Ok(balance.0.try_into().unwrap_or(u128::MAX))
+    }
+
+    /// Create a new canister on the IC.
+    /// On local: uses provisional_create_canister_with_cycles (free).
+    /// On mainnet: calls cycles ledger's create_canister (deducts cycles from pool).
     pub async fn create_canister(&self) -> Result<String, AppError> {
+        if self.is_local {
+            self.create_canister_local().await
+        } else {
+            self.create_canister_mainnet(DEFAULT_CREATE_CYCLES).await
+        }
+    }
+
+    async fn create_canister_local(&self) -> Result<String, AppError> {
         let management = Principal::from_text(MANAGEMENT_CANISTER_ID)
             .map_err(|e| AppError::Internal(format!("Invalid management canister ID: {e}")))?;
+        let effective = Principal::from_text("rwlgt-iiaaa-aaaaa-aaaaa-cai")
+            .map_err(|e| AppError::Internal(format!("Invalid effective canister ID: {e}")))?;
 
-        let response = if self.is_local {
-            // Local replica: use provisional API with the well-known effective canister ID
-            let effective = Principal::from_text("rwlgt-iiaaa-aaaaa-aaaaa-cai")
-                .map_err(|e| AppError::Internal(format!("Invalid effective canister ID: {e}")))?;
-            let args = ProvisionalCreateArgs { amount: None, settings: None };
-            let arg_bytes = Encode!(&args)
-                .map_err(|e| AppError::Internal(format!("Failed to encode args: {e}")))?;
-            self.agent
-                .update(&management, "provisional_create_canister_with_cycles")
-                .with_arg(arg_bytes)
-                .with_effective_canister_id(effective)
-                .call_and_wait()
-                .await
-                .map_err(|e| AppError::Internal(format!("provisional_create_canister_with_cycles failed: {e}")))?
-        } else {
-            // Mainnet: use create_canister (requires cycles in the call)
-            let args = CreateCanisterArgs { settings: None };
-            let arg_bytes = Encode!(&args)
-                .map_err(|e| AppError::Internal(format!("Failed to encode args: {e}")))?;
-            self.agent
-                .update(&management, "create_canister")
-                .with_arg(arg_bytes)
-                .with_effective_canister_id(management)
-                .call_and_wait()
-                .await
-                .map_err(|e| AppError::Internal(format!("create_canister failed: {e}")))?
-        };
+        let args = ProvisionalCreateArgs { amount: None, settings: None };
+        let arg_bytes = Encode!(&args)
+            .map_err(|e| AppError::Internal(format!("Failed to encode args: {e}")))?;
+
+        let response = self.agent
+            .update(&management, "provisional_create_canister_with_cycles")
+            .with_arg(arg_bytes)
+            .with_effective_canister_id(effective)
+            .call_and_wait()
+            .await
+            .map_err(|e| AppError::Internal(format!("provisional_create failed: {e}")))?;
 
         let result = Decode!(&response, CreateCanisterResult)
-            .map_err(|e| AppError::Internal(format!("Failed to decode create_canister response: {e}")))?;
+            .map_err(|e| AppError::Internal(format!("Failed to decode response: {e}")))?;
 
         Ok(result.canister_id.to_text())
+    }
+
+    /// Create canister via cycles ledger (mainnet).
+    /// The cycles ledger deducts `amount` + 100M fee from the caller's balance,
+    /// then sends `amount` cycles to the CMC to create the canister.
+    async fn create_canister_mainnet(&self, amount: u128) -> Result<String, AppError> {
+        let ledger = Principal::from_text(CYCLES_LEDGER_ID)
+            .map_err(|e| AppError::Internal(format!("Invalid cycles ledger ID: {e}")))?;
+
+        let controller = self.identity_principal();
+
+        let args = CyclesCreateCanisterArgs {
+            from_subaccount: None,
+            created_at_time: None,
+            amount: Nat::from(amount),
+            creation_args: Some(CmcCreateCanisterArgs {
+                settings: Some(CyclesCanisterSettings {
+                    controllers: Some(vec![controller]),
+                    compute_allocation: None,
+                    memory_allocation: None,
+                    freezing_threshold: None,
+                }),
+                subnet_selection: None,
+            }),
+        };
+        let arg_bytes = Encode!(&args)
+            .map_err(|e| AppError::Internal(format!("Failed to encode create_canister args: {e}")))?;
+
+        let response = self.agent
+            .update(&ledger, "create_canister")
+            .with_arg(arg_bytes)
+            .call_and_wait()
+            .await
+            .map_err(|e| AppError::Internal(format!("cycles ledger create_canister failed: {e}")))?;
+
+        // Decode Result variant: Ok(CreateCanisterSuccess) | Err(CreateCanisterError)
+        let result = Decode!(&response, Result<CyclesCreateSuccess, CyclesCreateError>)
+            .map_err(|e| AppError::Internal(format!("Failed to decode create_canister response: {e}")))?;
+
+        match result {
+            Ok(success) => Ok(success.canister_id.to_text()),
+            Err(err) => Err(AppError::Internal(format!("Cycles ledger create_canister error: {err:?}"))),
+        }
     }
 
     /// Install or upgrade code on a canister.
@@ -163,13 +331,9 @@ impl IcClient {
             .map_err(|e| AppError::Internal(format!("Invalid management canister ID: {e}")))?;
 
         let canister_id = Principal::from_text(canister_id_text)
-            .map_err(|e| AppError::Internal(format!("Invalid canister ID '{}': {e}", canister_id_text)))?;
+            .map_err(|e| AppError::Internal(format!("Invalid canister ID '{canister_id_text}': {e}")))?;
 
-        let mode = if is_upgrade {
-            InstallMode::Upgrade
-        } else {
-            InstallMode::Install
-        };
+        let mode = if is_upgrade { InstallMode::Upgrade } else { InstallMode::Install };
 
         let args = InstallCodeArgs {
             mode,
@@ -202,14 +366,13 @@ impl IcClient {
             .map_err(|e| AppError::Internal(format!("Invalid management canister ID: {e}")))?;
 
         let canister_id = Principal::from_text(canister_id_text)
-            .map_err(|e| AppError::Internal(format!("Invalid canister ID '{}': {e}", canister_id_text)))?;
+            .map_err(|e| AppError::Internal(format!("Invalid canister ID '{canister_id_text}': {e}")))?;
 
         let args = CanisterIdRecord { canister_id };
         let arg_bytes = Encode!(&args)
             .map_err(|e| AppError::Internal(format!("Failed to encode canister_status args: {e}")))?;
 
-        let response = self
-            .agent
+        let response = self.agent
             .update(&management, "canister_status")
             .with_arg(arg_bytes)
             .with_effective_canister_id(canister_id)
@@ -221,5 +384,43 @@ impl IcClient {
             .map_err(|e| AppError::Internal(format!("Failed to decode canister_status response: {e}")))?;
 
         Ok(result)
+    }
+
+    /// Top up an existing canister with cycles via the cycles ledger's withdraw endpoint.
+    /// `amount` is the number of cycles to send (fee of 100M is deducted separately).
+    pub async fn top_up_canister(
+        &self,
+        canister_id_text: &str,
+        amount: u128,
+    ) -> Result<(), AppError> {
+        let ledger = Principal::from_text(CYCLES_LEDGER_ID)
+            .map_err(|e| AppError::Internal(format!("Invalid cycles ledger ID: {e}")))?;
+
+        let to = Principal::from_text(canister_id_text)
+            .map_err(|e| AppError::Internal(format!("Invalid canister ID '{canister_id_text}': {e}")))?;
+
+        let args = WithdrawArgs {
+            amount: Nat::from(amount),
+            from_subaccount: None,
+            to,
+            created_at_time: None,
+        };
+        let arg_bytes = Encode!(&args)
+            .map_err(|e| AppError::Internal(format!("Failed to encode withdraw args: {e}")))?;
+
+        let response = self.agent
+            .update(&ledger, "withdraw")
+            .with_arg(arg_bytes)
+            .call_and_wait()
+            .await
+            .map_err(|e| AppError::Internal(format!("cycles ledger withdraw failed: {e}")))?;
+
+        let result = Decode!(&response, Result<Nat, WithdrawError>)
+            .map_err(|e| AppError::Internal(format!("Failed to decode withdraw response: {e}")))?;
+
+        match result {
+            Ok(_block_index) => Ok(()),
+            Err(err) => Err(AppError::Internal(format!("Cycles ledger withdraw error: {err:?}"))),
+        }
     }
 }

@@ -1,4 +1,5 @@
 use axum::{
+    extract::DefaultBodyLimit,
     routing::{get, post},
     Json, Router,
 };
@@ -50,9 +51,12 @@ async fn main() {
         .route("/api/v1/auth/dev-token", post(routes::dev_token))
         .route("/api/v1/projects", get(routes::list_projects))
         .route("/api/v1/projects", post(routes::create_project))
+        .route("/api/v1/projects/{project_id}", get(routes::get_project))
         .route("/api/v1/deploy", post(routes::deploy))
         .route("/api/v1/deploy/{deploy_id}/status", get(routes::deploy_status))
         .route("/api/v1/deploy/{deploy_id}/logs", get(routes::deploy_logs))
+        .route("/api/v1/cycles/balance", get(routes::cycles_balance))
+        .layer(DefaultBodyLimit::max(50 * 1024 * 1024)) // 50MB for wasm + assets
         .layer(CorsLayer::permissive())
         .with_state(state);
 

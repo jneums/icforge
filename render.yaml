@@ -1,0 +1,47 @@
+# ICForge Render.com deployment
+# Deploy with: render blueprint apply
+
+services:
+  # Backend API (Rust)
+  - type: web
+    name: icforge-backend
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    region: oregon
+    plan: free
+    envVars:
+      - key: HOST
+        value: "0.0.0.0"
+      - key: PORT
+        value: "8080"
+      - key: DATABASE_URL
+        value: "sqlite:///app/data/icforge.db?mode=rwc"
+      - key: JWT_SECRET
+        generateValue: true
+      - key: GITHUB_CLIENT_ID
+        sync: false  # Set manually
+      - key: GITHUB_CLIENT_SECRET
+        sync: false  # Set manually
+      - key: IC_IDENTITY_PEM
+        sync: false  # Set manually — platform identity PEM
+      - key: IC_NETWORK
+        value: "mainnet"
+      - key: FRONTEND_URL
+        value: "https://icforge-dashboard.onrender.com"
+
+  # Dashboard (React/Vite static site)
+  - type: web
+    name: icforge-dashboard
+    runtime: static
+    buildCommand: cd dashboard && npm install && npm run build
+    staticPublishPath: ./dashboard/dist
+    rootDir: .
+    region: oregon
+    envVars:
+      - key: VITE_API_URL
+        value: "https://icforge-backend.onrender.com"
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

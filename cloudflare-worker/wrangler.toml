@@ -6,5 +6,6 @@ compatibility_date = "2024-01-01"
 binding = "ICFORGE_ROUTES"
 id = "dbfe018092ee458a97e5e0836ef017a6"
 
-[triggers]
-routes = ["*.icforge.dev/*"]
+[[routes]]
+pattern = "*.icforge.dev/*"
+zone_name = "icforge.dev"

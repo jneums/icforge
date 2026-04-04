@@ -59,7 +59,7 @@ $ icforge logs
   [12:34:05] INFO  Code installed successfully
   [12:34:05] INFO  Syncing static assets...
   [12:34:08] INFO  Assets synced successfully
-  [12:34:08] INFO  Live at https://abc12-defgh-aaaaj-qrslb-cai.ic0.app
+  [12:34:08] INFO  Live at https://abc12-defgh-aaaaj-qrslb-cai.icp0.io
 ```
 
 Options:

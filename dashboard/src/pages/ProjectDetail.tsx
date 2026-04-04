@@ -112,7 +112,7 @@ export default function ProjectDetail() {
                 <span style={styles.separator}>•</span>
                 Canister:{' '}
                 <a
-                  href={`https://${primaryCanister.canister_id}.ic0.app`}
+                  href={`https://${primaryCanister.canister_id}.icp0.io`}
                   target="_blank"
                   rel="noopener noreferrer"
                   style={{ color: 'var(--accent)', textDecoration: 'none' }}
@@ -161,7 +161,7 @@ export default function ProjectDetail() {
                     <td>
                       {c.canister_id ? (
                         <a
-                          href={`https://${c.canister_id}.ic0.app`}
+                          href={`https://${c.canister_id}.icp0.io`}
                           target="_blank"
                           rel="noopener noreferrer"
                           style={{ color: 'var(--accent)', textDecoration: 'none' }}

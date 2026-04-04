@@ -1,14 +1,14 @@
 /**
  * ICForge Subdomain Router — Cloudflare Worker
  *
- * Routes <slug>.icforge.dev → <canister-id>.ic0.app
+ * Routes <slug>.icforge.dev → <canister-id>.icp0.io
  * Slug-to-canister mapping stored in Cloudflare KV (ICFORGE_ROUTES).
  *
  * KV value format: { "canister_id": "xh5m6-...", "project_id": "820e1954-..." }
  */
 
 const RESERVED_SLUGS = new Set(["www", "app", "api", "dashboard", "docs", "blog", "status"]);
-const IC_DOMAIN = "ic0.app";
+const IC_DOMAIN = "icp0.io";
 const BASE_DOMAIN = "icforge.dev";
 
 export default {

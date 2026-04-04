@@ -49,7 +49,7 @@ Simple static site deploy on Render alongside the backend.
 
 Current page works but needs:
 - [x] **Live deploy status** — if a deploy is in progress, show real-time logs (SSE from spec 005)
-- [x] **Canister links** — click canister ID to open `<id>.ic0.app` in new tab
+- [x] **Canister links** — click canister ID to open `<id>.icp0.io` in new tab
 - [x] **Vanity URL** — show `<slug>.icforge.dev` link when subdomain routing is active
 - [ ] **Redeploy button** — trigger a new deploy from the dashboard (stretch goal, requires backend to store wasm or trigger CI)
 
@@ -118,7 +118,7 @@ This works. The callback redirect URL needs to point to the dashboard's domain (
 - [x] Wire SSE log streaming to Deploy Detail page (fetch+ReadableStream with auth)
 
 ### Enhancements
-- [x] Add canister ID → ic0.app links on ProjectDetail
+- [x] Add canister ID → icp0.io links on ProjectDetail
 - [x] Add vanity URL display on ProjectDetail
 - [x] Polish Landing page with value prop and getting-started snippet
 - [ ] Mobile responsive pass (tables → cards on small screens)

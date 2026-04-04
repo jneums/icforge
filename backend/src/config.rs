@@ -35,7 +35,7 @@ impl AppConfig {
             backend_url: env::var("BACKEND_URL")
                 .unwrap_or_else(|_| "http://localhost:8080".to_string()),
             ic_url: env::var("IC_URL")
-                .unwrap_or_else(|_| "https://ic0.app".to_string()),
+                .unwrap_or_else(|_| "https://icp0.io".to_string()),
             ic_identity_pem: env::var("IC_IDENTITY_PEM").ok(),
             cloudflare_account_id: env::var("CLOUDFLARE_ACCOUNT_ID").ok(),
             cloudflare_api_token: env::var("CLOUDFLARE_API_TOKEN").ok(),

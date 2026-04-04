@@ -239,7 +239,7 @@ export default function DeployDetail() {
             <div style={styles.metaLabel}>Canister</div>
             <div style={styles.metaValue}>
               <a
-                href={`https://${deployMeta.canister_id}.ic0.app`}
+                href={`https://${deployMeta.canister_id}.icp0.io`}
                 target="_blank"
                 rel="noopener noreferrer"
                 style={{ color: 'var(--accent)' }}

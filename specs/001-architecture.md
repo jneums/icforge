@@ -97,7 +97,7 @@ npx icforge deploy    # Ship it 🚀
 │  │  Canister     │  │  Ledger      │  │                      │   │
 │  │              │  │              │  │  - Frontend assets    │   │
 │  │  create_can  │  │  mint cycles │  │  - Backend logic      │   │
-│  │  install_code│  │  top_up      │  │  - <slug>.ic0.app     │   │
+│  │  install_code│  │  top_up      │  │  - <slug>.icp0.io     │   │
 │  │  canister_   │  │  balance     │  │                      │   │
 │  │    status    │  │              │  │                      │   │
 │  └──────────────┘  └──────────────┘  └──────────────────────┘   │
@@ -340,7 +340,7 @@ No proprietary build system needed — we piggyback on icp-cli's recipe system.
 
 **Subdomain (automatic):**
 - Every project gets `<slug>.icforge.dev`
-- ICForge runs a reverse proxy that maps subdomain → `<canister-id>.ic0.app`
+- ICForge runs a reverse proxy that maps subdomain → `<canister-id>.icp0.io`
 
 **Custom domain (Dev+ plans):**
 - User adds CNAME record: `app.example.com → custom.icforge.dev`
@@ -448,7 +448,7 @@ The progression is natural: start free on shared infra, graduate to your own Clo
 - [ ] CLI: login, init, deploy commands working
 - [ ] Backend: OAuth, identity generation, single frontend canister deploy
 - [ ] Deploy a static HTML/JS site to IC mainnet via `icforge deploy`
-- [ ] Return `<canister-id>.ic0.app` URL
+- [ ] Return `<canister-id>.icp0.io` URL
 
 ### v0.2 — "Real Projects"
 - [ ] Backend canister support (Rust + Motoko)

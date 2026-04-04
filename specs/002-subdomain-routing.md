@@ -14,7 +14,7 @@ The slug is derived from the project name at `icforge init` time and stored in t
 
 ## 2. Approach: Cloudflare Worker + KV
 
-A Cloudflare Worker running on `*.icforge.dev` handles all subdomain requests. It looks up the slug in Cloudflare KV to find the canister ID, then proxies the request to `<canister-id>.ic0.app`.
+A Cloudflare Worker running on `*.icforge.dev` handles all subdomain requests. It looks up the slug in Cloudflare KV to find the canister ID, then proxies the request to `<canister-id>.icp0.io`.
 
 ```
 User browser
@@ -28,11 +28,11 @@ hello.icforge.dev
 │                             │
 │  1. Extract subdomain slug  │
 │  2. KV.get(slug)            │
-│  3. Proxy to ic0.app        │
+│  3. Proxy to icp0.io        │
 └─────────────┬───────────────┘
               │
               ▼
-https://xh5m6-qyaaa-aaaaj-qrsla-cai.ic0.app
+https://xh5m6-qyaaa-aaaaj-qrsla-cai.icp0.io
 ```
 
 ### Why Cloudflare Worker over alternatives
@@ -98,7 +98,7 @@ export default {
 
     // Proxy to IC boundary node
     const icUrl = new URL(request.url);
-    icUrl.hostname = `${entry.canister_id}.ic0.app`;
+    icUrl.hostname = `${entry.canister_id}.icp0.io`;
     icUrl.port = "";
     icUrl.protocol = "https:";
 
@@ -142,7 +142,7 @@ PUT https://api.cloudflare.com/client/v4/accounts/{account_id}/storage/kv/namesp
 Body: {"canister_id": "xh5m6-...", "project_id": "820e1954-..."}
 ```
 
-This happens in the existing `run_deploy_pipeline()` after the "live" status update. It's best-effort — if the KV write fails, the deploy still succeeds (canister is live at `<id>.ic0.app`), and the slug mapping can be retried or manually fixed.
+This happens in the existing `run_deploy_pipeline()` after the "live" status update. It's best-effort — if the KV write fails, the deploy still succeeds (canister is live at `<id>.icp0.io`), and the slug mapping can be retried or manually fixed.
 
 ### 6.2 KV Delete on Project Deletion
 
@@ -174,7 +174,7 @@ The `projects.slug` column should have a **unique constraint** (across all users
 - [ ] Add Cloudflare env vars to Render
 
 ### CLI changes
-- [ ] After deploy success, print `https://<slug>.icforge.dev` alongside the `ic0.app` URL
+- [ ] After deploy success, print `https://<slug>.icforge.dev` alongside the `icp0.io` URL
 - [ ] `icforge status` should show the vanity URL
 
 ### Future (v0.3+)
@@ -191,6 +191,6 @@ Cloudflare Workers free tier:
 
 ## 9. Latency Impact
 
-Cloudflare Worker adds ~1-5ms at the edge. The proxy `fetch()` to `ic0.app` uses Cloudflare's global network, which may actually be faster than a direct connection from some regions (Cloudflare has better peering than most ISPs to IC boundary nodes).
+Cloudflare Worker adds ~1-5ms at the edge. The proxy `fetch()` to `icp0.io` uses Cloudflare's global network, which may actually be faster than a direct connection from some regions (Cloudflare has better peering than most ISPs to IC boundary nodes).
 
 No measurable impact on user experience.

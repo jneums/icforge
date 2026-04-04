@@ -543,7 +543,7 @@ async fn run_deploy_pipeline(
     }
 
     // Step 6: Success
-    let live_url = format!("https://{canister_id}.ic0.app");
+    let live_url = format!("https://{canister_id}.icp0.io");
     insert_log(
         &db,
         &deployment_id,
@@ -622,7 +622,7 @@ pub async fn deploy_status(
     let url = if deployment.status == "live" {
         canister_id
             .as_ref()
-            .map(|cid| format!("https://{cid}.ic0.app"))
+            .map(|cid| format!("https://{cid}.icp0.io"))
     } else {
         None
     };

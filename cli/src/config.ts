@@ -31,6 +31,14 @@ export interface IcpCanister {
   };
   build?: string[];
   source?: string;
+  /** Explicit path to wasm output file */
+  wasm?: string;
+  /** Hex-encoded Candid init arg for canister installation */
+  init_arg?: string;
+  /** Path to .did file (Candid interface definition) */
+  candid?: string;
+  /** Canister dependencies (names of other canisters this one depends on) */
+  dependencies?: string[];
 }
 
 /** Parsed icp.yaml manifest */

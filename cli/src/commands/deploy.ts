@@ -55,12 +55,14 @@ function getGitInfo(): { sha?: string; message?: string } {
 /**
  * Find the .wasm artifact for a canister.
  * Search order:
- *   1. Explicit --wasm path
- *   2. .icp/cache/artifacts/<name> (icp-cli build output — may be gzipped)
- *   3. .icp/cache/ directory (other .wasm files)
+ *   1. Explicit --wasm CLI flag
+ *   2. Canister's `wasm` field from icp.yaml
+ *   3. Rust target directory: target/wasm32-unknown-unknown/release/<name>.wasm
+ *   4. .icp/cache/artifacts/<name> (icp-cli build output — may be gzipped)
+ *   5. .icp/cache/ directory (other .wasm files)
  */
-function findWasm(canisterName: string, explicitPath?: string): string | null {
-  // 1. Explicit path
+function findWasm(canisterName: string, explicitPath?: string, canisterWasmField?: string): string | null {
+  // 1. Explicit --wasm CLI flag
   if (explicitPath) {
     const resolved = resolve(explicitPath);
     if (existsSync(resolved)) return resolved;
@@ -68,13 +70,26 @@ function findWasm(canisterName: string, explicitPath?: string): string | null {
     return null;
   }
 
-  // 2. icp-cli artifact: .icp/cache/artifacts/<name> (gzipped wasm, no extension)
+  // 2. Canister's `wasm` field from icp.yaml
+  if (canisterWasmField) {
+    const resolved = resolve(canisterWasmField);
+    if (existsSync(resolved)) return resolved;
+    console.log(chalk.yellow(`  ⚠ icp.yaml wasm path not found: ${resolved}`));
+  }
+
+  // 3. Rust target directory
+  const rustWasm = join(process.cwd(), "target", "wasm32-unknown-unknown", "release", `${canisterName}.wasm`);
+  if (existsSync(rustWasm)) {
+    return rustWasm;
+  }
+
+  // 4. icp-cli artifact: .icp/cache/artifacts/<name> (gzipped wasm, no extension)
   const icpArtifact = join(process.cwd(), ".icp", "cache", "artifacts", canisterName);
   if (existsSync(icpArtifact)) {
     return icpArtifact;
   }
 
-  // 3. .icp/cache/ directory (scan for .wasm files)
+  // 5. .icp/cache/ directory (scan for .wasm files)
   const icpCacheDir = join(process.cwd(), ".icp", "cache");
   if (existsSync(icpCacheDir)) {
     const wasm = findWasmInDir(icpCacheDir, canisterName);
@@ -102,9 +117,24 @@ function findWasmInDir(dir: string, canisterName: string): string | null {
 }
 
 /**
- * Build a canister using `icp build`.
+ * Build a canister.
+ * If the canister has a `build` array in icp.yaml, run each command sequentially.
+ * Otherwise, fall back to `icp build <name>`.
  */
 function buildCanister(canister: IcpCanister): boolean {
+  // Use custom build commands from icp.yaml if provided
+  if (canister.build && canister.build.length > 0) {
+    for (const cmd of canister.build) {
+      if (!tryExec(cmd, cmd)) {
+        console.log(chalk.red(`  ✗ Custom build command failed: ${cmd}`));
+        console.log(chalk.dim("    Or use --skip-build and --wasm <path> to provide a pre-built artifact."));
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // Fallback: use icp-cli
   if (tryExec(`icp build ${canister.name}`, `Building with icp-cli...`)) {
     return true;
   }
@@ -146,6 +176,8 @@ async function uploadArtifact(
   canisterName: string,
   wasmPath: string,
   assetsTarballPath?: string | null,
+  initArg?: string,
+  candidPath?: string,
 ): Promise<{ deploymentId: string; statusUrl: string } | null> {
   const token=getToken();
   const apiUrl = getApiUrl();
@@ -163,6 +195,22 @@ async function uploadArtifact(
     const assetsBytes = readFileSync(assetsTarballPath);
     const assetsBlob = new Blob([assetsBytes], { type: "application/gzip" });
     formData.append("assets", assetsBlob, "assets.tar.gz");
+  }
+
+  // Attach init arg if provided
+  if (initArg) {
+    formData.append("init_arg", initArg);
+  }
+
+  // Attach candid interface if provided
+  if (candidPath) {
+    const resolvedCandid = resolve(candidPath);
+    if (existsSync(resolvedCandid)) {
+      const candidContent = readFileSync(resolvedCandid, "utf-8");
+      formData.append("candid", candidContent);
+    } else {
+      console.log(chalk.yellow(`  ⚠ Candid file not found: ${resolvedCandid}`));
+    }
   }
 
   // Attach git info if available
@@ -301,7 +349,7 @@ export async function deployCommand(options: DeployOptions = {}) {
     const type = classifyCanister(canister);
     const icon = type === "frontend" ? "🌐" : "⚙️";
 
-    console.log(`${icon} ${chalk.bold(canister.name)}`);
+    console.log(`${icon} ${chalk.bold(canister.name)} ${chalk.dim(`(${type})`)}`);
 
     // Step 1: Build (unless --skip-build)
     if (!options.skipBuild) {
@@ -318,11 +366,11 @@ export async function deployCommand(options: DeployOptions = {}) {
 
     // Step 2: Find artifacts
     console.log(chalk.dim("  → Locating wasm artifact..."));
-    const wasmPath = findWasm(canister.name, options.wasm);
+    const wasmPath = findWasm(canister.name, options.wasm, canister.wasm);
     if (!wasmPath) {
       allSucceeded = false;
       console.log(chalk.red(`  ✗ No .wasm file found for ${canister.name}`));
-      console.log(chalk.dim("    Checked: .icp/cache/artifacts/, .icp/cache/"));
+      console.log(chalk.dim("    Checked: icp.yaml wasm field, target/wasm32-unknown-unknown/release/, .icp/cache/artifacts/, .icp/cache/"));
       console.log(chalk.dim("    Hint: use --wasm <path> to specify the artifact manually"));
       console.log();
       continue;
@@ -330,25 +378,40 @@ export async function deployCommand(options: DeployOptions = {}) {
     console.log(chalk.dim(`  → Found: ${wasmPath}`));
 
     // Step 3: For frontend canisters, create assets tarball from source dir
+    //         Backend canisters skip asset packaging entirely
     let assetsTarball: string | null = null;
     const canisterType = classifyCanister(canister);
-    // Source dir: explicit `source` field, or `recipe.configuration.dir` for asset canisters
-    const assetSourceDir = canister.source
-      ?? (canister.recipe?.configuration?.dir as string | undefined)
-      ?? null;
-    if (canisterType === "frontend" && assetSourceDir) {
-      console.log(chalk.dim(`  → Packaging static assets from ${assetSourceDir}...`));
-      assetsTarball = await createAssetsTarball(assetSourceDir, canister.name);
-      if (assetsTarball) {
-        console.log(chalk.green("  ✓ Assets packaged"));
-      } else {
-        console.log(chalk.yellow("  ⚠ No assets to upload — deploying WASM only"));
+    if (canisterType === "frontend") {
+      // Source dir: explicit `source` field, or `recipe.configuration.dir` for asset canisters
+      const assetSourceDir = canister.source
+        ?? (canister.recipe?.configuration?.dir as string | undefined)
+        ?? null;
+      if (assetSourceDir) {
+        console.log(chalk.dim(`  → Packaging static assets from ${assetSourceDir}...`));
+        assetsTarball = await createAssetsTarball(assetSourceDir, canister.name);
+        if (assetsTarball) {
+          console.log(chalk.green("  ✓ Assets packaged"));
+        } else {
+          console.log(chalk.yellow("  ⚠ No assets to upload — deploying WASM only"));
+        }
       }
+    } else {
+      console.log(chalk.dim("  → Backend canister — skipping asset packaging"));
     }
 
-    // Step 4: Upload to ICForge
+    // Step 4: Resolve candid path relative to project root
+    const candidPath = canister.candid ? resolve(canister.candid) : undefined;
+
+    // Step 5: Upload to ICForge
     console.log(chalk.dim("  → Uploading artifact to ICForge..."));
-    const deployment = await uploadArtifact(config.projectId, canister.name, wasmPath, assetsTarball);
+    const deployment = await uploadArtifact(
+      config.projectId,
+      canister.name,
+      wasmPath,
+      assetsTarball,
+      canister.init_arg,
+      candidPath,
+    );
 
     // Clean up local tarball
     if (assetsTarball) {
@@ -362,7 +425,7 @@ export async function deployCommand(options: DeployOptions = {}) {
     }
     console.log(chalk.green(`  ✓ Uploaded`), chalk.dim(`(deployment: ${deployment.deploymentId})`));
 
-    // Step 4: Poll for status
+    // Step 6: Poll for status
     const result = await pollDeployment(deployment.statusUrl, deployment.deploymentId);
 
     if (result.status === "live") {

@@ -1713,6 +1713,7 @@ dependencies = [
  "chrono",
  "dotenvy",
  "flate2",
+ "hex",
  "ic-agent",
  "ic-asset",
  "ic-utils",

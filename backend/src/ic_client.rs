@@ -332,11 +332,14 @@ impl IcClient {
     }
 
     /// Install or upgrade code on a canister.
+    /// If `init_arg` is Some, it is used as the raw candid arg bytes;
+    /// otherwise an empty arg is sent.
     pub async fn install_code(
         &self,
         canister_id_text: &str,
         wasm: Vec<u8>,
         is_upgrade: bool,
+        init_arg: Option<Vec<u8>>,
     ) -> Result<(), AppError> {
         let management = Principal::from_text(MANAGEMENT_CANISTER_ID)
             .map_err(|e| AppError::Internal(format!("Invalid management canister ID: {e}")))?;
@@ -346,12 +349,17 @@ impl IcClient {
 
         let mode = if is_upgrade { InstallMode::Upgrade } else { InstallMode::Install };
 
+        let arg = match init_arg {
+            Some(bytes) => bytes,
+            None => Encode!()
+                .map_err(|e| AppError::Internal(format!("Failed to encode empty arg: {e}")))?,
+        };
+
         let args = InstallCodeArgs {
             mode,
             canister_id,
             wasm_module: wasm,
-            arg: Encode!()
-                .map_err(|e| AppError::Internal(format!("Failed to encode empty arg: {e}")))?,
+            arg,
         };
 
         let arg_bytes = Encode!(&args)

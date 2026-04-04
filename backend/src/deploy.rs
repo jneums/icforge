@@ -92,6 +92,8 @@ pub async fn deploy(
     let mut assets_bytes: Option<Vec<u8>> = None;
     let mut commit_sha: Option<String> = None;
     let mut commit_message: Option<String> = None;
+    let mut init_arg_hex: Option<String> = None;
+    let mut candid_text: Option<String> = None;
 
     while let Some(field) = multipart
         .next_field()
@@ -148,6 +150,22 @@ pub async fn deploy(
                         .text()
                         .await
                         .map_err(|e| AppError::BadRequest(format!("Failed to read commit_message: {e}")))?,
+                );
+            }
+            "init_arg" => {
+                init_arg_hex = Some(
+                    field
+                        .text()
+                        .await
+                        .map_err(|e| AppError::BadRequest(format!("Failed to read init_arg: {e}")))?,
+                );
+            }
+            "candid" => {
+                candid_text = Some(
+                    field
+                        .text()
+                        .await
+                        .map_err(|e| AppError::BadRequest(format!("Failed to read candid: {e}")))?,
                 );
             }
             _ => {
@@ -236,9 +254,22 @@ pub async fn deploy(
 
     let existing_canister_id = canister.canister_id.clone();
     let canister_db_id = canister.id.clone();
+    let canister_type = canister.canister_type.clone();
     let db = state.db.clone();
     let deploy_id = deployment_id.clone();
     let ic_url = state.config.ic_url.clone();
+
+    // Decode hex-encoded init_arg if provided
+    let init_arg_bytes: Option<Vec<u8>> = match init_arg_hex {
+        Some(hex_str) => {
+            let cleaned = hex_str.strip_prefix("0x").unwrap_or(&hex_str);
+            Some(
+                hex::decode(cleaned)
+                    .map_err(|e| AppError::BadRequest(format!("Invalid hex in init_arg: {e}")))?,
+            )
+        }
+        None => None,
+    };
 
     // Spawn background deploy pipeline
     tokio::spawn(async move {
@@ -251,6 +282,9 @@ pub async fn deploy(
             assets_path,
             existing_canister_id,
             canister_db_id,
+            init_arg_bytes,
+            candid_text,
+            canister_type,
         )
         .await;
     });
@@ -273,6 +307,9 @@ async fn run_deploy_pipeline(
     assets_path: Option<String>,
     existing_canister_id: Option<String>,
     canister_db_id: String,
+    init_arg: Option<Vec<u8>>,
+    candid: Option<String>,
+    canister_type: String,
 ) {
     // Step 1: Log starting
     insert_log(&db, &deployment_id, "info", "Starting deployment...").await;
@@ -359,7 +396,7 @@ async fn run_deploy_pipeline(
     .await;
 
     match client
-        .install_code(&canister_id, wasm_bytes, is_upgrade)
+        .install_code(&canister_id, wasm_bytes, is_upgrade, init_arg)
         .await
     {
         Ok(()) => {
@@ -373,7 +410,8 @@ async fn run_deploy_pipeline(
         }
     }
 
-    // Step 4.5: Sync static assets if a tarball was provided
+    // Step 4.5: Sync static assets if a tarball was provided (frontend canisters only)
+    if canister_type == "frontend" {
     if let Some(tarball_path) = assets_path {
         insert_log(&db, &deployment_id, "info", "Syncing static assets...").await;
 
@@ -439,6 +477,7 @@ async fn run_deploy_pipeline(
         // Clean up extracted assets
         let _ = tokio::fs::remove_dir_all(&assets_dir).await;
     }
+    } // end if canister_type == "frontend"
 
     // Step 5: Update canister status
     let _ = sqlx::query(
@@ -448,6 +487,18 @@ async fn run_deploy_pipeline(
     .bind(&canister_db_id)
     .execute(&db)
     .await;
+
+    // Step 5.5: Store candid interface if provided
+    if let Some(candid_text) = candid {
+        let _ = sqlx::query(
+            "UPDATE canisters SET candid_interface = $1 WHERE id = $2",
+        )
+        .bind(&candid_text)
+        .bind(&canister_db_id)
+        .execute(&db)
+        .await;
+        insert_log(&db, &deployment_id, "info", "Candid interface stored").await;
+    }
 
     // Step 6: Success
     let live_url = format!("https://{canister_id}.ic0.app");

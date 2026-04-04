@@ -267,6 +267,7 @@ pub async fn create_project(
             subnet_id: req.subnet.clone(),
             status: "pending".into(),
             cycles_balance: None,
+            candid_interface: None,
             created_at: now.clone(),
             updated_at: now.clone(),
         });

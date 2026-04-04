@@ -39,6 +39,7 @@ pub struct CanisterRecord {
     pub subnet_id: Option<String>,
     pub status: String,
     pub cycles_balance: Option<i64>,
+    pub candid_interface: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }

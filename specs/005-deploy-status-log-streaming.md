@@ -150,20 +150,20 @@ The broadcast channel is keyed by deployment ID. Use a `DashMap<String, broadcas
 ## 5. Implementation Checklist
 
 ### CLI
-- [ ] Implement `icforge status` — fetch project, format table
-- [ ] Implement `icforge logs` — fetch deploy logs, format output
-- [ ] Implement `icforge logs --follow` — SSE client (use `eventsource` npm package or raw fetch)
-- [ ] Add `--deploy <id>` flag to `icforge logs`
-- [ ] Color-code log levels (red for error, yellow for warn, default for info)
+- [x] Implement `icforge status` — fetch project, format table
+- [x] Implement `icforge logs` — fetch deploy logs, format output
+- [x] Implement `icforge logs --follow` — SSE client (native fetch + ReadableStream, no npm dep)
+- [x] Add `--deploy <id>` flag to `icforge logs`
+- [x] Color-code log levels (red for error, yellow for warn, default for info)
 
 ### Backend
-- [ ] Add `broadcast::Sender` map to `AppState`
-- [ ] Publish log events to broadcast channel in `insert_log()`
-- [ ] Add SSE endpoint `GET /api/v1/deploy/:id/logs/stream`
-- [ ] Replay existing logs from DB on SSE connect
-- [ ] Send `done` event when deployment completes
-- [ ] Clean up broadcast channels after deploy + 60s timeout
-- [ ] Add route to `main.rs`
+- [x] Add `broadcast::Sender` map to `AppState` (DashMap<String, broadcast::Sender<LogEvent>>)
+- [x] Publish log events to broadcast channel in `insert_log()`
+- [x] Add SSE endpoint `GET /api/v1/deploy/:id/logs/stream`
+- [x] Replay existing logs from DB on SSE connect
+- [x] Send `done` event when deployment completes
+- [x] Clean up broadcast channels after deploy + 60s timeout
+- [x] Add route to `main.rs`
 
 ### Dashboard
 - [ ] Use SSE for real-time deploy log display on ProjectDetail page (future enhancement)

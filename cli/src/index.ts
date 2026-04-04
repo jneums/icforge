@@ -45,7 +45,8 @@ program
 program
   .command("logs")
   .description("Stream deployment and canister logs")
-  .option("-f, --follow", "Follow log output")
+  .option("-d, --deploy <id>", "Show logs for a specific deployment ID")
+  .option("-f, --follow", "Follow log output (stream via SSE)")
   .action(logsCommand);
 
 program.parse();

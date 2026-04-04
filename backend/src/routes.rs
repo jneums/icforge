@@ -11,6 +11,9 @@ use crate::error::AppError;
 use crate::models::{CanisterRecord, CreateProjectRequest, Project, ProjectWithCanisters};
 use crate::AppState;
 
+// Re-export the SSE response type so the route handler signature works
+pub use crate::deploy::deploy_logs_stream;
+
 #[derive(Debug, Deserialize)]
 pub struct AuthLoginParams {
     pub redirect: Option<String>,

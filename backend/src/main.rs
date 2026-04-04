@@ -3,7 +3,10 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use serde::Serialize;
+use dashmap::DashMap;
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
 use tracing_subscriber::EnvFilter;
 
@@ -17,10 +20,20 @@ mod identity;
 mod models;
 mod routes;
 
+/// A single log event broadcast to SSE subscribers.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogEvent {
+    pub level: String,
+    pub message: String,
+    pub timestamp: String,
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub db: db::DbPool,
     pub config: config::AppConfig,
+    /// Per-deployment broadcast channels for real-time log streaming.
+    pub log_channels: Arc<DashMap<String, broadcast::Sender<LogEvent>>>,
 }
 
 #[tokio::main]
@@ -41,6 +54,7 @@ async fn main() {
     let state = AppState {
         db: pool,
         config,
+        log_channels: Arc::new(DashMap::new()),
     };
 
     let app = Router::new()
@@ -55,6 +69,7 @@ async fn main() {
         .route("/api/v1/deploy", post(routes::deploy))
         .route("/api/v1/deploy/{deploy_id}/status", get(routes::deploy_status))
         .route("/api/v1/deploy/{deploy_id}/logs", get(routes::deploy_logs))
+        .route("/api/v1/deploy/{deploy_id}/logs/stream", get(routes::deploy_logs_stream))
         .route("/api/v1/cycles/balance", get(routes::cycles_balance))
         .layer(DefaultBodyLimit::max(50 * 1024 * 1024)) // 50MB for wasm + assets
         .layer(CorsLayer::permissive())

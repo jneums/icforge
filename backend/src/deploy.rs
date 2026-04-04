@@ -1,17 +1,21 @@
 use axum::{
     extract::{Multipart, Path, State},
+    response::sse::{Event, KeepAlive, Sse},
     Json,
 };
 use candid::Principal;
+use futures::stream::Stream;
 use serde::Serialize;
 use serde_json::{json, Value};
+use std::convert::Infallible;
+use tokio::sync::broadcast;
 
 use crate::auth::AuthUser;
 use crate::db::DbPool;
 use crate::error::AppError;
 use crate::ic_client::IcClient;
 use crate::models::{DeployLog, DeploymentRecord};
-use crate::AppState;
+use crate::{AppState, LogEvent};
 
 // -- Response types --
 
@@ -41,7 +45,13 @@ pub struct DeployLogEntry {
 
 // -- Helper: insert a deploy log entry --
 
-async fn insert_log(db: &DbPool, deployment_id: &str, level: &str, message: &str) {
+async fn insert_log(
+    db: &DbPool,
+    deployment_id: &str,
+    level: &str,
+    message: &str,
+    log_channels: Option<&dashmap::DashMap<String, broadcast::Sender<LogEvent>>>,
+) {
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
     let _ = sqlx::query(
         "INSERT INTO deploy_logs (deployment_id, level, message, timestamp) VALUES ($1, $2, $3, $4)",
@@ -52,6 +62,17 @@ async fn insert_log(db: &DbPool, deployment_id: &str, level: &str, message: &str
     .bind(&now)
     .execute(db)
     .await;
+
+    // Broadcast to SSE subscribers if a channel exists for this deployment
+    if let Some(channels) = log_channels {
+        if let Some(tx) = channels.get(deployment_id) {
+            let _ = tx.send(LogEvent {
+                level: level.to_string(),
+                message: message.to_string(),
+                timestamp: now,
+            });
+        }
+    }
 }
 
 async fn update_deployment_status(db: &DbPool, deployment_id: &str, status: &str, error_msg: Option<&str>) {
@@ -271,6 +292,11 @@ pub async fn deploy(
         None => None,
     };
 
+    // Create broadcast channel for this deployment's log streaming
+    let (tx, _rx) = broadcast::channel::<LogEvent>(256);
+    state.log_channels.insert(deploy_id.clone(), tx);
+    let log_channels = state.log_channels.clone();
+
     // Spawn background deploy pipeline
     tokio::spawn(async move {
         run_deploy_pipeline(
@@ -285,6 +311,7 @@ pub async fn deploy(
             init_arg_bytes,
             candid_text,
             canister_type,
+            log_channels,
         )
         .await;
     });
@@ -310,9 +337,12 @@ async fn run_deploy_pipeline(
     init_arg: Option<Vec<u8>>,
     candid: Option<String>,
     canister_type: String,
+    log_channels: std::sync::Arc<dashmap::DashMap<String, broadcast::Sender<LogEvent>>>,
 ) {
+    let lc = Some(&*log_channels);
+
     // Step 1: Log starting
-    insert_log(&db, &deployment_id, "info", "Starting deployment...").await;
+    insert_log(&db, &deployment_id, "info", "Starting deployment...", lc).await;
     update_deployment_status(&db, &deployment_id, "deploying", None).await;
 
     // Read wasm from temp file
@@ -320,7 +350,7 @@ async fn run_deploy_pipeline(
         Ok(bytes) => bytes,
         Err(e) => {
             let msg = format!("Failed to read wasm file: {e}");
-            insert_log(&db, &deployment_id, "error", &msg).await;
+            insert_log(&db, &deployment_id, "error", &msg, lc).await;
             update_deployment_status(&db, &deployment_id, "failed", Some(&msg)).await;
             return;
         }
@@ -334,7 +364,7 @@ async fn run_deploy_pipeline(
         Ok(c) => c,
         Err(e) => {
             let msg = format!("Failed to create IC agent: {e}");
-            insert_log(&db, &deployment_id, "error", &msg).await;
+            insert_log(&db, &deployment_id, "error", &msg, lc).await;
             update_deployment_status(&db, &deployment_id, "failed", Some(&msg)).await;
             return;
         }
@@ -347,11 +377,12 @@ async fn run_deploy_pipeline(
             &deployment_id,
             "info",
             &format!("Upgrading canister: {cid}"),
+            lc,
         )
         .await;
         (cid, true)
     } else {
-        insert_log(&db, &deployment_id, "info", "Creating new canister...").await;
+        insert_log(&db, &deployment_id, "info", "Creating new canister...", lc).await;
         match client.create_canister().await {
             Ok(cid) => {
                 insert_log(
@@ -359,6 +390,7 @@ async fn run_deploy_pipeline(
                     &deployment_id,
                     "info",
                     &format!("Created canister: {cid}"),
+                    lc,
                 )
                 .await;
 
@@ -376,7 +408,7 @@ async fn run_deploy_pipeline(
             }
             Err(e) => {
                 let msg = format!("Failed to create canister: {e}");
-                insert_log(&db, &deployment_id, "error", &msg).await;
+                insert_log(&db, &deployment_id, "error", &msg, lc).await;
                 update_deployment_status(&db, &deployment_id, "failed", Some(&msg)).await;
                 return;
             }
@@ -392,6 +424,7 @@ async fn run_deploy_pipeline(
             "Installing code ({})...",
             if is_upgrade { "upgrade" } else { "install" }
         ),
+        lc,
     )
     .await;
 
@@ -400,11 +433,11 @@ async fn run_deploy_pipeline(
         .await
     {
         Ok(()) => {
-            insert_log(&db, &deployment_id, "info", "Code installed successfully").await;
+            insert_log(&db, &deployment_id, "info", "Code installed successfully", lc).await;
         }
         Err(e) => {
             let msg = format!("install_code failed: {e}");
-            insert_log(&db, &deployment_id, "error", &msg).await;
+            insert_log(&db, &deployment_id, "error", &msg, lc).await;
             update_deployment_status(&db, &deployment_id, "failed", Some(&msg)).await;
             return;
         }
@@ -413,7 +446,7 @@ async fn run_deploy_pipeline(
     // Step 4.5: Sync static assets if a tarball was provided (frontend canisters only)
     if canister_type == "frontend" {
     if let Some(tarball_path) = assets_path {
-        insert_log(&db, &deployment_id, "info", "Syncing static assets...").await;
+        insert_log(&db, &deployment_id, "info", "Syncing static assets...", lc).await;
 
         // Extract tarball to a temp directory
         let assets_dir = format!("/tmp/icforge_assets_extracted_{}", deployment_id);
@@ -421,7 +454,7 @@ async fn run_deploy_pipeline(
             Ok(()) => {}
             Err(e) => {
                 let msg = format!("Failed to extract assets tarball: {e}");
-                insert_log(&db, &deployment_id, "error", &msg).await;
+                insert_log(&db, &deployment_id, "error", &msg, lc).await;
                 update_deployment_status(&db, &deployment_id, "failed", Some(&msg)).await;
                 let _ = tokio::fs::remove_file(&tarball_path).await;
                 let _ = tokio::fs::remove_dir_all(&assets_dir).await;
@@ -437,7 +470,7 @@ async fn run_deploy_pipeline(
             Ok(p) => p,
             Err(e) => {
                 let msg = format!("Invalid canister principal for asset sync: {e}");
-                insert_log(&db, &deployment_id, "error", &msg).await;
+                insert_log(&db, &deployment_id, "error", &msg, lc).await;
                 update_deployment_status(&db, &deployment_id, "failed", Some(&msg)).await;
                 let _ = tokio::fs::remove_dir_all(&assets_dir).await;
                 return;
@@ -452,7 +485,7 @@ async fn run_deploy_pipeline(
             Ok(c) => c,
             Err(e) => {
                 let msg = format!("Failed to build Canister object for asset sync: {e}");
-                insert_log(&db, &deployment_id, "error", &msg).await;
+                insert_log(&db, &deployment_id, "error", &msg, lc).await;
                 update_deployment_status(&db, &deployment_id, "failed", Some(&msg)).await;
                 let _ = tokio::fs::remove_dir_all(&assets_dir).await;
                 return;
@@ -463,11 +496,11 @@ async fn run_deploy_pipeline(
         let assets_path_buf = std::path::PathBuf::from(&assets_dir);
         match ic_asset::sync(&canister, &[assets_path_buf.as_path()], false, &logger, None).await {
             Ok(()) => {
-                insert_log(&db, &deployment_id, "info", "Assets synced successfully").await;
+                insert_log(&db, &deployment_id, "info", "Assets synced successfully", lc).await;
             }
             Err(e) => {
                 let msg = format!("Asset sync failed: {e}");
-                insert_log(&db, &deployment_id, "error", &msg).await;
+                insert_log(&db, &deployment_id, "error", &msg, lc).await;
                 update_deployment_status(&db, &deployment_id, "failed", Some(&msg)).await;
                 let _ = tokio::fs::remove_dir_all(&assets_dir).await;
                 return;
@@ -497,7 +530,7 @@ async fn run_deploy_pipeline(
         .bind(&canister_db_id)
         .execute(&db)
         .await;
-        insert_log(&db, &deployment_id, "info", "Candid interface stored").await;
+        insert_log(&db, &deployment_id, "info", "Candid interface stored", lc).await;
     }
 
     // Step 6: Success
@@ -507,6 +540,7 @@ async fn run_deploy_pipeline(
         &deployment_id,
         "info",
         &format!("Live at {live_url}"),
+        lc,
     )
     .await;
     update_deployment_status(&db, &deployment_id, "live", None).await;
@@ -516,6 +550,15 @@ async fn run_deploy_pipeline(
         canister_id = %canister_id,
         "Deployment completed successfully"
     );
+
+    // Clean up the broadcast channel after 60s to allow late SSE subscribers to finish
+    let deploy_id_cleanup = deployment_id.clone();
+    let channels_cleanup = log_channels.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+        channels_cleanup.remove(&deploy_id_cleanup);
+        tracing::debug!(deployment_id = %deploy_id_cleanup, "Cleaned up log broadcast channel");
+    });
 }
 
 // -- GET /api/v1/deploy/:deploy_id/status --
@@ -624,6 +667,142 @@ pub async fn deploy_logs(
     Ok(Json(json!({
         "logs": log_entries,
     })))
+}
+
+// -- GET /api/v1/deploy/{deploy_id}/logs/stream (SSE) --
+
+pub async fn deploy_logs_stream(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+    Path(deploy_id): Path<String>,
+) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, AppError> {
+    // Fetch deployment to verify ownership
+    let deployment: DeploymentRecord = sqlx::query_as(
+        "SELECT * FROM deployments WHERE id = $1",
+    )
+    .bind(&deploy_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(AppError::Database)?
+    .ok_or_else(|| AppError::NotFound("Deployment not found".into()))?;
+
+    // Verify project belongs to user
+    let _project: crate::models::Project =
+        sqlx::query_as("SELECT * FROM projects WHERE id = $1 AND user_id = $2")
+            .bind(&deployment.project_id)
+            .bind(&auth_user.user.id)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(AppError::Database)?
+            .ok_or_else(|| AppError::NotFound("Project not found or not owned by user".into()))?;
+
+    // Replay existing logs from DB
+    let existing_logs: Vec<DeployLog> = sqlx::query_as(
+        "SELECT * FROM deploy_logs WHERE deployment_id = $1 ORDER BY timestamp ASC, id ASC",
+    )
+    .bind(&deploy_id)
+    .fetch_all(&state.db)
+    .await
+    .map_err(AppError::Database)?;
+
+    let status = deployment.status.clone();
+
+    // Subscribe to broadcast channel for new logs (if still active)
+    let rx = state
+        .log_channels
+        .get(&deploy_id)
+        .map(|entry| entry.value().subscribe());
+
+    let stream = async_stream::stream! {
+        // Phase 1: replay existing logs
+        for log in existing_logs {
+            let evt = LogEvent {
+                level: log.level,
+                message: log.message,
+                timestamp: log.timestamp,
+            };
+            let data = serde_json::to_string(&evt).unwrap_or_default();
+            yield Ok(Event::default().event("log").data(data));
+        }
+
+        // Send current status
+        yield Ok(Event::default().event("status").data(&status));
+
+        // If deployment is already terminal, send done and return
+        let is_terminal = matches!(status.as_str(), "live" | "failed");
+        if is_terminal {
+            yield Ok(Event::default().event("done").data(&status));
+            return;
+        }
+
+        // Phase 2: stream new logs from broadcast channel
+        if let Some(mut rx) = rx {
+            loop {
+                match rx.recv().await {
+                    Ok(evt) => {
+                        let is_done_msg = evt.message.starts_with("Live at ")
+                            || evt.level == "error";
+                        let data = serde_json::to_string(&evt).unwrap_or_default();
+                        yield Ok(Event::default().event("log").data(data));
+
+                        // After a terminal log, check DB for final status
+                        if is_done_msg {
+                            // Small delay to let status update propagate
+                            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                            let final_status: Option<(String,)> = sqlx::query_as(
+                                "SELECT status FROM deployments WHERE id = $1",
+                            )
+                            .bind(&deploy_id)
+                            .fetch_optional(&state.db)
+                            .await
+                            .ok()
+                            .flatten();
+
+                            if let Some((s,)) = final_status {
+                                if matches!(s.as_str(), "live" | "failed") {
+                                    yield Ok(Event::default().event("status").data(&s));
+                                    yield Ok(Event::default().event("done").data(&s));
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Lagged(n)) => {
+                        let msg = format!("Skipped {n} log messages");
+                        yield Ok(Event::default().event("log").data(
+                            serde_json::to_string(&LogEvent {
+                                level: "warn".to_string(),
+                                message: msg,
+                                timestamp: chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+                            }).unwrap_or_default()
+                        ));
+                    }
+                    Err(broadcast::error::RecvError::Closed) => {
+                        // Channel closed — deployment finished
+                        let final_status: Option<(String,)> = sqlx::query_as(
+                            "SELECT status FROM deployments WHERE id = $1",
+                        )
+                        .bind(&deploy_id)
+                        .fetch_optional(&state.db)
+                        .await
+                        .ok()
+                        .flatten();
+
+                        let s = final_status.map(|(s,)| s).unwrap_or_else(|| "unknown".to_string());
+                        yield Ok(Event::default().event("status").data(&s));
+                        yield Ok(Event::default().event("done").data(&s));
+                        break;
+                    }
+                }
+            }
+        } else {
+            // No broadcast channel — deployment may have already completed
+            // We already replayed logs and sent status above
+            yield Ok(Event::default().event("done").data(&status));
+        }
+    };
+
+    Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
 }
 
 // -- Helper: extract a .tar.gz assets tarball to a directory --

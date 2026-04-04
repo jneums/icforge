@@ -20,7 +20,7 @@ impl AppConfig {
     pub fn from_env() -> Self {
         Self {
             database_url: env::var("DATABASE_URL")
-                .unwrap_or_else(|_| "sqlite:icforge.db".to_string()),
+                .unwrap_or_else(|_| "postgres://localhost/icforge".to_string()),
             github_client_id: env::var("GITHUB_CLIENT_ID")
                 .unwrap_or_default(),
             github_client_secret: env::var("GITHUB_CLIENT_SECRET")

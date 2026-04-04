@@ -1,9 +1,9 @@
-use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
+use sqlx::postgres::{PgPool, PgPoolOptions};
 
-pub type DbPool = SqlitePool;
+pub type DbPool = PgPool;
 
 pub async fn init_pool(database_url: &str) -> DbPool {
-    SqlitePoolOptions::new()
+    PgPoolOptions::new()
         .max_connections(5)
         .connect(database_url)
         .await

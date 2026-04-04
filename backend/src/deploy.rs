@@ -44,7 +44,7 @@ pub struct DeployLogEntry {
 async fn insert_log(db: &DbPool, deployment_id: &str, level: &str, message: &str) {
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
     let _ = sqlx::query(
-        "INSERT INTO deploy_logs (deployment_id, level, message, timestamp) VALUES (?, ?, ?, ?)",
+        "INSERT INTO deploy_logs (deployment_id, level, message, timestamp) VALUES ($1, $2, $3, $4)",
     )
     .bind(deployment_id)
     .bind(level)
@@ -58,7 +58,7 @@ async fn update_deployment_status(db: &DbPool, deployment_id: &str, status: &str
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
     if let Some(err) = error_msg {
         let _ = sqlx::query(
-            "UPDATE deployments SET status = ?, error_message = ?, completed_at = ? WHERE id = ?",
+            "UPDATE deployments SET status = $1, error_message = $2, completed_at = $3 WHERE id = $4",
         )
         .bind(status)
         .bind(err)
@@ -68,7 +68,7 @@ async fn update_deployment_status(db: &DbPool, deployment_id: &str, status: &str
         .await;
     } else {
         let _ = sqlx::query(
-            "UPDATE deployments SET status = ?, completed_at = ? WHERE id = ?",
+            "UPDATE deployments SET status = $1, completed_at = $2 WHERE id = $3",
         )
         .bind(status)
         .bind(&now)
@@ -169,7 +169,7 @@ pub async fn deploy(
 
     // Verify project belongs to user
     let project_row: Option<crate::models::Project> =
-        sqlx::query_as("SELECT * FROM projects WHERE id = ? AND user_id = ?")
+        sqlx::query_as("SELECT * FROM projects WHERE id = $1 AND user_id = $2")
             .bind(&project_id)
             .bind(&auth_user.user.id)
             .fetch_optional(&state.db)
@@ -181,7 +181,7 @@ pub async fn deploy(
 
     // Find canister record
     let canister_row: Option<crate::models::CanisterRecord> = sqlx::query_as(
-        "SELECT * FROM canisters WHERE project_id = ? AND name = ?",
+        "SELECT * FROM canisters WHERE project_id = $1 AND name = $2",
     )
     .bind(&project_id)
     .bind(&canister_name)
@@ -217,7 +217,7 @@ pub async fn deploy(
     // Create deployment record with status='building'
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
     sqlx::query(
-        "INSERT INTO deployments (id, project_id, canister_name, status, commit_sha, commit_message, started_at) VALUES (?, ?, ?, 'building', ?, ?, ?)",
+        "INSERT INTO deployments (id, project_id, canister_name, status, commit_sha, commit_message, started_at) VALUES ($1, $2, $3, 'building', $4, $5, $6)",
     )
     .bind(&deployment_id)
     .bind(&project_id)
@@ -327,9 +327,10 @@ async fn run_deploy_pipeline(
 
                 // Update canister record with the new canister_id
                 let _ = sqlx::query(
-                    "UPDATE canisters SET canister_id = ?, status = 'created', updated_at = datetime('now') WHERE id = ?",
+                    "UPDATE canisters SET canister_id = $1, status = 'created', updated_at = $2 WHERE id = $3",
                 )
                 .bind(&cid)
+                .bind(chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string())
                 .bind(&canister_db_id)
                 .execute(&db)
                 .await;
@@ -441,8 +442,9 @@ async fn run_deploy_pipeline(
 
     // Step 5: Update canister status
     let _ = sqlx::query(
-        "UPDATE canisters SET status = 'running', updated_at = datetime('now') WHERE id = ?",
+        "UPDATE canisters SET status = 'running', updated_at = $1 WHERE id = $2",
     )
+    .bind(chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string())
     .bind(&canister_db_id)
     .execute(&db)
     .await;
@@ -474,7 +476,7 @@ pub async fn deploy_status(
 ) -> Result<Json<Value>, AppError> {
     // Fetch deployment record
     let deployment: DeploymentRecord = sqlx::query_as(
-        "SELECT * FROM deployments WHERE id = ?",
+        "SELECT * FROM deployments WHERE id = $1",
     )
     .bind(&deploy_id)
     .fetch_optional(&state.db)
@@ -484,7 +486,7 @@ pub async fn deploy_status(
 
     // Verify project belongs to user
     let _project: crate::models::Project =
-        sqlx::query_as("SELECT * FROM projects WHERE id = ? AND user_id = ?")
+        sqlx::query_as("SELECT * FROM projects WHERE id = $1 AND user_id = $2")
             .bind(&deployment.project_id)
             .bind(&auth_user.user.id)
             .fetch_optional(&state.db)
@@ -494,7 +496,7 @@ pub async fn deploy_status(
 
     // Find canister_id for this deployment's canister
     let canister: Option<crate::models::CanisterRecord> = sqlx::query_as(
-        "SELECT * FROM canisters WHERE project_id = ? AND name = ?",
+        "SELECT * FROM canisters WHERE project_id = $1 AND name = $2",
     )
     .bind(&deployment.project_id)
     .bind(&deployment.canister_name)
@@ -532,7 +534,7 @@ pub async fn deploy_logs(
 ) -> Result<Json<Value>, AppError> {
     // Fetch deployment to verify ownership
     let deployment: DeploymentRecord = sqlx::query_as(
-        "SELECT * FROM deployments WHERE id = ?",
+        "SELECT * FROM deployments WHERE id = $1",
     )
     .bind(&deploy_id)
     .fetch_optional(&state.db)
@@ -542,7 +544,7 @@ pub async fn deploy_logs(
 
     // Verify project belongs to user
     let _project: crate::models::Project =
-        sqlx::query_as("SELECT * FROM projects WHERE id = ? AND user_id = ?")
+        sqlx::query_as("SELECT * FROM projects WHERE id = $1 AND user_id = $2")
             .bind(&deployment.project_id)
             .bind(&auth_user.user.id)
             .fetch_optional(&state.db)
@@ -552,7 +554,7 @@ pub async fn deploy_logs(
 
     // Fetch logs
     let logs: Vec<DeployLog> = sqlx::query_as(
-        "SELECT * FROM deploy_logs WHERE deployment_id = ? ORDER BY timestamp ASC, id ASC",
+        "SELECT * FROM deploy_logs WHERE deployment_id = $1 ORDER BY timestamp ASC, id ASC",
     )
     .bind(&deploy_id)
     .fetch_all(&state.db)

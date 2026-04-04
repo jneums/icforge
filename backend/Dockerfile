@@ -12,7 +12,7 @@ RUN mkdir src && echo "fn main() {}" > src/main.rs
 RUN cargo build --release 2>&1 || true
 # Now copy real source and rebuild
 COPY src/ src/
-RUN touch src/main.rs && cargo build --release
+RUN touch src/main.rs && SQLX_OFFLINE=true cargo build --release
 
 # ── Runtime stage ──
 FROM debian:bookworm-slim
@@ -22,10 +22,7 @@ RUN apt-get update && apt-get install -y ca-certificates libssl3 && rm -rf /var/
 WORKDIR /app
 COPY --from=builder /app/target/release/icforge-backend .
 
-# Create data directory for SQLite
-RUN mkdir -p /app/data
-
-ENV DATABASE_URL="sqlite:///app/data/icforge.db?mode=rwc"
+ENV DATABASE_URL=""
 ENV HOST="0.0.0.0"
 
 EXPOSE 8080

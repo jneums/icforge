@@ -76,7 +76,7 @@ pub async fn auth_callback(
 
     // Check if user already exists
     let existing_user: Option<crate::models::User> =
-        sqlx::query_as("SELECT * FROM users WHERE github_id = ?")
+        sqlx::query_as("SELECT * FROM users WHERE github_id = $1")
             .bind(github_user.id)
             .fetch_optional(&state.db)
             .await
@@ -85,11 +85,12 @@ pub async fn auth_callback(
     let (user_id, username) = if let Some(user) = existing_user {
         // Update existing user
         sqlx::query(
-            "UPDATE users SET email = ?, name = ?, avatar_url = ?, updated_at = datetime('now') WHERE id = ?",
+            "UPDATE users SET email = $1, name = $2, avatar_url = $3, updated_at = $4 WHERE id = $5",
         )
         .bind(&github_user.email)
         .bind(&github_user.name)
         .bind(&github_user.avatar_url)
+        .bind(chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string())
         .bind(&user.id)
         .execute(&state.db)
         .await
@@ -101,7 +102,7 @@ pub async fn auth_callback(
         let (ic_pem, ic_principal) = crate::identity::generate_identity()?;
 
         sqlx::query(
-            "INSERT INTO users (id, github_id, email, name, avatar_url, ic_identity_pem, ic_principal, plan) VALUES (?, ?, ?, ?, ?, ?, ?, 'free')",
+            "INSERT INTO users (id, github_id, email, name, avatar_url, ic_identity_pem, ic_principal, plan) VALUES ($1, $2, $3, $4, $5, $6, $7, 'free')",
         )
         .bind(&user_id)
         .bind(github_user.id)
@@ -157,7 +158,7 @@ pub async fn list_projects(
     auth_user: AuthUser,
 ) -> Result<Json<Value>, AppError> {
     let projects: Vec<Project> =
-        sqlx::query_as("SELECT * FROM projects WHERE user_id = ? ORDER BY created_at DESC")
+        sqlx::query_as("SELECT * FROM projects WHERE user_id = $1 ORDER BY created_at DESC")
             .bind(&auth_user.user.id)
             .fetch_all(&state.db)
             .await
@@ -166,7 +167,7 @@ pub async fn list_projects(
     let mut result: Vec<ProjectWithCanisters> = Vec::new();
     for project in projects {
         let canisters: Vec<CanisterRecord> = sqlx::query_as(
-            "SELECT * FROM canisters WHERE project_id = ?",
+            "SELECT * FROM canisters WHERE project_id = $1",
         )
         .bind(&project.id)
         .fetch_all(&state.db)
@@ -196,7 +197,7 @@ pub async fn create_project(
 
     // Check if project already exists for this user+slug (idempotent init)
     let existing: Option<(String, String, String)> = sqlx::query_as(
-        "SELECT id, name, slug FROM projects WHERE user_id = ? AND slug = ?",
+        "SELECT id, name, slug FROM projects WHERE user_id = $1 AND slug = $2",
     )
     .bind(&auth_user.user.id)
     .bind(&slug)
@@ -207,7 +208,7 @@ pub async fn create_project(
     if let Some((existing_id, existing_name, existing_slug)) = existing {
         // Return existing project with its canisters
         let canisters: Vec<CanisterRecord> = sqlx::query_as(
-            "SELECT * FROM canisters WHERE project_id = ?",
+            "SELECT * FROM canisters WHERE project_id = $1",
         )
         .bind(&existing_id)
         .fetch_all(&state.db)
@@ -226,7 +227,7 @@ pub async fn create_project(
 
     // Insert project
     sqlx::query(
-        "INSERT INTO projects (id, user_id, name, slug, subnet_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO projects (id, user_id, name, slug, subnet_id, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7)",
     )
     .bind(&project_id)
     .bind(&auth_user.user.id)
@@ -244,7 +245,7 @@ pub async fn create_project(
     for canister_input in &req.canisters {
         let canister_id = uuid::Uuid::new_v4().to_string();
         sqlx::query(
-            "INSERT INTO canisters (id, project_id, name, type, subnet_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)",
+            "INSERT INTO canisters (id, project_id, name, type, subnet_id, status, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7)",
         )
         .bind(&canister_id)
         .bind(&project_id)
@@ -294,7 +295,7 @@ pub async fn get_project(
     Path(project_id): Path<String>,
 ) -> Result<Json<Value>, AppError> {
     let project: Project =
-        sqlx::query_as("SELECT * FROM projects WHERE id = ? AND user_id = ?")
+        sqlx::query_as("SELECT * FROM projects WHERE id = $1 AND user_id = $2")
             .bind(&project_id)
             .bind(&auth_user.user.id)
             .fetch_optional(&state.db)
@@ -303,14 +304,14 @@ pub async fn get_project(
             .ok_or_else(|| AppError::NotFound("Project not found".into()))?;
 
     let canisters: Vec<CanisterRecord> =
-        sqlx::query_as("SELECT * FROM canisters WHERE project_id = ?")
+        sqlx::query_as("SELECT * FROM canisters WHERE project_id = $1")
             .bind(&project.id)
             .fetch_all(&state.db)
             .await
             .map_err(AppError::Database)?;
 
     let deployments: Vec<crate::models::DeploymentRecord> = sqlx::query_as(
-        "SELECT * FROM deployments WHERE project_id = ? ORDER BY started_at DESC LIMIT 50",
+        "SELECT * FROM deployments WHERE project_id = $1 ORDER BY started_at DESC LIMIT 50",
     )
     .bind(&project.id)
     .fetch_all(&state.db)
@@ -395,7 +396,7 @@ pub async fn dev_token(
 
     // Check if dev user exists
     let existing: Option<crate::models::User> =
-        sqlx::query_as("SELECT * FROM users WHERE id = ?")
+        sqlx::query_as("SELECT * FROM users WHERE id = $1")
             .bind(&user_id)
             .fetch_optional(&state.db)
             .await
@@ -407,7 +408,7 @@ pub async fn dev_token(
         let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
         sqlx::query(
-            "INSERT INTO users (id, github_id, email, name, avatar_url, ic_identity_pem, ic_principal, plan, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'free', ?, ?)",
+            "INSERT INTO users (id, github_id, email, name, avatar_url, ic_identity_pem, ic_principal, plan, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, 'free', $8, $9)",
         )
         .bind(&user_id)
         .bind(github_id)

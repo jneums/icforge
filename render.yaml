@@ -16,7 +16,9 @@ services:
       - key: PORT
         value: "8080"
       - key: DATABASE_URL
-        value: "sqlite:///app/data/icforge.db?mode=rwc"
+        fromDatabase:
+          name: icforge-db
+          property: connectionString
       - key: JWT_SECRET
         generateValue: true
       - key: GITHUB_CLIENT_ID
@@ -44,3 +46,8 @@ services:
       - type: rewrite
         source: /*
         destination: /index.html
+
+databases:
+  - name: icforge-db
+    plan: free
+    region: oregon

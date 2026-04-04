@@ -59,7 +59,7 @@ pub struct DeploymentRecord {
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct DeployLog {
-    pub id: i64,
+    pub id: i32,
     pub deployment_id: String,
     pub level: String,
     pub message: String,

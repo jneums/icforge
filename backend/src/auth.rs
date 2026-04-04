@@ -144,7 +144,7 @@ impl FromRequestParts<AppState> for AuthUser {
 
             let claims = verify_token(token, &jwt_secret)?;
 
-            let user: User = sqlx::query_as("SELECT * FROM users WHERE id = ?")
+            let user: User = sqlx::query_as("SELECT * FROM users WHERE id = $1")
                 .bind(&claims.sub)
                 .fetch_optional(&db)
                 .await

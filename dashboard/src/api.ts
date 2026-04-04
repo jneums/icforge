@@ -81,6 +81,12 @@ export interface User {
   updated_at: string;
 }
 
+export interface LogEntry {
+  level: string;
+  message: string;
+  timestamp: string;
+}
+
 // ---------- API calls ----------
 
 export async function fetchProjects(): Promise<Project[]> {
@@ -110,3 +116,37 @@ export async function devLogin(): Promise<string> {
   setToken(data.token);
   return data.token;
 }
+
+export async function fetchDeployLogs(deployId: string): Promise<LogEntry[]> {
+  const res = await apiFetch(`/api/v1/deploy/${deployId}/logs`);
+  if (!res.ok) throw new Error(`Failed to fetch deploy logs: ${res.status}`);
+  const data = await res.json();
+  return data.logs ?? [];
+}
+
+export async function fetchDeployStatus(deployId: string): Promise<{
+  deployment_id: string;
+  status: string;
+  url?: string;
+  canister_id?: string;
+  error?: string;
+}> {
+  const res = await apiFetch(`/api/v1/deploy/${deployId}/status`);
+  if (!res.ok) throw new Error(`Failed to fetch deploy status: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchCyclesBalance(): Promise<{ balance_e8s: number }> {
+  const res = await apiFetch('/api/v1/cycles/balance');
+  if (!res.ok) throw new Error(`Failed to fetch cycles balance: ${res.status}`);
+  return res.json();
+}
+
+/** Build headers with auth for SSE streaming (used by DeployDetail) */
+export function getAuthHeaders(): Record<string, string> {
+  const token = getToken();
+  if (token) return { Authorization: `Bearer ${token}` };
+  return {};
+}
+
+export { API_URL };

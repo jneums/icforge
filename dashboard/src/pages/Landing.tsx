@@ -6,7 +6,7 @@ export default function Landing() {
       <div style={styles.hero}>
         <p style={styles.badge}>Open Source CI/CD for the Internet Computer</p>
         <h1 style={styles.headline}>
-          Deploy to IC
+          Deploy to the Internet Computer in 60 seconds
         </h1>
         <p style={styles.description}>
           Push to GitHub. Build automatically. Deploy to the Internet Computer.
@@ -27,6 +27,26 @@ export default function Landing() {
         </div>
       </div>
 
+      {/* Workflow Code Snippet */}
+      <div style={styles.snippetSection}>
+        <h2 style={styles.snippetTitle}>Ship canisters in three commands</h2>
+        <div style={styles.codeBlock}>
+          <pre style={styles.pre}>
+            <code>
+              <span style={styles.comment}># Install the CLI</span>{'\n'}
+              <span style={styles.command}>npm</span>{' '}i -g @icforge/cli{'\n\n'}
+              <span style={styles.comment}># Initialize your project</span>{'\n'}
+              <span style={styles.command}>icforge</span>{' '}init{'\n\n'}
+              <span style={styles.comment}># Deploy to the IC</span>{'\n'}
+              <span style={styles.command}>icforge</span>{' '}deploy{'\n\n'}
+              <span style={styles.output}>✓ Built in 12s</span>{'\n'}
+              <span style={styles.output}>✓ Deployed to canister ryjl3-tyaaa-aaaaa-aaaba-cai</span>{'\n'}
+              <span style={styles.output}>✓ Live at myapp.icforge.dev</span>
+            </code>
+          </pre>
+        </div>
+      </div>
+
       <div style={styles.features}>
         {[
           { title: 'Git-Driven Deploys', desc: 'Connect your GitHub repo. Every push to main triggers a canister deployment.' },
@@ -38,6 +58,19 @@ export default function Landing() {
             <p style={styles.featureDesc}>{f.desc}</p>
           </div>
         ))}
+      </div>
+
+      {/* CTA */}
+      <div style={styles.cta}>
+        <h2 style={styles.ctaTitle}>Ready to deploy?</h2>
+        <p style={styles.ctaDesc}>
+          Get started for free. No credit card required.
+        </p>
+        <Link to="/login">
+          <button className="btn-primary" style={{ padding: '0.7rem 2rem', fontSize: '1rem' }}>
+            Get Started →
+          </button>
+        </Link>
       </div>
     </div>
   );
@@ -81,11 +114,47 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '0.75rem',
     justifyContent: 'center',
   },
+  snippetSection: {
+    textAlign: 'center',
+    marginBottom: '3rem',
+  },
+  snippetTitle: {
+    fontSize: '1.25rem',
+    fontWeight: 700,
+    marginBottom: '1.25rem',
+  },
+  codeBlock: {
+    background: '#0d1117',
+    border: '1px solid var(--border-color)',
+    borderRadius: 10,
+    padding: '1.5rem 2rem',
+    textAlign: 'left',
+    maxWidth: 560,
+    margin: '0 auto',
+    overflow: 'auto',
+  },
+  pre: {
+    margin: 0,
+    fontFamily: 'ui-monospace, "Cascadia Code", "Source Code Pro", Menlo, Consolas, monospace',
+    fontSize: '0.85rem',
+    lineHeight: 1.7,
+    color: '#e6edf3',
+  },
+  comment: {
+    color: '#6b7280',
+  },
+  command: {
+    color: '#7dd3fc',
+    fontWeight: 600,
+  },
+  output: {
+    color: '#4ade80',
+  },
   features: {
     display: 'grid',
     gridTemplateColumns: 'repeat(3, 1fr)',
     gap: '1.5rem',
-    paddingBottom: '4rem',
+    paddingBottom: '3rem',
   },
   featureCard: {
     background: 'var(--bg-secondary)',
@@ -102,5 +171,19 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '0.85rem',
     color: 'var(--text-secondary)',
     lineHeight: 1.6,
+  },
+  cta: {
+    textAlign: 'center',
+    padding: '3rem 0 4rem',
+    borderTop: '1px solid var(--border-color)',
+  },
+  ctaTitle: {
+    fontSize: '1.5rem',
+    fontWeight: 700,
+    marginBottom: '0.5rem',
+  },
+  ctaDesc: {
+    color: 'var(--text-secondary)',
+    marginBottom: '1.5rem',
   },
 };

@@ -1,14 +1,15 @@
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
-const navItems = [
-  { path: '/', label: 'Home' },
-  { path: '/projects', label: 'Projects' },
-];
-
 export default function Header() {
   const location = useLocation();
   const { user, logout } = useAuth();
+
+  const navItems = [
+    { path: '/', label: 'Home' },
+    { path: '/projects', label: 'Projects' },
+    ...(user ? [{ path: '/settings', label: 'Settings' }] : []),
+  ];
 
   return (
     <header style={styles.header}>

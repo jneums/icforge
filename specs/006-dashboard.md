@@ -112,18 +112,18 @@ This works. The callback redirect URL needs to point to the dashboard's domain (
 - [ ] Verify OAuth callback flow works end-to-end
 
 ### New pages
-- [ ] Deploy Detail page (`/projects/:id/deploys/:deployId`)
-- [ ] Settings page (`/settings`)
-- [ ] Wire SSE log streaming to Deploy Detail page
+- [x] Deploy Detail page (`/projects/:id/deploys/:deployId`) with SSE log streaming
+- [x] Settings page (`/settings`) with profile, plan, placeholder API tokens + identity export
+- [x] Wire SSE log streaming to Deploy Detail page (fetch+ReadableStream with auth)
 
 ### Enhancements
-- [ ] Add canister ID → ic0.app links on ProjectDetail
-- [ ] Add vanity URL display on ProjectDetail
-- [ ] Polish Landing page with value prop and getting-started snippet
+- [x] Add canister ID → ic0.app links on ProjectDetail
+- [x] Add vanity URL display on ProjectDetail
+- [x] Polish Landing page with value prop and getting-started snippet
 - [ ] Mobile responsive pass (tables → cards on small screens)
-- [ ] Dark mode toggle (or respect system preference — probably already works with CSS vars)
+- [ ] Dark mode toggle (or respect system preference)
 
 ### API client
-- [ ] Add `fetchDeployLogs(deployId)` to api.ts
-- [ ] Add SSE client helper for log streaming
-- [ ] Add `fetchCyclesBalance()` to api.ts
+- [x] Add `fetchDeployLogs(deployId)` to api.ts
+- [x] Add SSE client helper for log streaming (getAuthHeaders + API_URL exports)
+- [x] Add `fetchCyclesBalance()` to api.ts

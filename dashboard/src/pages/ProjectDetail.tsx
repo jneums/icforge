@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
-import { fetchProject, type Project, type Deployment } from '../api';
+import { useParams, Link, useNavigate } from 'react-router-dom';
+import { fetchProject } from '../api';
+import type { Project, Deployment } from '../api';
 import { useAuth } from '../contexts/AuthContext';
 
 const statusBadge: Record<string, string> = {
@@ -13,6 +14,8 @@ const statusBadge: Record<string, string> = {
   created: 'badge-warning',
   failed: 'badge-error',
 };
+
+const IN_PROGRESS_STATUSES = ['pending', 'building', 'deploying', 'created'];
 
 function timeAgo(dateStr: string): string {
   const date = new Date(dateStr + 'Z');
@@ -28,6 +31,7 @@ function timeAgo(dateStr: string): string {
 
 export default function ProjectDetail() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const { user, loading: authLoading } = useAuth();
   const [project, setProject] = useState<Project | null>(null);
   const [deployments, setDeployments] = useState<Deployment[]>([]);
@@ -70,6 +74,8 @@ export default function ProjectDetail() {
 
   const latestStatus = deployments[0]?.status ?? project.canisters?.[0]?.status ?? 'pending';
   const primaryCanister = project.canisters?.[0];
+  const hasInProgress = deployments.some((d) => IN_PROGRESS_STATUSES.includes(d.status));
+  const vanityUrl = `${project.slug}.icforge.dev`;
 
   return (
     <div className="container">
@@ -81,13 +87,38 @@ export default function ProjectDetail() {
 
       <div style={styles.header}>
         <div>
-          <h1 style={styles.title}>{project.name}</h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <h1 style={styles.title}>{project.name}</h1>
+            {hasInProgress && (
+              <span style={styles.deployingIndicator}>
+                <span style={styles.deployingDot} />
+                Deploying
+              </span>
+            )}
+          </div>
           <p style={styles.meta}>
             <code>{project.slug}</code>
+            <span style={styles.separator}>•</span>
+            <a
+              href={`https://${vanityUrl}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: 'var(--accent)', textDecoration: 'none', fontSize: '0.85rem' }}
+            >
+              {vanityUrl} ↗
+            </a>
             {primaryCanister?.canister_id && (
               <>
                 <span style={styles.separator}>•</span>
-                Canister: <code>{primaryCanister.canister_id}</code>
+                Canister:{' '}
+                <a
+                  href={`https://${primaryCanister.canister_id}.ic0.app`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ color: 'var(--accent)', textDecoration: 'none' }}
+                >
+                  <code>{primaryCanister.canister_id}</code> ↗
+                </a>
               </>
             )}
           </p>
@@ -129,7 +160,14 @@ export default function ProjectDetail() {
                     <td style={{ color: 'var(--text-secondary)' }}>{c.type}</td>
                     <td>
                       {c.canister_id ? (
-                        <code>{c.canister_id}</code>
+                        <a
+                          href={`https://${c.canister_id}.ic0.app`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ color: 'var(--accent)', textDecoration: 'none' }}
+                        >
+                          <code>{c.canister_id}</code> ↗
+                        </a>
                       ) : (
                         <span style={{ color: 'var(--text-muted)' }}>—</span>
                       )}
@@ -170,7 +208,11 @@ export default function ProjectDetail() {
             </thead>
             <tbody>
               {deployments.map((d) => (
-                <tr key={d.id}>
+                <tr
+                  key={d.id}
+                  onClick={() => navigate(`/projects/${id}/deploys/${d.id}`)}
+                  style={{ cursor: 'pointer' }}
+                >
                   <td>
                     {d.commit_sha ? (
                       <code>{d.commit_sha.slice(0, 7)}</code>
@@ -184,6 +226,9 @@ export default function ProjectDetail() {
                     <span className={`badge ${statusBadge[d.status] ?? 'badge-warning'}`}>
                       {d.status}
                     </span>
+                    {IN_PROGRESS_STATUSES.includes(d.status) && (
+                      <span style={styles.inProgressDot} />
+                    )}
                   </td>
                   <td style={{ color: 'var(--text-secondary)' }}>{timeAgo(d.started_at)}</td>
                 </tr>
@@ -220,6 +265,24 @@ const styles: Record<string, React.CSSProperties> = {
   separator: {
     margin: '0 0.5rem',
   },
+  deployingIndicator: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '0.35rem',
+    fontSize: '0.75rem',
+    fontWeight: 500,
+    color: '#f59e0b',
+    background: 'rgba(245,158,11,0.1)',
+    borderRadius: 9999,
+    padding: '0.2rem 0.6rem',
+  },
+  deployingDot: {
+    display: 'inline-block',
+    width: 8,
+    height: 8,
+    borderRadius: '50%',
+    background: '#f59e0b',
+  },
   statsRow: {
     display: 'grid',
     gridTemplateColumns: 'repeat(4, 1fr)',
@@ -235,7 +298,7 @@ const styles: Record<string, React.CSSProperties> = {
   statLabel: {
     fontSize: '0.75rem',
     color: 'var(--text-muted)',
-    textTransform: 'uppercase',
+    textTransform: 'uppercase' as const,
     letterSpacing: '0.05em',
     marginBottom: '0.25rem',
   },
@@ -260,5 +323,14 @@ const styles: Record<string, React.CSSProperties> = {
     background: 'var(--bg-secondary)',
     border: '1px solid var(--border-color)',
     borderRadius: 8,
+  },
+  inProgressDot: {
+    display: 'inline-block',
+    width: 6,
+    height: 6,
+    borderRadius: '50%',
+    background: '#f59e0b',
+    marginLeft: '0.4rem',
+    verticalAlign: 'middle',
   },
 };

@@ -229,12 +229,10 @@ pub async fn deploy(
     .await
     .map_err(AppError::Database)?;
 
-    // Get the user's IC identity PEM for the background task
-    let ic_pem = auth_user
-        .user
-        .ic_identity_pem
+    // Use platform IC identity for canister creation (cycles pool model)
+    let ic_pem = state.config.ic_identity_pem
         .clone()
-        .ok_or_else(|| AppError::Internal("User has no IC identity".into()))?;
+        .ok_or_else(|| AppError::Internal("Platform IC_IDENTITY_PEM not configured".into()))?;
 
     let existing_canister_id = canister.canister_id.clone();
     let canister_db_id = canister.id.clone();

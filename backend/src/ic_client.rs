@@ -185,12 +185,14 @@ impl IcClient {
     pub async fn new(identity_pem: &str, ic_url: &str) -> Result<Self, AppError> {
         // Try Ed25519 first, then secp256k1 — icp CLI generates secp256k1 by default
         let agent = if let Ok(identity) = BasicIdentity::from_pem(identity_pem.as_bytes()) {
+            tracing::info!("IC identity parsed as Ed25519 (BasicIdentity)");
             Agent::builder()
                 .with_url(ic_url)
                 .with_identity(identity)
                 .build()
                 .map_err(|e| AppError::Internal(format!("Failed to build IC agent: {e}")))?
         } else if let Ok(identity) = Secp256k1Identity::from_pem(identity_pem.as_bytes()) {
+            tracing::info!("IC identity parsed as secp256k1");
             Agent::builder()
                 .with_url(ic_url)
                 .with_identity(identity)
@@ -207,6 +209,9 @@ impl IcClient {
             agent.fetch_root_key().await
                 .map_err(|e| AppError::Internal(format!("Failed to fetch root key from {ic_url}: {e}")))?;
         }
+
+        let principal = agent.get_principal().expect("agent has identity");
+        tracing::info!(principal = %principal, is_local = is_local, ic_url = ic_url, "IcClient initialized");
 
         Ok(Self { agent, is_local })
     }
@@ -285,6 +290,12 @@ impl IcClient {
             .map_err(|e| AppError::Internal(format!("Invalid cycles ledger ID: {e}")))?;
 
         let controller = self.identity_principal();
+        tracing::info!(
+            principal = %controller,
+            amount = amount,
+            ledger = %ledger,
+            "Calling cycles ledger create_canister"
+        );
 
         let args = CyclesCreateCanisterArgs {
             from_subaccount: None,

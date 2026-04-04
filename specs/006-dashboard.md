@@ -48,9 +48,9 @@ Simple static site deploy on Render alongside the backend.
 ### 4.1 Project Detail — Enhanced
 
 Current page works but needs:
-- [ ] **Live deploy status** — if a deploy is in progress, show real-time logs (SSE from spec 005)
-- [ ] **Canister links** — click canister ID to open `<id>.ic0.app` in new tab
-- [ ] **Vanity URL** — show `<slug>.icforge.dev` link when subdomain routing is active
+- [x] **Live deploy status** — if a deploy is in progress, show real-time logs (SSE from spec 005)
+- [x] **Canister links** — click canister ID to open `<id>.ic0.app` in new tab
+- [x] **Vanity URL** — show `<slug>.icforge.dev` link when subdomain routing is active
 - [ ] **Redeploy button** — trigger a new deploy from the dashboard (stretch goal, requires backend to store wasm or trigger CI)
 
 ### 4.2 Deploy Detail Page (new)
@@ -75,10 +75,10 @@ Shows full deploy log for a specific deployment:
 ### 4.4 Landing Page — Polish
 
 The existing landing page needs:
-- [ ] Clear value prop: "Deploy to the Internet Computer in 60 seconds"
-- [ ] Code snippet showing the `icforge` workflow
-- [ ] Link to docs (when they exist)
-- [ ] "Get Started" → Login flow
+- [x] Clear value prop: "Deploy to the Internet Computer in 60 seconds"
+- [x] Code snippet showing the `icforge` workflow
+- [ ] Link to docs (when they exist) — deferred
+- [x] "Get Started" → Login flow
 
 ## 5. API Integration
 
@@ -106,8 +106,9 @@ This works. The callback redirect URL needs to point to the dashboard's domain (
 ## 7. Implementation Checklist
 
 ### Deployment
-- [ ] Deploy dashboard to IC as an asset canister (using ICForge itself)
-- [ ] Set up `app.icforge.dev` DNS → dashboard canister
+- [x] Dashboard deployed on Render with CI/CD (existing setup)
+- [ ] ~~Deploy dashboard to IC as asset canister~~ (deferred — dogfood later if needed)
+- [ ] Set up `app.icforge.dev` DNS → Render static site (or IC canister later)
 - [ ] Configure `FRONTEND_URL` on backend to point to dashboard domain
 - [ ] Verify OAuth callback flow works end-to-end
 

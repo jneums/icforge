@@ -122,21 +122,21 @@ icforge deploy                       # deploy all (default)
 ## 4. Implementation Checklist
 
 ### CLI
-- [ ] Refactor `deploy` command to iterate over all canisters
-- [ ] Implement topological sort on canister dependencies
-- [ ] Write `.icforge/canister_ids.json` after each canister deploy
-- [ ] Set `CANISTER_ID_<NAME>` env vars for build commands
-- [ ] Add `--canister <name>` flag for selective deploys
-- [ ] Print summary table after all deploys complete
-- [ ] Add `.icforge/canister_ids.json` to `.gitignore` template
+- [x] Refactor `deploy` command to iterate over all canisters
+- [x] Implement topological sort on canister dependencies
+- [x] Write `.icforge/canister_ids.json` after each canister deploy
+- [x] Set `CANISTER_ID_<NAME>` env vars for build commands
+- [x] Add `--canister <name>` flag for selective deploys
+- [x] Print summary table after all deploys complete
+- [x] Add `.icforge/canister_ids.json` to `.gitignore` template
 
 ### Backend
-- [ ] No changes needed — existing per-canister deploy endpoint works
-- [ ] Consider: return canister_id in deploy status response (verify it's there)
+- [x] No changes needed — existing per-canister deploy endpoint works
+- [x] Consider: return canister_id in deploy status response (verify it's there)
 
 ### icp.yaml
-- [ ] Document `dependencies` field
-- [ ] Validate no circular dependencies in `icforge init`
+- [x] Document `dependencies` field
+- [x] Validate no circular dependencies in `icforge init`
 
 ## 5. Future (not v0.2)
 

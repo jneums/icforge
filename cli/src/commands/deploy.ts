@@ -1,5 +1,5 @@
 import { execSync } from "node:child_process";
-import { readFileSync, existsSync, readdirSync, createReadStream } from "node:fs";
+import { readFileSync, existsSync, readdirSync, createReadStream, mkdirSync } from "node:fs";
 import { writeFile, unlink } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { createGzip } from "node:zlib";
@@ -19,15 +19,119 @@ interface DeployOptions {
   skipBuild?: boolean;
   env?: string;
   wasm?: string;
+  canister?: string;
+}
+
+// ============================================================
+// Canister ID tracking — .icforge/canister_ids.json
+// ============================================================
+
+const CANISTER_IDS_DIR = ".icforge";
+const CANISTER_IDS_FILE = ".icforge/canister_ids.json";
+
+/** Load the canister_ids.json mapping (name → canister ID). */
+function loadCanisterIds(dir: string = process.cwd()): Record<string, string> {
+  const filePath = join(dir, CANISTER_IDS_FILE);
+  if (!existsSync(filePath)) return {};
+  try {
+    return JSON.parse(readFileSync(filePath, "utf-8"));
+  } catch {
+    return {};
+  }
+}
+
+/** Save the canister_ids.json mapping. */
+async function saveCanisterIds(ids: Record<string, string>, dir: string = process.cwd()) {
+  const dirPath = join(dir, CANISTER_IDS_DIR);
+  mkdirSync(dirPath, { recursive: true });
+  await writeFile(join(dir, CANISTER_IDS_FILE), JSON.stringify(ids, null, 2) + "\n");
+}
+
+// ============================================================
+// Topological sort — deploy dependencies before dependents
+// ============================================================
+
+/**
+ * Topological sort of canisters by their `dependencies` field.
+ * Returns canisters in deploy order (dependencies first).
+ * Throws if circular dependencies are detected.
+ */
+export function topoSortCanisters(canisters: IcpCanister[]): IcpCanister[] {
+  const nameMap = new Map(canisters.map((c) => [c.name, c]));
+  const visited = new Set<string>();
+  const inStack = new Set<string>(); // cycle detection
+  const sorted: IcpCanister[] = [];
+
+  function visit(name: string, path: string[]) {
+    if (inStack.has(name)) {
+      const cycle = [...path.slice(path.indexOf(name)), name].join(" → ");
+      throw new Error(`Circular dependency detected: ${cycle}`);
+    }
+    if (visited.has(name)) return;
+
+    inStack.add(name);
+    path.push(name);
+
+    const canister = nameMap.get(name);
+    if (canister?.dependencies) {
+      for (const dep of canister.dependencies) {
+        if (!nameMap.has(dep)) {
+          throw new Error(`Canister "${name}" depends on "${dep}", which is not defined in icp.yaml`);
+        }
+        visit(dep, [...path]);
+      }
+    }
+
+    inStack.delete(name);
+    visited.add(name);
+    sorted.push(canister!);
+  }
+
+  for (const c of canisters) {
+    visit(c.name, []);
+  }
+
+  return sorted;
+}
+
+/**
+ * Build environment variables with canister IDs for dependent builds.
+ * Sets CANISTER_ID_<UPPER_NAME>=<id> for each known canister.
+ */
+function buildEnvWithCanisterIds(canisterIds: Record<string, string>): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [name, id] of Object.entries(canisterIds)) {
+    const envKey = `CANISTER_ID_${name.toUpperCase().replace(/-/g, "_")}`;
+    env[envKey] = id;
+  }
+  return env;
+}
+
+// ============================================================
+// Deploy result tracking for summary table
+// ============================================================
+
+interface DeployResult {
+  name: string;
+  type: string;
+  canisterId?: string;
+  status: "live" | "failed" | "skipped";
+  error?: string;
+  url?: string;
 }
 
 /**
  * Try to run a shell command, returning true on success.
+ * Merges extraEnv into the process environment.
  */
-function tryExec(cmd: string, label: string): boolean {
+function tryExec(cmd: string, label: string, extraEnv?: Record<string, string>): boolean {
   try {
     console.log(chalk.dim(`  → ${label}`));
-    execSync(cmd, { stdio: "inherit", cwd: process.cwd() });
+    execSync(cmd, {
+      stdio: "inherit",
+      cwd: process.cwd(),
+      env: extraEnv ? { ...process.env, ...extraEnv } : process.env,
+    });
     return true;
   } catch {
     return false;
@@ -120,12 +224,13 @@ function findWasmInDir(dir: string, canisterName: string): string | null {
  * Build a canister.
  * If the canister has a `build` array in icp.yaml, run each command sequentially.
  * Otherwise, fall back to `icp build <name>`.
+ * Injects CANISTER_ID_<NAME> env vars so builds can reference dependency IDs.
  */
-function buildCanister(canister: IcpCanister): boolean {
+function buildCanister(canister: IcpCanister, canisterIdEnv: Record<string, string>): boolean {
   // Use custom build commands from icp.yaml if provided
   if (canister.build && canister.build.length > 0) {
     for (const cmd of canister.build) {
-      if (!tryExec(cmd, cmd)) {
+      if (!tryExec(cmd, cmd, canisterIdEnv)) {
         console.log(chalk.red(`  ✗ Custom build command failed: ${cmd}`));
         console.log(chalk.dim("    Or use --skip-build and --wasm <path> to provide a pre-built artifact."));
         return false;
@@ -135,7 +240,7 @@ function buildCanister(canister: IcpCanister): boolean {
   }
 
   // Fallback: use icp-cli
-  if (tryExec(`icp build ${canister.name}`, `Building with icp-cli...`)) {
+  if (tryExec(`icp build ${canister.name}`, `Building with icp-cli...`, canisterIdEnv)) {
     return true;
   }
 
@@ -333,17 +438,39 @@ export async function deployCommand(options: DeployOptions = {}) {
     process.exit(1);
   }
 
-  // 4. Determine which canisters to deploy
-  const toDeploy = config.canisters
-    ? manifest.canisters.filter((c) => config.canisters!.includes(c.name))
-    : manifest.canisters;
+  // 4. Topological sort — deploy dependencies before dependents
+  let sorted: IcpCanister[];
+  try {
+    sorted = topoSortCanisters(manifest.canisters);
+  } catch (err) {
+    console.log(chalk.red(`\n✗ ${(err as Error).message}`));
+    process.exit(1);
+  }
+
+  // 5. Filter by --canister flag or .icforge canisters list
+  let toDeploy: IcpCanister[];
+  if (options.canister) {
+    const match = sorted.find((c) => c.name === options.canister);
+    if (!match) {
+      console.log(chalk.red(`Canister "${options.canister}" not found in icp.yaml.`));
+      console.log(chalk.dim(`Available: ${sorted.map((c) => c.name).join(", ")}`));
+      process.exit(1);
+    }
+    toDeploy = [match];
+  } else if (config.canisters) {
+    toDeploy = sorted.filter((c) => config.canisters!.includes(c.name));
+  } else {
+    toDeploy = sorted;
+  }
 
   console.log(chalk.cyan("\n🚀 ICForge Deploy\n"));
   console.log(chalk.dim(`  Project: ${config.projectId}`));
   console.log(chalk.dim(`  Environment: ${options.env ?? "production"}`));
-  console.log(chalk.dim(`  Canisters: ${toDeploy.map((c) => c.name).join(", ")}\n`));
+  console.log(chalk.dim(`  Canisters: ${toDeploy.map((c) => c.name).join(" → ")}  (deploy order)\n`));
 
-  let allSucceeded = true;
+  // 6. Load existing canister IDs (from previous deploys)
+  const canisterIds = loadCanisterIds();
+  const results: DeployResult[] = [];
 
   for (const canister of toDeploy) {
     const type = classifyCanister(canister);
@@ -351,13 +478,28 @@ export async function deployCommand(options: DeployOptions = {}) {
 
     console.log(`${icon} ${chalk.bold(canister.name)} ${chalk.dim(`(${type})`)}`);
 
+    // Build env with all known canister IDs for dependency injection
+    const canisterIdEnv = buildEnvWithCanisterIds(canisterIds);
+
+    // Log injected IDs if this canister has dependencies
+    if (canister.dependencies?.length) {
+      const injected = canister.dependencies
+        .filter((d) => canisterIds[d])
+        .map((d) => `${d}=${canisterIds[d]}`);
+      if (injected.length) {
+        console.log(chalk.dim(`  → Injecting: ${injected.join(", ")}`));
+      }
+    }
+
     // Step 1: Build (unless --skip-build)
     if (!options.skipBuild) {
-      const built = buildCanister(canister);
+      const built = buildCanister(canister, canisterIdEnv);
       if (!built) {
-        allSucceeded = false;
+        results.push({ name: canister.name, type, status: "failed", error: "Build failed" });
         console.log(chalk.red(`  ✗ Skipping ${canister.name} due to build failure\n`));
-        continue;
+        // Abort remaining deploys on failure (dependencies may be broken)
+        console.log(chalk.red("  ✗ Aborting remaining deploys."));
+        break;
       }
       console.log(chalk.green("  ✓ Build complete"));
     } else {
@@ -368,12 +510,13 @@ export async function deployCommand(options: DeployOptions = {}) {
     console.log(chalk.dim("  → Locating wasm artifact..."));
     const wasmPath = findWasm(canister.name, options.wasm, canister.wasm);
     if (!wasmPath) {
-      allSucceeded = false;
+      results.push({ name: canister.name, type, status: "failed", error: "No wasm found" });
       console.log(chalk.red(`  ✗ No .wasm file found for ${canister.name}`));
       console.log(chalk.dim("    Checked: icp.yaml wasm field, target/wasm32-unknown-unknown/release/, .icp/cache/artifacts/, .icp/cache/"));
       console.log(chalk.dim("    Hint: use --wasm <path> to specify the artifact manually"));
       console.log();
-      continue;
+      console.log(chalk.red("  ✗ Aborting remaining deploys."));
+      break;
     }
     console.log(chalk.dim(`  → Found: ${wasmPath}`));
 
@@ -419,9 +562,10 @@ export async function deployCommand(options: DeployOptions = {}) {
     }
 
     if (!deployment) {
-      allSucceeded = false;
+      results.push({ name: canister.name, type, status: "failed", error: "Upload failed" });
       console.log(chalk.red(`  ✗ Upload failed for ${canister.name}\n`));
-      continue;
+      console.log(chalk.red("  ✗ Aborting remaining deploys."));
+      break;
     }
     console.log(chalk.green(`  ✓ Uploaded`), chalk.dim(`(deployment: ${deployment.deploymentId})`));
 
@@ -432,24 +576,77 @@ export async function deployCommand(options: DeployOptions = {}) {
       console.log(chalk.green(`  ✓ Deployed!`));
       if (result.canister_id) {
         console.log(chalk.dim(`    Canister ID: ${result.canister_id}`));
+        // Track canister ID for subsequent builds + persist to disk
+        canisterIds[canister.name] = result.canister_id;
+        await saveCanisterIds(canisterIds);
       }
       if (result.url) {
         console.log(`    ${chalk.cyan(result.url)}`);
       }
+      results.push({
+        name: canister.name,
+        type,
+        status: "live",
+        canisterId: result.canister_id,
+        url: result.url,
+      });
     } else {
-      allSucceeded = false;
+      results.push({
+        name: canister.name,
+        type,
+        status: "failed",
+        error: result.error ?? "Unknown error",
+      });
       console.log(chalk.red(`  ✗ Deployment failed`));
       if (result.error) {
         console.log(chalk.red(`    Error: ${result.error}`));
       }
+      console.log();
+      console.log(chalk.red("  ✗ Aborting remaining deploys."));
+      break;
     }
     console.log();
   }
 
+  // 7. Print summary table
+  printSummaryTable(results, config.projectId);
+}
+
+/**
+ * Print a summary table of all deploy results.
+ */
+function printSummaryTable(results: DeployResult[], projectId: string) {
+  if (results.length === 0) return;
+
+  const allSucceeded = results.every((r) => r.status === "live");
+
+  console.log(chalk.dim("─".repeat(72)));
+  console.log(chalk.bold("\n  Deploy Summary\n"));
+
+  // Calculate column widths
+  const nameWidth = Math.max(8, ...results.map((r) => r.name.length)) + 2;
+  const idWidth = Math.max(12, ...results.map((r) => (r.canisterId ?? "—").length)) + 2;
+
+  // Header
+  const header = `  ${"Name".padEnd(nameWidth)}${"Canister ID".padEnd(idWidth)}Status`;
+  console.log(chalk.dim(header));
+  console.log(chalk.dim(`  ${"─".repeat(nameWidth)}${"─".repeat(idWidth)}${"─".repeat(10)}`));
+
+  // Rows
+  for (const r of results) {
+    const statusIcon = r.status === "live" ? chalk.green("✓ live")
+      : r.status === "failed" ? chalk.red("✗ failed")
+      : chalk.yellow("○ skipped");
+    const id = r.canisterId ?? chalk.dim("—");
+    console.log(`  ${r.name.padEnd(nameWidth)}${(r.canisterId ?? "—").padEnd(idWidth)}${statusIcon}`);
+  }
+
+  console.log();
+
   if (allSucceeded) {
     console.log(chalk.green("✅ All canisters deployed successfully!"));
     const dashboardUrl = process.env.ICFORGE_DASHBOARD_URL ?? "https://icforge.dev";
-    console.log(chalk.dim(`\n  Dashboard: ${dashboardUrl}/projects/${config.projectId}`));
+    console.log(chalk.dim(`\n  Dashboard: ${dashboardUrl}/projects/${projectId}`));
   } else {
     console.log(chalk.yellow("⚠️  Some canisters failed to deploy. Check the output above."));
     process.exit(1);

@@ -34,6 +34,7 @@ program
   .option("--skip-build", "Skip the local build step")
   .option("-e, --env <environment>", "Target environment", "production")
   .option("-w, --wasm <path>", "Path to a pre-built .wasm file")
+  .option("-c, --canister <name>", "Deploy only the specified canister")
   .action(deployCommand);
 
 program

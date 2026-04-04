@@ -1,6 +1,9 @@
 # ICForge project link (contains project ID — safe to commit or gitignore per preference)
 # .icforge
 
+# Auto-generated canister ID mapping (regenerated on deploy)
+.icforge/canister_ids.json
+
 # Dependencies
 node_modules/
 target/

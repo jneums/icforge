@@ -9,6 +9,7 @@ import {
 } from "../config.js";
 import { isAuthenticated } from "../auth.js";
 import { apiFetch } from "../api.js";
+import { topoSortCanisters } from "./deploy.js";
 
 export async function initCommand(options: Record<string, unknown> = {}) {
   // 1. Check auth
@@ -39,7 +40,20 @@ export async function initCommand(options: Record<string, unknown> = {}) {
     process.exit(1);
   }
 
-  // 5. Show what we found
+  // 5. Validate dependency graph (detect circular deps early)
+  try {
+    const sorted = topoSortCanisters(manifest.canisters);
+    const hasDeps = manifest.canisters.some((c) => c.dependencies?.length);
+    if (hasDeps) {
+      console.log(chalk.dim(`  Deploy order: ${sorted.map((c) => c.name).join(" → ")}\n`));
+    }
+  } catch (err) {
+    console.log(chalk.red(`\n✗ ${(err as Error).message}`));
+    console.log(chalk.dim("  Fix the dependencies in icp.yaml and try again."));
+    process.exit(1);
+  }
+
+  // 6. Show what we found
   console.log(chalk.cyan("\n☁️  ICForge Init\n"));
   console.log(chalk.dim("Reading icp.yaml...\n"));
 

@@ -609,13 +609,13 @@ export async function deployCommand(options: DeployOptions = {}) {
   }
 
   // 7. Print summary table
-  printSummaryTable(results, config.projectId);
+  printSummaryTable(results, config.projectId, config.slug);
 }
 
 /**
  * Print a summary table of all deploy results.
  */
-function printSummaryTable(results: DeployResult[], projectId: string) {
+function printSummaryTable(results: DeployResult[], projectId: string, slug?: string) {
   if (results.length === 0) return;
 
   const allSucceeded = results.every((r) => r.status === "live");
@@ -645,6 +645,9 @@ function printSummaryTable(results: DeployResult[], projectId: string) {
 
   if (allSucceeded) {
     console.log(chalk.green("✅ All canisters deployed successfully!"));
+    if (slug) {
+      console.log(`\n  ${chalk.cyan(`https://${slug}.icforge.dev`)}`);
+    }
     const dashboardUrl = process.env.ICFORGE_DASHBOARD_URL ?? "https://icforge.dev";
     console.log(chalk.dim(`\n  Dashboard: ${dashboardUrl}/projects/${projectId}`));
   } else {

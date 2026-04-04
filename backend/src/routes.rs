@@ -198,18 +198,24 @@ pub async fn create_project(
     let slug = slugify(&req.name);
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
-    // Check if project already exists for this user+slug (idempotent init)
-    let existing: Option<(String, String, String)> = sqlx::query_as(
-        "SELECT id, name, slug FROM projects WHERE user_id = $1 AND slug = $2",
+    // Check if project already exists with this slug (globally unique for subdomain routing)
+    let existing: Option<(String, String, String, String)> = sqlx::query_as(
+        "SELECT id, user_id, name, slug FROM projects WHERE slug = $1",
     )
-    .bind(&auth_user.user.id)
     .bind(&slug)
     .fetch_optional(&state.db)
     .await
     .map_err(AppError::Database)?;
 
-    if let Some((existing_id, existing_name, existing_slug)) = existing {
-        // Return existing project with its canisters
+    if let Some((existing_id, existing_user_id, existing_name, existing_slug)) = existing {
+        // If it belongs to a different user, reject with a helpful error
+        if existing_user_id != auth_user.user.id {
+            return Err(AppError::BadRequest(format!(
+                "The slug '{}' is already taken. Please choose a different project name.",
+                slug
+            )));
+        }
+        // Same user — return existing project (idempotent init)
         let canisters: Vec<CanisterRecord> = sqlx::query_as(
             "SELECT * FROM canisters WHERE project_id = $1",
         )

@@ -13,6 +13,8 @@ const ICP_MANIFEST = "icp.yaml";
 /** ICForge-specific config (stored in .icforge) */
 export interface ICForgeConfig {
   projectId: string;
+  /** Project slug for vanity URL (<slug>.icforge.dev) */
+  slug?: string;
   /** Optional: only deploy these canisters (default: all from icp.yaml) */
   canisters?: string[];
   /** Optional: custom subdomain override */

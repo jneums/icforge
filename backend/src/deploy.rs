@@ -215,8 +215,10 @@ pub async fn deploy(
             .await
             .map_err(AppError::Database)?;
 
-    let _project =
+    let project =
         project_row.ok_or_else(|| AppError::NotFound("Project not found or not owned by user".into()))?;
+    let project_slug = project.slug.clone();
+    let project_id_for_kv = project.id.clone();
 
     // Find canister record
     let canister_row: Option<crate::models::CanisterRecord> = sqlx::query_as(
@@ -296,6 +298,7 @@ pub async fn deploy(
     let (tx, _rx) = broadcast::channel::<LogEvent>(256);
     state.log_channels.insert(deploy_id.clone(), tx);
     let log_channels = state.log_channels.clone();
+    let config = state.config.clone();
 
     // Spawn background deploy pipeline
     tokio::spawn(async move {
@@ -312,6 +315,9 @@ pub async fn deploy(
             candid_text,
             canister_type,
             log_channels,
+            config,
+            project_slug,
+            project_id_for_kv,
         )
         .await;
     });
@@ -338,6 +344,9 @@ async fn run_deploy_pipeline(
     candid: Option<String>,
     canister_type: String,
     log_channels: std::sync::Arc<dashmap::DashMap<String, broadcast::Sender<LogEvent>>>,
+    config: crate::config::AppConfig,
+    project_slug: String,
+    project_id: String,
 ) {
     let lc = Some(&*log_channels);
 
@@ -544,6 +553,16 @@ async fn run_deploy_pipeline(
     )
     .await;
     update_deployment_status(&db, &deployment_id, "live", None).await;
+
+    // Write subdomain mapping to Cloudflare KV (best-effort)
+    if let Err(e) = crate::cloudflare::kv_write(&config, &project_slug, &canister_id, &project_id).await {
+        tracing::warn!(
+            deployment_id = %deployment_id,
+            slug = %project_slug,
+            error = %e,
+            "Failed to write Cloudflare KV subdomain mapping (non-fatal)"
+        );
+    }
 
     tracing::info!(
         deployment_id = %deployment_id,

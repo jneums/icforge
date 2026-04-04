@@ -11,6 +11,7 @@ use tower_http::cors::CorsLayer;
 use tracing_subscriber::EnvFilter;
 
 mod auth;
+mod cloudflare;
 mod config;
 mod db;
 mod deploy;

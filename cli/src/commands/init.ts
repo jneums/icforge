@@ -91,9 +91,12 @@ export async function initCommand(options: Record<string, unknown> = {}) {
   const { id: projectId, slug } = projectData;
 
   // 7. Save .icforge link file
-  await saveICForgeConfig({ projectId });
+  await saveICForgeConfig({ projectId, slug: slug ?? undefined });
 
   console.log(chalk.green("✓"), "Project linked:", chalk.cyan(slug ?? projectId));
+  if (slug) {
+    console.log(chalk.dim(`  Vanity URL: https://${slug}.icforge.dev`));
+  }
   console.log(chalk.dim("  Config saved to .icforge"));
   console.log();
   console.log("Next: run", chalk.cyan("icforge deploy"), "to deploy to the Internet Computer.");

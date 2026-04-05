@@ -25,8 +25,14 @@ services:
         sync: false  # Set manually
       - key: GITHUB_CLIENT_SECRET
         sync: false  # Set manually
+      - key: GITHUB_APP_ID
+        sync: false  # Set manually — GitHub App ID
+      - key: GITHUB_APP_PRIVATE_KEY
+        sync: false  # Set manually — GitHub App private key PEM
+      - key: GITHUB_WEBHOOK_SECRET
+        sync: false  # Set manually — GitHub webhook secret
       - key: IC_IDENTITY_PEM
-        sync: false  # Set manually — platform identity PEM
+        sync: false  # Set manually — platform identity PEM (SEC1 EC format)
       - key: IC_NETWORK
         value: "mainnet"
       - key: FRONTEND_URL

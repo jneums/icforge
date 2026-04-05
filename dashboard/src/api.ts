@@ -75,7 +75,6 @@ export interface User {
   email: string | null;
   name: string | null;
   avatar_url: string | null;
-  ic_principal: string | null;
   plan: string;
   created_at: string;
   updated_at: string;

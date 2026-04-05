@@ -74,16 +74,6 @@ export default function Settings() {
               <div style={styles.fieldValue}><code>{user.github_id}</code></div>
             </div>
             <div style={styles.field}>
-              <div style={styles.fieldLabel}>IC Principal</div>
-              <div style={styles.fieldValue}>
-                {user.ic_principal ? (
-                  <code>{user.ic_principal}</code>
-                ) : (
-                  <span style={{ color: 'var(--text-muted)' }}>Not linked</span>
-                )}
-              </div>
-            </div>
-            <div style={styles.field}>
               <div style={styles.fieldLabel}>Member Since</div>
               <div style={styles.fieldValue}>
                 {new Date(user.created_at + 'Z').toLocaleDateString()}
@@ -135,14 +125,14 @@ export default function Settings() {
         </div>
       </div>
 
-      {/* Identity Export Section */}
+      {/* Canister Eject Section */}
       <div style={styles.section}>
-        <h2 style={styles.sectionTitle}>Identity Export</h2>
+        <h2 style={styles.sectionTitle}>Canister Eject</h2>
         <div style={{ ...styles.card, ...styles.comingSoon }}>
-          <div style={styles.comingSoonIcon}>📤</div>
-          <div style={{ fontWeight: 500 }}>Identity Export</div>
+          <div style={styles.comingSoonIcon}>🚀</div>
+          <div style={{ fontWeight: 500 }}>Canister Eject</div>
           <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
-            Export your IC identity for use with dfx. Coming in v0.3.
+            Transfer full control of your canisters to your own principal. Coming in v0.3.
           </div>
         </div>
       </div>

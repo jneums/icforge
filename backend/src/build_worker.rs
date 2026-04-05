@@ -295,10 +295,6 @@ async fn execute_build(
             // TODO: actual Motoko build pipeline
             return Err("Motoko build pipeline not yet implemented — please upload pre-built .wasm via CLI".into());
         }
-        "rust" => {
-            log_build(pool, &job.id, "info", "build", "Rust/IC canister build (cargo build --target wasm32-unknown-unknown --release)").await;
-            run_cmd(&work_dir, &["cargo", "build", "--target", "wasm32-unknown-unknown", "--release"]).await?;
-        }
         "assets" => {
             log_build(pool, &job.id, "info", "build", "Static assets — no build step needed").await;
         }
@@ -306,6 +302,48 @@ async fn execute_build(
             log_build(pool, &job.id, "info", "build", "Running npm install && npm run build").await;
             run_cmd(&work_dir, &["npm", "install"]).await?;
             run_cmd(&work_dir, &["npm", "run", "build"]).await?;
+        }
+        "icp" | "rust" => {
+            // icp.yaml project — build each canister according to its canister.yaml recipe
+            // For now: find Rust canisters and build with cargo
+            log_build(pool, &job.id, "info", "build", "IC project — building canisters from icp.yaml").await;
+
+            // Read icp.yaml to find canister dirs
+            let icp_yaml = format!("{work_dir}/icp.yaml");
+            if let Ok(content) = tokio::fs::read_to_string(&icp_yaml).await {
+                for line in content.lines() {
+                    let trimmed = line.trim().trim_start_matches('-').trim();
+                    if trimmed.is_empty()
+                        || trimmed.starts_with('#')
+                        || trimmed.contains(':')
+                        || trimmed.starts_with("canisters")
+                    {
+                        continue;
+                    }
+                    let canister_dir = format!("{work_dir}/{trimmed}");
+                    let canister_yaml = format!("{canister_dir}/canister.yaml");
+                    if let Ok(cy) = tokio::fs::read_to_string(&canister_yaml).await {
+                        if cy.contains("rust") {
+                            log_build(pool, &job.id, "info", "build", &format!("Building Rust canister: {trimmed}")).await;
+                            run_cmd(&canister_dir, &["cargo", "build", "--target", "wasm32-unknown-unknown", "--release"]).await?;
+                        } else if cy.contains("asset-canister") || cy.contains("asset") {
+                            log_build(pool, &job.id, "info", "build", &format!("Asset canister: {trimmed} — no build step")).await;
+                        } else {
+                            log_build(pool, &job.id, "warn", "build", &format!("Unknown recipe for canister: {trimmed}")).await;
+                        }
+                    } else {
+                        // No canister.yaml — check for Cargo.toml in the dir
+                        if tokio::fs::metadata(format!("{canister_dir}/Cargo.toml")).await.is_ok() {
+                            log_build(pool, &job.id, "info", "build", &format!("Building Rust canister: {trimmed}")).await;
+                            run_cmd(&canister_dir, &["cargo", "build", "--target", "wasm32-unknown-unknown", "--release"]).await?;
+                        }
+                    }
+                }
+            } else if framework_name == "rust" {
+                // Plain rust project without icp.yaml — build at root
+                log_build(pool, &job.id, "info", "build", "Rust/IC canister build (cargo build --target wasm32-unknown-unknown --release)").await;
+                run_cmd(&work_dir, &["cargo", "build", "--target", "wasm32-unknown-unknown", "--release"]).await?;
+            }
         }
         _ => {
             log_build(pool, &job.id, "warn", "build", &format!("Unknown framework '{framework_name}' — skipping build step")).await;
@@ -376,6 +414,43 @@ async fn run_cmd(work_dir: &str, args: &[&str]) -> Result<String, String> {
 
 async fn detect_framework(work_dir: &str) -> Option<String> {
     use tokio::fs;
+
+    // Check for icp.yaml (icp-js project — the standard going forward)
+    if fs::metadata(format!("{work_dir}/icp.yaml"))
+        .await
+        .is_ok()
+    {
+        // Read icp.yaml and check canister.yaml files for recipe types
+        if let Ok(content) = fs::read_to_string(format!("{work_dir}/icp.yaml")).await {
+            // Check for Rust canisters by looking at canister dirs
+            if content.contains("rust") {
+                return Some("rust".into());
+            }
+            // Parse canister list — entries can be strings (dir names) or objects
+            // Check each canister dir for canister.yaml
+            for line in content.lines() {
+                let trimmed = line.trim().trim_start_matches('-').trim();
+                if !trimmed.is_empty()
+                    && !trimmed.starts_with('#')
+                    && !trimmed.contains(':')
+                    && !trimmed.starts_with("canisters")
+                {
+                    let canister_yaml = format!("{work_dir}/{trimmed}/canister.yaml");
+                    if let Ok(cy) = fs::read_to_string(&canister_yaml).await {
+                        if cy.contains("rust") {
+                            return Some("rust".into());
+                        }
+                        if cy.contains("asset-canister") || cy.contains("asset") {
+                            // Has assets but keep looking for rust
+                            continue;
+                        }
+                    }
+                }
+            }
+            // Fallback: treat icp.yaml projects as icp-js
+            return Some("icp".into());
+        }
+    }
 
     // Check for dfx.json (Motoko/IC project)
     if fs::metadata(format!("{work_dir}/dfx.json"))

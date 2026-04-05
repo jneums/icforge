@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { fetchProject } from '../api';
-import type { Project, Deployment } from '../api';
+import { fetchProject, fetchCanisterEnv } from '../api';
+import type { Project, Deployment, EnvironmentVariable, Canister } from '../api';
 import { useAuth } from '../contexts/AuthContext';
 
 const statusBadge: Record<string, string> = {
@@ -27,6 +27,96 @@ function timeAgo(dateStr: string): string {
   if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
   if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`;
   return date.toLocaleDateString();
+}
+
+function CanisterRow({ canister: c }: { canister: Canister }) {
+  const [expanded, setExpanded] = useState(false);
+  const [envVars, setEnvVars] = useState<EnvironmentVariable[] | null>(null);
+  const [envLoading, setEnvLoading] = useState(false);
+  const [envError, setEnvError] = useState<string | null>(null);
+
+  const toggleEnv = () => {
+    if (!expanded && envVars === null && c.canister_id) {
+      setEnvLoading(true);
+      setEnvError(null);
+      fetchCanisterEnv(c.canister_id)
+        .then(setEnvVars)
+        .catch((e) => setEnvError(e.message))
+        .finally(() => setEnvLoading(false));
+    }
+    setExpanded((prev) => !prev);
+  };
+
+  return (
+    <>
+      <tr>
+        <td style={{ fontWeight: 500 }}>{c.name}</td>
+        <td style={{ color: 'var(--text-secondary)' }}>{c.type}</td>
+        <td>
+          {c.canister_id ? (
+            <a
+              href={`https://${c.canister_id}.icp0.io`}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: 'var(--accent)', textDecoration: 'none' }}
+            >
+              <code>{c.canister_id}</code> ↗
+            </a>
+          ) : (
+            <span style={{ color: 'var(--text-muted)' }}>—</span>
+          )}
+        </td>
+        <td>
+          <span className={`badge ${statusBadge[c.status] ?? 'badge-warning'}`}>
+            {c.status}
+          </span>
+        </td>
+        <td>
+          {c.canister_id && (
+            <button
+              onClick={toggleEnv}
+              style={styles.envToggleBtn}
+              title="View environment variables"
+            >
+              {expanded ? '▾' : '▸'}
+            </button>
+          )}
+        </td>
+      </tr>
+      {expanded && (
+        <tr>
+          <td colSpan={5} style={{ padding: 0 }}>
+            <div style={styles.envPanel}>
+              <div style={styles.envHeader}>Environment Variables</div>
+              {envLoading && (
+                <p style={{ color: 'var(--text-secondary)', margin: '0.5rem 0' }}>Loading...</p>
+              )}
+              {envError && (
+                <p style={{ color: 'var(--error)', margin: '0.5rem 0' }}>{envError}</p>
+              )}
+              {envVars && envVars.length === 0 && (
+                <p style={{ color: 'var(--text-muted)', margin: '0.5rem 0', fontSize: '0.85rem' }}>
+                  No environment variables set
+                </p>
+              )}
+              {envVars && envVars.length > 0 && (
+                <table style={{ width: '100%', fontSize: '0.85rem' }}>
+                  <tbody>
+                    {envVars.map((ev) => (
+                      <tr key={ev.name}>
+                        <td style={styles.envName}><code>{ev.name}</code></td>
+                        <td style={styles.envValue}><code>{ev.value}</code></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  );
 }
 
 export default function ProjectDetail() {
@@ -151,33 +241,12 @@ export default function ProjectDetail() {
                   <th>Type</th>
                   <th>Canister ID</th>
                   <th>Status</th>
+                  <th style={{ width: 40 }}></th>
                 </tr>
               </thead>
               <tbody>
                 {project.canisters.map((c) => (
-                  <tr key={c.id}>
-                    <td style={{ fontWeight: 500 }}>{c.name}</td>
-                    <td style={{ color: 'var(--text-secondary)' }}>{c.type}</td>
-                    <td>
-                      {c.canister_id ? (
-                        <a
-                          href={`https://${c.canister_id}.icp0.io`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          style={{ color: 'var(--accent)', textDecoration: 'none' }}
-                        >
-                          <code>{c.canister_id}</code> ↗
-                        </a>
-                      ) : (
-                        <span style={{ color: 'var(--text-muted)' }}>—</span>
-                      )}
-                    </td>
-                    <td>
-                      <span className={`badge ${statusBadge[c.status] ?? 'badge-warning'}`}>
-                        {c.status}
-                      </span>
-                    </td>
-                  </tr>
+                  <CanisterRow key={c.id} canister={c} />
                 ))}
               </tbody>
             </table>
@@ -332,5 +401,38 @@ const styles: Record<string, React.CSSProperties> = {
     background: '#f59e0b',
     marginLeft: '0.4rem',
     verticalAlign: 'middle',
+  },
+  envToggleBtn: {
+    background: 'none',
+    border: 'none',
+    color: 'var(--text-secondary)',
+    cursor: 'pointer',
+    fontSize: '0.9rem',
+    padding: '0.25rem 0.5rem',
+    borderRadius: 4,
+  },
+  envPanel: {
+    background: 'var(--bg-primary)',
+    borderTop: '1px solid var(--border-color)',
+    padding: '0.75rem 1.25rem',
+  },
+  envHeader: {
+    fontSize: '0.75rem',
+    fontWeight: 600,
+    color: 'var(--text-muted)',
+    textTransform: 'uppercase' as const,
+    letterSpacing: '0.05em',
+    marginBottom: '0.5rem',
+  },
+  envName: {
+    fontWeight: 500,
+    color: 'var(--text-primary)',
+    padding: '0.25rem 1rem 0.25rem 0',
+    whiteSpace: 'nowrap' as const,
+  },
+  envValue: {
+    color: 'var(--text-secondary)',
+    padding: '0.25rem 0',
+    wordBreak: 'break-all' as const,
   },
 };

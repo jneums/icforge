@@ -732,3 +732,39 @@ pub async fn link_repo(
 
     Ok(Json(json!({ "linked": true })))
 }
+
+/// GET /api/v1/canisters/:canister_id/env — Fetch environment variables from IC management canister
+pub async fn canister_env(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+    Path(canister_id): Path<String>,
+) -> Result<Json<Value>, AppError> {
+    // Verify the canister belongs to this user
+    let _canister: CanisterRecord = sqlx::query_as(
+        "SELECT c.* FROM canisters c JOIN projects p ON c.project_id = p.id WHERE c.canister_id = $1 AND p.user_id = $2"
+    )
+    .bind(&canister_id)
+    .bind(&auth_user.user.id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(AppError::Database)?
+    .ok_or_else(|| AppError::NotFound("Canister not found or not owned by you".into()))?;
+
+    let pem = state.config.ic_identity_pem.as_deref()
+        .ok_or_else(|| AppError::Internal("IC_IDENTITY_PEM not configured".into()))?;
+    let client = crate::ic_client::IcClient::new(pem, &state.config.ic_url).await?;
+    let status = client.canister_status(&canister_id).await?;
+
+    let env_vars: Vec<serde_json::Value> = status
+        .settings
+        .environment_variables
+        .unwrap_or_default()
+        .into_iter()
+        .map(|ev| json!({ "name": ev.name, "value": ev.value }))
+        .collect();
+
+    Ok(Json(json!({
+        "canister_id": canister_id,
+        "environment_variables": env_vars,
+    })))
+}

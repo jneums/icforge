@@ -77,6 +77,8 @@ async fn main() {
         .route("/api/v1/deploy/{deploy_id}/logs", get(routes::deploy_logs))
         .route("/api/v1/deploy/{deploy_id}/logs/stream", get(routes::deploy_logs_stream))
         .route("/api/v1/cycles/balance", get(routes::cycles_balance))
+        // Canister details
+        .route("/api/v1/canisters/{canister_id}/env", get(routes::canister_env))
         // API tokens
         .route("/api/v1/tokens", get(routes::list_api_tokens))
         .route("/api/v1/tokens", post(routes::create_api_token))

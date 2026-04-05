@@ -143,3 +143,15 @@ export function getAuthHeaders(): Record<string, string> {
 }
 
 export { API_URL };
+
+export interface EnvironmentVariable {
+  name: string;
+  value: string;
+}
+
+export async function fetchCanisterEnv(canisterId: string): Promise<EnvironmentVariable[]> {
+  const res = await apiFetch(`/api/v1/canisters/${canisterId}/env`);
+  if (!res.ok) throw new Error(`Failed to fetch canister env: ${res.status}`);
+  const data = await res.json();
+  return data.environment_variables ?? [];
+}

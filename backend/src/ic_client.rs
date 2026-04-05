@@ -71,12 +71,28 @@ struct CanisterIdRecord {
     canister_id: Principal,
 }
 
+#[derive(CandidType, Deserialize, Debug, Clone, serde::Serialize)]
+pub struct EnvironmentVariableResult {
+    pub name: String,
+    pub value: String,
+}
+
 #[derive(CandidType, Deserialize, Debug)]
 pub struct CanisterStatusResult {
     pub status: CanisterStatus,
     pub module_hash: Option<Vec<u8>>,
     pub memory_size: Nat,
     pub cycles: Nat,
+    pub settings: CanisterStatusSettings,
+}
+
+#[derive(CandidType, Deserialize, Debug)]
+pub struct CanisterStatusSettings {
+    pub controllers: Vec<Principal>,
+    pub compute_allocation: Nat,
+    pub memory_allocation: Nat,
+    pub freezing_threshold: Nat,
+    pub environment_variables: Option<Vec<EnvironmentVariableResult>>,
 }
 
 #[derive(CandidType, Deserialize, Debug)]

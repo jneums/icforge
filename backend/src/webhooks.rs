@@ -281,20 +281,41 @@ async fn handle_installation(state: AppState, payload: Value) -> Result<(), AppE
 
     match action {
         "created" => {
-            // Store installation — we'll associate it with a user when they
-            // complete the setup flow in the dashboard.
-            // For now, store with a placeholder user_id that gets updated
-            // when the user hits /github/setup.
+            // Look up the ICForge user by their GitHub account ID
+            let account_id = payload["installation"]["account"]["id"]
+                .as_i64()
+                .ok_or_else(|| AppError::BadRequest("Missing installation.account.id".into()))?;
+
+            let user: Option<crate::models::User> =
+                sqlx::query_as("SELECT * FROM users WHERE github_id = $1")
+                    .bind(account_id)
+                    .fetch_optional(&state.db)
+                    .await
+                    .map_err(AppError::Database)?;
+
+            let user = match user {
+                Some(u) => u,
+                None => {
+                    tracing::warn!(
+                        github_id = account_id,
+                        account = account_login,
+                        "Installation created by unknown user — they need to log in first"
+                    );
+                    return Ok(());
+                }
+            };
+
             let id = uuid::Uuid::new_v4().to_string();
             sqlx::query(
                 r#"
                 INSERT INTO github_installations (id, user_id, installation_id, account_login, account_type)
-                VALUES ($1, '__pending__', $2, $3, $4)
+                VALUES ($1, $2, $3, $4, $5)
                 ON CONFLICT (installation_id) DO UPDATE
-                SET account_login = $3, account_type = $4, updated_at = to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS')
+                SET user_id = $2, account_login = $4, account_type = $5, updated_at = to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS')
                 "#,
             )
             .bind(&id)
+            .bind(&user.id)
             .bind(installation_id)
             .bind(account_login)
             .bind(account_type)

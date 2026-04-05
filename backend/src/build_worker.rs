@@ -3,7 +3,7 @@ use std::time::Instant;
 use crate::db::DbPool;
 use crate::config::AppConfig;
 use crate::github::{self, GitHubNotifier};
-use crate::ic_client::IcClient;
+use crate::ic_client::{EnvironmentVariable, IcClient};
 use crate::models::BuildJob;
 
 /// Default asset canister wasm version (dfinity SDK tag)
@@ -330,6 +330,50 @@ async fn execute_build(
                 run_cmd(&work_dir, &["cargo", "build", "--target", "wasm32-unknown-unknown", "--release"]).await?;
             }
 
+            // Pre-provision: ensure all canisters exist on IC before building,
+            // so we can inject canister IDs as env vars into build commands.
+            let mut canister_id_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+
+            if !canister_configs.is_empty() {
+                let ic_pem = config.ic_identity_pem.as_deref()
+                    .ok_or_else(|| "IC_IDENTITY_PEM not configured — cannot provision canisters".to_string())?;
+                let client = IcClient::new(ic_pem, &config.ic_url).await
+                    .map_err(|e| format!("Failed to create IC agent: {e}"))?;
+
+                for cc in &canister_configs {
+                    let canister_row = sqlx::query_as::<_, (String, Option<String>, String)>(
+                        "SELECT id, canister_id, type FROM canisters WHERE project_id = $1 AND name = $2"
+                    )
+                    .bind(&job.project_id)
+                    .bind(&cc.name)
+                    .fetch_optional(pool)
+                    .await
+                    .map_err(|e| format!("DB error looking up canister {}: {e}", cc.name))?;
+
+                    if let Some((canister_db_id, existing_id, _)) = canister_row {
+                        if let Some(cid) = existing_id {
+                            log_build(pool, &job.id, "info", "provision", &format!("Canister '{}' already exists: {cid}", cc.name)).await;
+                            canister_id_map.insert(cc.name.clone(), cid);
+                        } else {
+                            log_build(pool, &job.id, "info", "provision", &format!("Creating canister '{}' on IC...", cc.name)).await;
+                            let cid = client.create_canister().await
+                                .map_err(|e| format!("Failed to create canister '{}': {e}", cc.name))?;
+                            log_build(pool, &job.id, "info", "provision", &format!("Created canister '{}': {cid}", cc.name)).await;
+
+                            let _ = sqlx::query("UPDATE canisters SET canister_id = $1, status = 'created', updated_at = to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS') WHERE id = $2")
+                                .bind(&cid)
+                                .bind(&canister_db_id)
+                                .execute(pool)
+                                .await;
+
+                            canister_id_map.insert(cc.name.clone(), cid);
+                        }
+                    } else {
+                        log_build(pool, &job.id, "warn", "provision", &format!("No canister record for '{}' in project — skipping", cc.name)).await;
+                    }
+                }
+            }
+
             for cc in &canister_configs {
                 let canister_dir = format!("{work_dir}/{}", cc.name);
                 let recipe = cc.recipe_type.as_deref().unwrap_or("unknown");
@@ -338,10 +382,17 @@ async fn execute_build(
                     log_build(pool, &job.id, "info", "build", &format!("Building Rust canister: {}", cc.name)).await;
                     run_cmd(&canister_dir, &["cargo", "build", "--target", "wasm32-unknown-unknown", "--release"]).await?;
                 } else if recipe.contains("asset-canister") || recipe.contains("asset") {
-                    // Run any build commands first (e.g. npm install && npm run build)
+                    // Build env vars: inject all canister IDs as CANISTER_ID_<NAME>=<id>
+                    let mut env_vars: Vec<(String, String)> = Vec::new();
+                    for (name, cid) in &canister_id_map {
+                        let env_name = format!("CANISTER_ID_{}", name.to_uppercase().replace('-', "_"));
+                        env_vars.push((env_name, cid.clone()));
+                    }
+
+                    // Run build commands with canister IDs injected
                     for cmd in &cc.build_commands {
                         log_build(pool, &job.id, "info", "build", &format!("[{}] Running: {cmd}", cc.name)).await;
-                        run_cmd(&canister_dir, &["sh", "-c", cmd]).await?;
+                        run_cmd_with_env(&canister_dir, &["sh", "-c", cmd], &env_vars).await?;
                     }
 
                     // Download the asset canister wasm from dfinity SDK
@@ -498,6 +549,46 @@ async fn execute_build(
             .await;
 
             log_build(pool, &job.id, "info", "deploy", &format!("✅ Canister {} deployed to {canister_id}", cc.name)).await;
+        }
+
+        // Phase: bind environment variables (PUBLIC_CANISTER_ID:<name> on each canister)
+        // Re-query all canister IDs from DB to build the complete map
+        let all_canisters = sqlx::query_as::<_, (String, Option<String>)>(
+            "SELECT name, canister_id FROM canisters WHERE project_id = $1"
+        )
+        .bind(&job.project_id)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("DB error fetching canisters for env binding: {e}"))?;
+
+        let binding_vars: Vec<EnvironmentVariable> = all_canisters.iter()
+            .filter_map(|(name, cid)| {
+                cid.as_ref().map(|id| EnvironmentVariable {
+                    name: format!("PUBLIC_CANISTER_ID:{name}"),
+                    value: id.clone(),
+                })
+            })
+            .collect();
+
+        if !binding_vars.is_empty() {
+            log_build(pool, &job.id, "info", "deploy",
+                &format!("Binding {} env vars to canisters: {}",
+                    binding_vars.len(),
+                    binding_vars.iter().map(|v| format!("{}={}", v.name, v.value)).collect::<Vec<_>>().join(", ")
+                )
+            ).await;
+
+            for (name, cid) in &all_canisters {
+                if let Some(canister_id) = cid {
+                    log_build(pool, &job.id, "info", "deploy",
+                        &format!("Setting env vars on {name} ({canister_id})...")
+                    ).await;
+                    client.update_settings(canister_id, binding_vars.clone()).await
+                        .map_err(|e| format!("update_settings failed for {name} ({canister_id}): {e}"))?;
+                }
+            }
+
+            log_build(pool, &job.id, "info", "deploy", "✅ Environment variables bound to all canisters").await;
         }
     } else {
         // Fallback: find all wasm files and deploy each one (non-icp.yaml projects)
@@ -812,6 +903,37 @@ async fn run_cmd(work_dir: &str, args: &[&str]) -> Result<String, String> {
         .args(&args[1..])
         .current_dir(work_dir)
         .output()
+        .await
+        .map_err(|e| format!("Failed to run {}: {e}", args[0]))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    if !output.status.success() {
+        return Err(format!(
+            "Command `{}` failed (exit {}):\n{stderr}",
+            args.join(" "),
+            output.status.code().unwrap_or(-1)
+        ));
+    }
+
+    Ok(format!("{stdout}{stderr}"))
+}
+
+async fn run_cmd_with_env(work_dir: &str, args: &[&str], env_vars: &[(String, String)]) -> Result<String, String> {
+    use tokio::process::Command;
+
+    let _ = tokio::fs::create_dir_all(work_dir).await;
+
+    let mut cmd = Command::new(args[0]);
+    cmd.args(&args[1..])
+        .current_dir(work_dir);
+
+    for (key, val) in env_vars {
+        cmd.env(key, val);
+    }
+
+    let output = cmd.output()
         .await
         .map_err(|e| format!("Failed to run {}: {e}", args[0]))?;
 

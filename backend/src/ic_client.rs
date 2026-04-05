@@ -16,12 +16,25 @@ const CYCLES_LEDGER_FEE: u128 = 100_000_000; // 100M cycles
 
 // -- Management canister types --
 
+#[derive(CandidType, Clone)]
+pub struct EnvironmentVariable {
+    pub name: String,
+    pub value: String,
+}
+
 #[derive(CandidType)]
 struct MgmtCanisterSettings {
     controllers: Option<Vec<Principal>>,
     compute_allocation: Option<Nat>,
     memory_allocation: Option<Nat>,
     freezing_threshold: Option<Nat>,
+    environment_variables: Option<Vec<EnvironmentVariable>>,
+}
+
+#[derive(CandidType)]
+struct UpdateSettingsArgs {
+    canister_id: Principal,
+    settings: MgmtCanisterSettings,
 }
 
 #[derive(CandidType, Deserialize)]
@@ -403,6 +416,44 @@ impl IcClient {
             .map_err(|e| AppError::Internal(format!("Failed to decode canister_status response: {e}")))?;
 
         Ok(result)
+    }
+
+    /// Update canister settings — primarily used to set environment variables
+    /// (PUBLIC_CANISTER_ID:<name>) so canisters can discover each other at runtime.
+    pub async fn update_settings(
+        &self,
+        canister_id_text: &str,
+        env_vars: Vec<EnvironmentVariable>,
+    ) -> Result<(), AppError> {
+        let management = Principal::from_text(MANAGEMENT_CANISTER_ID)
+            .map_err(|e| AppError::Internal(format!("Invalid management canister ID: {e}")))?;
+
+        let canister_id = Principal::from_text(canister_id_text)
+            .map_err(|e| AppError::Internal(format!("Invalid canister ID '{canister_id_text}': {e}")))?;
+
+        let args = UpdateSettingsArgs {
+            canister_id,
+            settings: MgmtCanisterSettings {
+                controllers: None,
+                compute_allocation: None,
+                memory_allocation: None,
+                freezing_threshold: None,
+                environment_variables: if env_vars.is_empty() { None } else { Some(env_vars) },
+            },
+        };
+
+        let arg_bytes = Encode!(&args)
+            .map_err(|e| AppError::Internal(format!("Failed to encode update_settings args: {e}")))?;
+
+        self.agent
+            .update(&management, "update_settings")
+            .with_arg(arg_bytes)
+            .with_effective_canister_id(canister_id)
+            .call_and_wait()
+            .await
+            .map_err(|e| AppError::Internal(format!("update_settings call failed: {e}")))?;
+
+        Ok(())
     }
 
     /// Top up an existing canister with cycles via the cycles ledger's withdraw endpoint.

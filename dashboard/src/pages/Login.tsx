@@ -1,17 +1,35 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { devLogin } from '../api';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function Login() {
   const navigate = useNavigate();
-  const { user, login } = useAuth();
+  const { user, loading: authLoading, login } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // If already logged in, redirect
-  if (user) {
-    navigate('/projects');
+  // Check for token in URL (OAuth callback redirect)
+  const params = new URLSearchParams(window.location.search);
+  const tokenFromUrl = params.get('token');
+
+  useEffect(() => {
+    if (tokenFromUrl) {
+      login(tokenFromUrl);
+      // Clean the URL
+      window.history.replaceState({}, '', '/login');
+    }
+  }, [tokenFromUrl]);
+
+  // Redirect to projects once authenticated
+  useEffect(() => {
+    if (!authLoading && user) {
+      navigate('/projects', { replace: true });
+    }
+  }, [user, authLoading]);
+
+  // Show nothing while auth is loading or we're about to redirect
+  if (authLoading || user || tokenFromUrl) {
     return null;
   }
 
@@ -33,15 +51,6 @@ export default function Login() {
       setLoading(false);
     }
   };
-
-  // Check for token in URL (OAuth callback redirect)
-  const params = new URLSearchParams(window.location.search);
-  const tokenFromUrl = params.get('token');
-  if (tokenFromUrl) {
-    login(tokenFromUrl);
-    navigate('/projects');
-    return null;
-  }
 
   return (
     <div style={styles.wrapper}>

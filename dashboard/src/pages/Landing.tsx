@@ -1,6 +1,10 @@
 import { Link } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function Landing() {
+  const { user } = useAuth();
+  const ctaLink = user ? '/projects' : '/login';
+
   return (
     <div style={styles.wrapper}>
       <div style={styles.hero}>
@@ -14,7 +18,7 @@ export default function Landing() {
           ICForge is the open-source deployment pipeline for IC canisters.
         </p>
         <div style={styles.actions}>
-          <Link to="/login">
+          <Link to={ctaLink}>
             <button className="btn-primary" style={{ padding: '0.65rem 1.5rem', fontSize: '0.95rem' }}>
               Get Started
             </button>
@@ -66,7 +70,7 @@ export default function Landing() {
         <p style={styles.ctaDesc}>
           Get started for free. No credit card required.
         </p>
-        <Link to="/login">
+        <Link to={ctaLink}>
           <button className="btn-primary" style={{ padding: '0.7rem 2rem', fontSize: '1rem' }}>
             Get Started →
           </button>

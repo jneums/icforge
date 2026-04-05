@@ -9,7 +9,7 @@ services:
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
     region: oregon
-    plan: free
+    plan: starter
     envVars:
       - key: HOST
         value: "0.0.0.0"

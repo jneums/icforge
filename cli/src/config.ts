@@ -75,13 +75,43 @@ export async function saveICForgeConfig(config: ICForgeConfig, dir: string = pro
 /**
  * Load and parse the icp.yaml manifest.
  * This is the source of truth for canister definitions.
+ * Supports both inline canister objects and string references to canister.yaml files.
  * Returns null if no icp.yaml found.
  */
 export async function loadIcpManifest(dir: string = process.cwd()): Promise<IcpManifest | null> {
   const manifestPath = join(dir, ICP_MANIFEST);
   if (!existsSync(manifestPath)) return null;
   const raw = await readFile(manifestPath, "utf-8");
-  return parseYaml(raw) as IcpManifest;
+  const parsed = parseYaml(raw) as Record<string, unknown>;
+
+  if (!parsed?.canisters || !Array.isArray(parsed.canisters)) {
+    return parsed as unknown as IcpManifest;
+  }
+
+  // Resolve canister entries: strings become references to <name>/canister.yaml
+  const resolvedCanisters: IcpCanister[] = [];
+  for (const entry of parsed.canisters) {
+    if (typeof entry === "string") {
+      // String entry — load <dir>/<entry>/canister.yaml
+      const canisterYamlPath = join(dir, entry, "canister.yaml");
+      if (existsSync(canisterYamlPath)) {
+        const canisterRaw = await readFile(canisterYamlPath, "utf-8");
+        const canisterParsed = parseYaml(canisterRaw) as IcpCanister;
+        resolvedCanisters.push(canisterParsed);
+      } else {
+        // No canister.yaml — create a minimal entry from the directory name
+        resolvedCanisters.push({ name: entry });
+      }
+    } else {
+      // Already an object
+      resolvedCanisters.push(entry as IcpCanister);
+    }
+  }
+
+  return {
+    ...parsed,
+    canisters: resolvedCanisters,
+  } as IcpManifest;
 }
 
 /**

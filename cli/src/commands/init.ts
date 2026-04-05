@@ -98,6 +98,43 @@ export async function initCommand(options: Record<string, unknown> = {}) {
     console.log(chalk.dim(`  Vanity URL: https://${slug}.icforge.dev`));
   }
   console.log(chalk.dim("  Config saved to .icforge"));
+
+  // 8. Auto-link GitHub repo if in a git repo with a GitHub remote
+  try {
+    const { execSync } = await import("child_process");
+    const remoteUrl = execSync("git remote get-url origin", { encoding: "utf-8" }).trim();
+    // Extract owner/repo from GitHub URL (HTTPS or SSH)
+    const match = remoteUrl.match(/github\.com[:/](.+?\/.+?)(?:\.git)?$/);
+    if (match) {
+      const fullName = match[1];
+      // Fetch user's GitHub repos from the installation
+      const reposResp = await apiFetch('/api/v1/github/repos');
+      if (reposResp.ok) {
+        const reposBody = await reposResp.json() as { repos: Array<{ id: string; full_name: string }> };
+        const repos = reposBody.repos ?? [];
+        const repoRecord = repos.find((r: { full_name: string }) => r.full_name === fullName);
+        if (repoRecord) {
+          const linkResp = await apiFetch('/api/v1/github/link', {
+            method: 'POST',
+            body: JSON.stringify({
+              project_id: projectId,
+              github_repo_id: repoRecord.id,
+              production_branch: "main",
+            }),
+          });
+          if (linkResp.ok) {
+            console.log(chalk.green("✓"), "GitHub repo linked:", chalk.cyan(fullName));
+            console.log(chalk.dim("  Pushes to main will auto-deploy."));
+          }
+        } else {
+          console.log(chalk.dim(`  GitHub repo ${fullName} not found — install the ICForge app on it first.`));
+        }
+      }
+    }
+  } catch {
+    // Not a git repo or no remote — skip silently
+  }
+
   console.log();
   console.log("Next: run", chalk.cyan("icforge deploy"), "to deploy to the Internet Computer.");
 }

@@ -1,17 +1,7 @@
-import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { fetchCyclesBalance } from '../api';
 
 export default function Settings() {
   const { user, loading: authLoading } = useAuth();
-  const [cyclesBalance, setCyclesBalance] = useState<number | null>(null);
-
-  useEffect(() => {
-    if (authLoading || !user) return;
-    fetchCyclesBalance()
-      .then((data) => setCyclesBalance(data.balance_e8s))
-      .catch(() => { /* ignore */ });
-  }, [user, authLoading]);
 
   if (authLoading) {
     return (
@@ -32,11 +22,6 @@ export default function Settings() {
       </div>
     );
   }
-
-  const formatCycles = (e8s: number) => {
-    const tc = e8s / 1e12;
-    return `${tc.toFixed(4)} TC`;
-  };
 
   return (
     <div className="container">
@@ -102,14 +87,6 @@ export default function Settings() {
               {user.plan}
             </span>
           </div>
-          {cyclesBalance !== null && (
-            <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border-color)' }}>
-              <div style={styles.fieldLabel}>Cycles Balance</div>
-              <div style={{ fontSize: '1.1rem', fontWeight: 600, marginTop: '0.25rem' }}>
-                {formatCycles(cyclesBalance)}
-              </div>
-            </div>
-          )}
         </div>
       </div>
 

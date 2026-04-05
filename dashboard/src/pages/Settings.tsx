@@ -78,12 +78,10 @@ export default function Settings() {
                 {user.plan} Plan
               </div>
               <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
-                {user.plan === 'free'
-                  ? 'Up to 3 projects, shared compute'
-                  : 'Unlimited projects, priority builds'}
+                Up to 3 projects
               </div>
             </div>
-            <span className={`badge ${user.plan === 'free' ? 'badge-warning' : 'badge-success'}`}>
+            <span className="badge badge-success">
               {user.plan}
             </span>
           </div>

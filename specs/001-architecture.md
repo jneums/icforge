@@ -295,45 +295,31 @@ ICForge maintains a pool of cycles funded by bulk ICP purchases.
 
 **Key insight:** Frontend canisters cost almost nothing (~$1-5/year). The free tier is essentially free to operate. Backend canisters with heavy compute (HTTPS outcalls, polling) can burn $6/day — these users self-select into Pro/Enterprise.
 
-## 7. CI/CD — GitHub Actions Integration
+## 7. CI/CD — Managed Build Pipeline
 
-**GitHub Action: `icforge/deploy-action`**
+**GitHub App integration — zero-config deploys on every push.**
 
-```yaml
-# .github/workflows/deploy.yml
-name: Deploy to IC
-on:
-  push:
-    branches: [main]
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: icforge/deploy-action@v1
-        with:
-          project-id: ${{ secrets.ATLASCLOUD_PROJECT_ID }}
-          token: ${{ secrets.ATLASCLOUD_TOKEN }}
-```
+User clicks "Connect Repository" in the dashboard, installs the ICForge GitHub App, and selects repos. Every push to the production branch triggers a server-side build and deploy automatically.
 
 **How it works:**
-1. Action installs `icp-cli` and project dependencies
-2. Authenticates with ICForge via service token (not OAuth — machine-to-machine)
-3. Runs `icp build` to compile canisters (using icp.yaml recipes)
-4. Uploads .wasm + .did + asset artifacts to ICForge API
-5. Streams deploy logs in GitHub Actions output
-6. Fails the workflow if deploy fails
+1. GitHub sends `push` webhook to ICForge API
+2. Build job is enqueued in Postgres
+3. Build worker clones the repo (via GitHub installation token)
+4. Auto-detects framework (spec 015) and builds canisters
+5. Deploys artifacts to IC (reuses existing deploy pipeline)
+6. Posts commit status + check run back to GitHub
 
-**Build in CI:** All builds happen in GitHub Actions using `icp-cli` directly.
-The action installs the IC SDK, runs `icp build`, and uploads artifacts to ICForge.
-No proprietary build system needed — we piggyback on icp-cli's recipe system.
+**Builds run server-side** in the ICForge build worker — no user CI configuration needed.
+Users don't write workflow YAML or manage secrets. Connect repo → push → deployed.
 
-**Preview Deployments (future):**
-- On PR open/update: deploy to a preview canister
+**Preview Deployments (spec 013):**
+- On PR open/update: build + deploy to preview canisters
 - Comment on PR with preview URL
-- On PR merge: promote to production canister
-- On PR close: delete preview canister
+- On PR merge/close: cleanup preview canisters
+
+**Manual deploys:** Still supported via CLI with API tokens for users who want CI control.
+
+See: 008-github-app.md, 008-build-pipeline.md, 008-status-feedback.md
 
 ## 8. Custom Domains
 
@@ -438,7 +424,7 @@ The progression is natural: start free on shared infra, graduate to your own Clo
 | IC Agent | `ic-agent` Rust crate | First-party DFINITY SDK |
 | Dashboard | React (Vite) on IC canister | Dogfood our own product |
 | Backend Hosting | Render.com | Existing account, simple deploy |
-| CI/CD | GitHub Actions + `icp-cli` | Builds use IC SDK directly |
+| CI/CD | Managed build pipeline (GitHub App) | Server-side builds triggered by push webhook. See 008-github-app.md, 008-build-pipeline.md |
 | Cycles Funding | cycles.express (initial) | Credit card → cycles, no exchange needed |
 
 ## 12. Milestones
@@ -458,7 +444,7 @@ The progression is natural: start free on shared infra, graduate to your own Clo
 
 ### v0.3 — "Production Ready"
 - [ ] Stripe billing integration
-- [ ] GitHub Actions deploy action (builds with `icp-cli` in CI)
+- [ ] GitHub App + managed build pipeline (server-side builds on push)
 - [ ] Custom domain support
 - [ ] Cycles monitoring + auto top-up alerts
 - [ ] Canister eject flow (transfer control to user's principal)
@@ -484,7 +470,7 @@ The progression is natural: start free on shared infra, graduate to your own Clo
 
 | Question | Decision | Rationale |
 |----------|----------|-----------|
-| **Build location** | GitHub Actions with `icp-cli` | No proprietary build infra needed. `icp build` in CI using recipes from icp.yaml. CLI can also build locally for `icforge deploy`. |
+| **Build location** | Server-side (ICForge build worker) | Managed Docker containers on Render. Clone repo via GitHub App, auto-detect framework, build + deploy. No user CI config needed. |
 | **Dashboard framework** | React (Vite), hosted on IC canister | Dogfood our own product. No SSR needed for a dashboard. |
 | **Backend hosting** | Render.com | Jesse has existing account. Simple Rust deploy. |
 | **Cycles acquisition** | cycles.express (initial) | Credit card → cycles without needing an exchange. Evaluate bulk OTC later at scale. |

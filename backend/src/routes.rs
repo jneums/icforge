@@ -8,7 +8,10 @@ use serde_json::{json, Value};
 
 use crate::auth::{self, AuthUser};
 use crate::error::AppError;
-use crate::models::{CanisterRecord, CreateProjectRequest, Project, ProjectWithCanisters};
+use crate::models::{
+    ApiToken, CanisterRecord, CreateProjectRequest, CreateTokenRequest, CreateTokenResponse,
+    Project, ProjectWithCanisters,
+};
 use crate::AppState;
 
 // Re-export the SSE response type so the route handler signature works
@@ -286,6 +289,8 @@ pub async fn create_project(
         slug,
         custom_domain: None,
         subnet_id: req.subnet,
+        github_repo_id: None,
+        production_branch: None,
         created_at: now.clone(),
         updated_at: now,
     };
@@ -437,4 +442,293 @@ pub async fn dev_token(
         "user_id": user_id,
         "dev_mode": true,
     })))
+}
+
+// ============================================================
+// API token management
+// ============================================================
+
+/// POST /api/v1/tokens — Create a new API token
+pub async fn create_api_token(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+    Json(req): Json<CreateTokenRequest>,
+) -> Result<Json<Value>, AppError> {
+    if req.name.trim().is_empty() {
+        return Err(AppError::BadRequest("Token name is required".into()));
+    }
+
+    let token_id = uuid::Uuid::new_v4().to_string();
+    let raw_token = format!("icf_tok_{}", uuid::Uuid::new_v4().simple());
+    let token_hash = crate::auth::sha256_hex(&raw_token);
+
+    let expires_at = req.expires_in_days.map(|days| {
+        (chrono::Utc::now() + chrono::Duration::days(days))
+            .format("%Y-%m-%d %H:%M:%S")
+            .to_string()
+    });
+
+    sqlx::query(
+        r#"
+        INSERT INTO api_tokens (id, user_id, name, token_hash, expires_at)
+        VALUES ($1, $2, $3, $4, $5)
+        "#,
+    )
+    .bind(&token_id)
+    .bind(&auth_user.user.id)
+    .bind(&req.name)
+    .bind(&token_hash)
+    .bind(&expires_at)
+    .execute(&state.db)
+    .await
+    .map_err(AppError::Database)?;
+
+    Ok(Json(json!(CreateTokenResponse {
+        token: raw_token,
+        id: token_id,
+        name: req.name,
+        expires_at,
+    })))
+}
+
+/// GET /api/v1/tokens — List user's API tokens (hashes not returned)
+pub async fn list_api_tokens(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+) -> Result<Json<Value>, AppError> {
+    let tokens: Vec<ApiToken> = sqlx::query_as(
+        "SELECT * FROM api_tokens WHERE user_id = $1 ORDER BY created_at DESC",
+    )
+    .bind(&auth_user.user.id)
+    .fetch_all(&state.db)
+    .await
+    .map_err(AppError::Database)?;
+
+    Ok(Json(json!({ "tokens": tokens })))
+}
+
+/// DELETE /api/v1/tokens/{token_id} — Revoke an API token
+pub async fn delete_api_token(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+    Path(token_id): Path<String>,
+) -> Result<Json<Value>, AppError> {
+    let result = sqlx::query(
+        "DELETE FROM api_tokens WHERE id = $1 AND user_id = $2",
+    )
+    .bind(&token_id)
+    .bind(&auth_user.user.id)
+    .execute(&state.db)
+    .await
+    .map_err(AppError::Database)?;
+
+    if result.rows_affected() == 0 {
+        return Err(AppError::NotFound("Token not found".into()));
+    }
+
+    Ok(Json(json!({ "deleted": true })))
+}
+
+// ============================================================
+// Build jobs
+// ============================================================
+
+/// GET /api/v1/builds — List build jobs for user's projects
+pub async fn list_builds(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+) -> Result<Json<Value>, AppError> {
+    let builds: Vec<crate::models::BuildJob> = sqlx::query_as(
+        r#"
+        SELECT bj.* FROM build_jobs bj
+        JOIN projects p ON bj.project_id = p.id
+        WHERE p.user_id = $1
+        ORDER BY bj.created_at DESC
+        LIMIT 50
+        "#,
+    )
+    .bind(&auth_user.user.id)
+    .fetch_all(&state.db)
+    .await
+    .map_err(AppError::Database)?;
+
+    Ok(Json(json!({ "builds": builds })))
+}
+
+/// GET /api/v1/builds/{build_id} — Get a specific build with logs
+pub async fn get_build(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+    Path(build_id): Path<String>,
+) -> Result<Json<Value>, AppError> {
+    let build: crate::models::BuildJob = sqlx::query_as(
+        r#"
+        SELECT bj.* FROM build_jobs bj
+        JOIN projects p ON bj.project_id = p.id
+        WHERE bj.id = $1 AND p.user_id = $2
+        "#,
+    )
+    .bind(&build_id)
+    .bind(&auth_user.user.id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(AppError::Database)?
+    .ok_or_else(|| AppError::NotFound("Build not found".into()))?;
+
+    let logs: Vec<crate::models::BuildLog> = sqlx::query_as(
+        "SELECT * FROM build_logs WHERE build_job_id = $1 ORDER BY id ASC",
+    )
+    .bind(&build_id)
+    .fetch_all(&state.db)
+    .await
+    .map_err(AppError::Database)?;
+
+    Ok(Json(json!({
+        "build": build,
+        "logs": logs,
+    })))
+}
+
+// ============================================================
+// GitHub setup
+// ============================================================
+
+/// GET /api/v1/github/installations — List user's GitHub App installations
+pub async fn list_installations(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+) -> Result<Json<Value>, AppError> {
+    let installations: Vec<crate::models::GitHubInstallation> = sqlx::query_as(
+        "SELECT * FROM github_installations WHERE user_id = $1 ORDER BY created_at DESC",
+    )
+    .bind(&auth_user.user.id)
+    .fetch_all(&state.db)
+    .await
+    .map_err(AppError::Database)?;
+
+    Ok(Json(json!({ "installations": installations })))
+}
+
+/// GET /api/v1/github/repos — List repos accessible via user's installations
+pub async fn list_github_repos(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+) -> Result<Json<Value>, AppError> {
+    let repos: Vec<crate::models::GitHubRepo> = sqlx::query_as(
+        r#"
+        SELECT gr.* FROM github_repos gr
+        JOIN github_installations gi ON gr.installation_id = gi.id
+        WHERE gi.user_id = $1
+        ORDER BY gr.full_name ASC
+        "#,
+    )
+    .bind(&auth_user.user.id)
+    .fetch_all(&state.db)
+    .await
+    .map_err(AppError::Database)?;
+
+    Ok(Json(json!({ "repos": repos })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ClaimInstallationParams {
+    pub installation_id: i64,
+}
+
+/// POST /api/v1/github/installations/claim — Associate a pending installation with the current user
+pub async fn claim_installation(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+    Json(params): Json<ClaimInstallationParams>,
+) -> Result<Json<Value>, AppError> {
+    let result = sqlx::query(
+        r#"
+        UPDATE github_installations
+        SET user_id = $1, updated_at = to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS')
+        WHERE installation_id = $2 AND user_id = '__pending__'
+        "#,
+    )
+    .bind(&auth_user.user.id)
+    .bind(params.installation_id)
+    .execute(&state.db)
+    .await
+    .map_err(AppError::Database)?;
+
+    if result.rows_affected() == 0 {
+        // Maybe already claimed by this user?
+        let existing: Option<crate::models::GitHubInstallation> = sqlx::query_as(
+            "SELECT * FROM github_installations WHERE installation_id = $1 AND user_id = $2",
+        )
+        .bind(params.installation_id)
+        .bind(&auth_user.user.id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(AppError::Database)?;
+
+        if existing.is_some() {
+            return Ok(Json(json!({ "claimed": true, "already_owned": true })));
+        }
+
+        return Err(AppError::NotFound(
+            "Installation not found or already claimed by another user".into(),
+        ));
+    }
+
+    Ok(Json(json!({ "claimed": true })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LinkRepoParams {
+    pub project_id: String,
+    pub github_repo_id: String,
+    pub production_branch: Option<String>,
+}
+
+/// POST /api/v1/github/link — Link a GitHub repo to a project
+pub async fn link_repo(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+    Json(params): Json<LinkRepoParams>,
+) -> Result<Json<Value>, AppError> {
+    // Verify the project belongs to this user
+    let _project: Project =
+        sqlx::query_as("SELECT * FROM projects WHERE id = $1 AND user_id = $2")
+            .bind(&params.project_id)
+            .bind(&auth_user.user.id)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(AppError::Database)?
+            .ok_or_else(|| AppError::NotFound("Project not found".into()))?;
+
+    // Verify the repo belongs to this user's installation
+    let _repo: crate::models::GitHubRepo = sqlx::query_as(
+        r#"
+        SELECT gr.* FROM github_repos gr
+        JOIN github_installations gi ON gr.installation_id = gi.id
+        WHERE gr.id = $1 AND gi.user_id = $2
+        "#,
+    )
+    .bind(&params.github_repo_id)
+    .bind(&auth_user.user.id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(AppError::Database)?
+    .ok_or_else(|| AppError::NotFound("GitHub repo not found or not accessible".into()))?;
+
+    let branch = params
+        .production_branch
+        .as_deref()
+        .unwrap_or("main");
+
+    sqlx::query(
+        "UPDATE projects SET github_repo_id = $1, production_branch = $2, updated_at = to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS') WHERE id = $3",
+    )
+    .bind(&params.github_repo_id)
+    .bind(branch)
+    .bind(&params.project_id)
+    .execute(&state.db)
+    .await
+    .map_err(AppError::Database)?;
+
+    Ok(Json(json!({ "linked": true })))
 }

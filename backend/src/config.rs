@@ -15,6 +15,10 @@ pub struct AppConfig {
     pub cloudflare_account_id: Option<String>,
     pub cloudflare_api_token: Option<String>,
     pub cloudflare_kv_namespace_id: Option<String>,
+    // GitHub App (managed builds)
+    pub github_app_id: Option<String>,
+    pub github_app_private_key: Option<String>,
+    pub github_webhook_secret: Option<String>,
     pub dev_mode: bool,
     pub port: u16,
 }
@@ -40,6 +44,9 @@ impl AppConfig {
             cloudflare_account_id: env::var("CLOUDFLARE_ACCOUNT_ID").ok(),
             cloudflare_api_token: env::var("CLOUDFLARE_API_TOKEN").ok(),
             cloudflare_kv_namespace_id: env::var("CLOUDFLARE_KV_NAMESPACE_ID").ok(),
+            github_app_id: env::var("GITHUB_APP_ID").ok(),
+            github_app_private_key: env::var("GITHUB_APP_PRIVATE_KEY").ok(),
+            github_webhook_secret: env::var("GITHUB_WEBHOOK_SECRET").ok(),
             dev_mode: env::var("DEV_MODE")
                 .map(|v| v == "1" || v.to_lowercase() == "true")
                 .unwrap_or(false),

@@ -3,7 +3,7 @@
 **Status:** Draft v0.1
 **Parent:** 001-architecture.md
 **Milestone:** v0.4
-**Depends on:** 008 (GitHub Actions deploy action)
+**Depends on:** 008-github-app.md, 008-build-pipeline.md (managed build pipeline)
 
 ---
 
@@ -17,20 +17,17 @@ Automatically deploy a preview environment for every pull request. Each PR gets 
 Developer opens PR #42 on GitHub
     │
     ▼
-GitHub Actions triggers deploy workflow (on: pull_request)
+GitHub sends pull_request webhook to ICForge API (via GitHub App)
     │
     ▼
-icforge deploy --preview --pr 42
+Build worker clones repo, builds, deploys to preview canisters
     │
     ▼
-Backend creates preview canisters (separate from production)
-    │ Deploys wasm + assets to preview canisters
-    ▼
-Bot comments on PR:
+ICForge comments on PR:
   "🚀 Preview deployed: https://pr-42--my-dapp.icforge.dev"
     │
     ▼
-PR merged/closed → preview canisters deleted (cycles reclaimed if possible)
+PR merged/closed → cleanup webhook → preview canisters deleted
 ```
 
 ### 2.1 Preview canister lifecycle
@@ -125,11 +122,12 @@ Deploy ID: `abc123` | [View Logs](https://app.icforge.dev/deploys/abc123)
 
 ### PR close webhook
 
-When a PR is merged or closed, clean up:
-- Option A: GitHub Action `on: pull_request: types: [closed]` step calls `icforge preview cleanup`
-- Option B: GitHub webhook to ICForge backend triggers cleanup
+When a PR is merged or closed, the GitHub App receives a `pull_request.closed` webhook. The build worker handles cleanup automatically:
+- Delete preview canisters
+- Remove KV entries from Cloudflare
+- Mark preview as `deleted` in DB
 
-**Decision: Option A** — keeps it in the Action, no webhook infrastructure needed.
+No user-side configuration needed — the GitHub App webhook handles it.
 
 ## 7. Implementation Checklist
 
@@ -147,10 +145,12 @@ When a PR is merged or closed, clean up:
 - [ ] Parse `pr-N--slug` format
 - [ ] Look up `preview:slug:N` in KV
 
-### GitHub Action
-- [ ] Add `--preview --pr ${{ github.event.pull_request.number }}` flag
-- [ ] Post PR comment with preview URLs (use `actions/github-script`)
-- [ ] Cleanup step on PR close
+### Build Pipeline (extends 008-build-pipeline.md)
+- [ ] Handle `trigger: "pull_request"` in build worker
+- [ ] Create preview canisters on first PR build
+- [ ] Reuse preview canisters on subsequent pushes to same PR
+- [ ] Cleanup job: delete canisters + KV entries on PR close
+- [ ] Post/update PR comment with preview URL (via GitHubNotifier)
 
 ### CLI
 - [ ] `icforge deploy --preview --pr <number>` flag

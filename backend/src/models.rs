@@ -23,6 +23,8 @@ pub struct Project {
     pub slug: String,
     pub custom_domain: Option<String>,
     pub subnet_id: Option<String>,
+    pub github_repo_id: Option<String>,
+    pub production_branch: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -88,4 +90,96 @@ pub struct ProjectWithCanisters {
     #[serde(flatten)]
     pub project: Project,
     pub canisters: Vec<CanisterRecord>,
+}
+
+// ============================================================
+// GitHub App models
+// ============================================================
+
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct GitHubInstallation {
+    pub id: String,
+    pub user_id: String,
+    pub installation_id: i64,
+    pub account_login: String,
+    pub account_type: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct GitHubRepo {
+    pub id: String,
+    pub installation_id: String,
+    pub github_repo_id: i64,
+    pub full_name: String,
+    pub default_branch: String,
+    pub created_at: String,
+}
+
+// ============================================================
+// Build pipeline models
+// ============================================================
+
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct BuildJob {
+    pub id: String,
+    pub project_id: String,
+    pub deployment_id: Option<String>,
+    pub commit_sha: String,
+    pub branch: String,
+    pub repo_full_name: String,
+    pub installation_id: i64,
+    pub trigger: String,
+    pub pr_number: Option<i32>,
+    pub status: String,
+    pub claimed_at: Option<String>,
+    pub started_at: Option<String>,
+    pub completed_at: Option<String>,
+    pub error_message: Option<String>,
+    pub retry_count: i32,
+    pub framework: Option<String>,
+    pub build_duration_ms: Option<i32>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct BuildLog {
+    pub id: i32,
+    pub build_job_id: String,
+    pub level: String,
+    pub message: String,
+    pub phase: Option<String>,
+    pub timestamp: String,
+}
+
+// ============================================================
+// API token models
+// ============================================================
+
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct ApiToken {
+    pub id: String,
+    pub user_id: String,
+    pub name: String,
+    #[serde(skip_serializing)]
+    pub token_hash: String,
+    pub last_used_at: Option<String>,
+    pub expires_at: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateTokenRequest {
+    pub name: String,
+    pub expires_in_days: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CreateTokenResponse {
+    pub token: String,
+    pub id: String,
+    pub name: String,
+    pub expires_at: Option<String>,
 }

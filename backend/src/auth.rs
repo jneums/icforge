@@ -142,6 +142,44 @@ impl FromRequestParts<AppState> for AuthUser {
                 .strip_prefix("Bearer ")
                 .ok_or_else(|| AppError::Unauthorized("Invalid Authorization format".into()))?;
 
+            // API token auth (icf_tok_* prefix)
+            if token.starts_with("icf_tok_") {
+                let token_hash = sha256_hex(token);
+                let api_token: crate::models::ApiToken =
+                    sqlx::query_as("SELECT * FROM api_tokens WHERE token_hash = $1")
+                        .bind(&token_hash)
+                        .fetch_optional(&db)
+                        .await
+                        .map_err(AppError::Database)?
+                        .ok_or_else(|| AppError::Unauthorized("Invalid API token".into()))?;
+
+                // Check expiry
+                if let Some(ref expires_at) = api_token.expires_at {
+                    let now = Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+                    if now > *expires_at {
+                        return Err(AppError::Unauthorized("API token expired".into()));
+                    }
+                }
+
+                // Update last_used_at (fire-and-forget)
+                let _ = sqlx::query(
+                    "UPDATE api_tokens SET last_used_at = to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS') WHERE id = $1",
+                )
+                .bind(&api_token.id)
+                .execute(&db)
+                .await;
+
+                let user: User = sqlx::query_as("SELECT * FROM users WHERE id = $1")
+                    .bind(&api_token.user_id)
+                    .fetch_optional(&db)
+                    .await
+                    .map_err(AppError::Database)?
+                    .ok_or_else(|| AppError::Unauthorized("User not found".into()))?;
+
+                return Ok(AuthUser { user });
+            }
+
+            // JWT auth (default)
             let claims = verify_token(token, &jwt_secret)?;
 
             let user: User = sqlx::query_as("SELECT * FROM users WHERE id = $1")
@@ -154,4 +192,12 @@ impl FromRequestParts<AppState> for AuthUser {
             Ok(AuthUser { user })
         }
     }
+}
+
+/// SHA-256 hash a string and return hex-encoded result.
+pub fn sha256_hex(input: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(input.as_bytes());
+    hex::encode(hasher.finalize())
 }

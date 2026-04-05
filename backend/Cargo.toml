@@ -29,6 +29,11 @@ slog = "2"
 flate2 = "1"
 tar = "0.4"
 hex = "0.4"
+
+# GitHub App / webhook auth
+hmac = "0.12"
+sha2 = "0.10"
+base64 = "0.22"
 urlencoding = "2.1.3"
 dashmap = "6"
 tokio-stream = "0.1"

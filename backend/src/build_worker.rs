@@ -6,6 +6,20 @@ use crate::github::{self, GitHubNotifier};
 use crate::ic_client::IcClient;
 use crate::models::BuildJob;
 
+/// Default asset canister wasm version (dfinity SDK tag)
+const DEFAULT_ASSET_CANISTER_VERSION: &str = "0.30.2";
+
+/// Parsed canister config from canister.yaml
+#[derive(Debug)]
+struct CanisterConfig {
+    name: String,
+    recipe_type: Option<String>,        // e.g. "asset-canister", "rust"
+    asset_dir: Option<String>,           // e.g. "dist", "build"
+    asset_version: Option<String>,       // SDK version for asset canister wasm
+    build_commands: Vec<String>,         // e.g. ["npm install", "npm run build"]
+    wasm_path: Option<String>,           // explicit wasm path
+}
+
 /// Spawn the background build worker that polls for pending jobs.
 pub fn spawn_worker(pool: DbPool, config: AppConfig) {
     tokio::spawn(async move {
@@ -305,45 +319,51 @@ async fn execute_build(
             run_cmd(&work_dir, &["npm", "run", "build"]).await?;
         }
         "icp" | "rust" => {
-            // icp.yaml project — build each canister according to its canister.yaml recipe
-            // For now: find Rust canisters and build with cargo
+            // icp.yaml project — parse canister configs and build each one
             log_build(pool, &job.id, "info", "build", "IC project — building canisters from icp.yaml").await;
 
-            // Read icp.yaml to find canister dirs
-            let icp_yaml = format!("{work_dir}/icp.yaml");
-            if let Ok(content) = tokio::fs::read_to_string(&icp_yaml).await {
-                for line in content.lines() {
-                    let trimmed = line.trim().trim_start_matches('-').trim();
-                    if trimmed.is_empty()
-                        || trimmed.starts_with('#')
-                        || trimmed.contains(':')
-                        || trimmed.starts_with("canisters")
-                    {
-                        continue;
-                    }
-                    let canister_dir = format!("{work_dir}/{trimmed}");
-                    let canister_yaml = format!("{canister_dir}/canister.yaml");
-                    if let Ok(cy) = tokio::fs::read_to_string(&canister_yaml).await {
-                        if cy.contains("rust") {
-                            log_build(pool, &job.id, "info", "build", &format!("Building Rust canister: {trimmed}")).await;
-                            run_cmd(&canister_dir, &["cargo", "build", "--target", "wasm32-unknown-unknown", "--release"]).await?;
-                        } else if cy.contains("asset-canister") || cy.contains("asset") {
-                            log_build(pool, &job.id, "info", "build", &format!("Asset canister: {trimmed} — no build step")).await;
-                        } else {
-                            log_build(pool, &job.id, "warn", "build", &format!("Unknown recipe for canister: {trimmed}")).await;
-                        }
-                    } else {
-                        // No canister.yaml — check for Cargo.toml in the dir
-                        if tokio::fs::metadata(format!("{canister_dir}/Cargo.toml")).await.is_ok() {
-                            log_build(pool, &job.id, "info", "build", &format!("Building Rust canister: {trimmed}")).await;
-                            run_cmd(&canister_dir, &["cargo", "build", "--target", "wasm32-unknown-unknown", "--release"]).await?;
-                        }
-                    }
-                }
-            } else if framework_name == "rust" {
+            let canister_configs = parse_icp_yaml(&work_dir).await;
+
+            if canister_configs.is_empty() && framework_name == "rust" {
                 // Plain rust project without icp.yaml — build at root
                 log_build(pool, &job.id, "info", "build", "Rust/IC canister build (cargo build --target wasm32-unknown-unknown --release)").await;
                 run_cmd(&work_dir, &["cargo", "build", "--target", "wasm32-unknown-unknown", "--release"]).await?;
+            }
+
+            for cc in &canister_configs {
+                let canister_dir = format!("{work_dir}/{}", cc.name);
+                let recipe = cc.recipe_type.as_deref().unwrap_or("unknown");
+
+                if recipe.contains("rust") {
+                    log_build(pool, &job.id, "info", "build", &format!("Building Rust canister: {}", cc.name)).await;
+                    run_cmd(&canister_dir, &["cargo", "build", "--target", "wasm32-unknown-unknown", "--release"]).await?;
+                } else if recipe.contains("asset-canister") || recipe.contains("asset") {
+                    // Run any build commands first (e.g. npm install && npm run build)
+                    for cmd in &cc.build_commands {
+                        log_build(pool, &job.id, "info", "build", &format!("[{}] Running: {cmd}", cc.name)).await;
+                        run_cmd(&work_dir, &["sh", "-c", cmd]).await?;
+                    }
+
+                    // Download the asset canister wasm from dfinity SDK
+                    let version = cc.asset_version.as_deref().unwrap_or(DEFAULT_ASSET_CANISTER_VERSION);
+                    log_build(pool, &job.id, "info", "build", &format!("[{}] Downloading asset canister wasm (SDK v{version})", cc.name)).await;
+
+                    let wasm_gz_path = format!("{work_dir}/.icforge-cache/{}_assetstorage.wasm.gz", cc.name);
+                    download_asset_canister_wasm(version, &wasm_gz_path).await
+                        .map_err(|e| format!("Failed to download asset canister wasm: {e}"))?;
+
+                    let size = tokio::fs::metadata(&wasm_gz_path).await
+                        .map(|m| m.len()).unwrap_or(0);
+                    log_build(pool, &job.id, "info", "build", &format!("[{}] Asset canister wasm: {} bytes (gzipped)", cc.name, size)).await;
+                } else if recipe == "unknown" {
+                    // No canister.yaml — check for Cargo.toml
+                    if tokio::fs::metadata(format!("{canister_dir}/Cargo.toml")).await.is_ok() {
+                        log_build(pool, &job.id, "info", "build", &format!("Building Rust canister: {}", cc.name)).await;
+                        run_cmd(&canister_dir, &["cargo", "build", "--target", "wasm32-unknown-unknown", "--release"]).await?;
+                    } else {
+                        log_build(pool, &job.id, "warn", "build", &format!("Unknown recipe for canister: {}", cc.name)).await;
+                    }
+                }
             }
         }
         _ => {
@@ -360,90 +380,412 @@ async fn execute_build(
     let client = IcClient::new(ic_pem, &config.ic_url).await
         .map_err(|e| format!("Failed to create IC agent: {e}"))?;
 
-    // Find all wasm files and deploy each one
-    let wasm_files = find_all_wasms(&work_dir).await;
-    if wasm_files.is_empty() {
-        log_build(pool, &job.id, "warn", "deploy", "No .wasm files found after build").await;
-    }
+    // For icp.yaml projects, deploy using parsed canister configs
+    let canister_configs = parse_icp_yaml(&work_dir).await;
+    let use_config_deploy = !canister_configs.is_empty();
 
-    for (canister_name, wasm_path) in &wasm_files {
-        log_build(pool, &job.id, "info", "deploy", &format!("Deploying canister: {canister_name} ({wasm_path})")).await;
+    if use_config_deploy {
+        // Deploy each canister from parsed config
+        for cc in &canister_configs {
+            let recipe = cc.recipe_type.as_deref().unwrap_or("unknown");
+            let is_asset = recipe.contains("asset-canister") || recipe.contains("asset");
 
-        // Look up canister record in DB
-        let canister_row = sqlx::query_as::<_, (String, Option<String>, String)>(
-            "SELECT id, canister_id, type FROM canisters WHERE project_id = $1 AND name = $2"
-        )
-        .bind(&job.project_id)
-        .bind(canister_name)
-        .fetch_optional(pool)
-        .await
-        .map_err(|e| format!("DB error looking up canister: {e}"))?;
+            // Determine wasm bytes
+            let wasm_bytes = if is_asset {
+                // Use the downloaded asset canister wasm.gz
+                let wasm_gz_path = format!("{work_dir}/.icforge-cache/{}_assetstorage.wasm.gz", cc.name);
+                tokio::fs::read(&wasm_gz_path).await
+                    .map_err(|e| format!("Failed to read asset canister wasm for {}: {e}", cc.name))?
+            } else if let Some(ref explicit_wasm) = cc.wasm_path {
+                let full_path = format!("{work_dir}/{explicit_wasm}");
+                tokio::fs::read(&full_path).await
+                    .map_err(|e| format!("Failed to read wasm for {}: {e}", cc.name))?
+            } else {
+                // Find built wasm in target dir
+                let canister_dir = format!("{work_dir}/{}", cc.name);
+                let wasm_name = cc.name.replace('-', "_");
+                let wasm_path = format!("{canister_dir}/target/wasm32-unknown-unknown/release/{wasm_name}.wasm");
+                if let Ok(bytes) = tokio::fs::read(&wasm_path).await {
+                    bytes
+                } else {
+                    // Try workspace-level target dir
+                    let workspace_wasm = format!("{work_dir}/target/wasm32-unknown-unknown/release/{wasm_name}.wasm");
+                    tokio::fs::read(&workspace_wasm).await
+                        .map_err(|e| format!("No wasm found for canister {}: {e}", cc.name))?
+                }
+            };
 
-        let (canister_db_id, existing_canister_id, _canister_type) = match canister_row {
-            Some(row) => row,
-            None => {
-                log_build(pool, &job.id, "warn", "deploy", &format!("No canister record for '{canister_name}' in project — skipping")).await;
-                continue;
+            log_build(pool, &job.id, "info", "deploy", &format!("Deploying {}: {} bytes{}", cc.name, wasm_bytes.len(), if is_asset { " (gzipped asset canister)" } else { "" })).await;
+
+            // Look up canister in DB
+            let canister_row = sqlx::query_as::<_, (String, Option<String>, String)>(
+                "SELECT id, canister_id, type FROM canisters WHERE project_id = $1 AND name = $2"
+            )
+            .bind(&job.project_id)
+            .bind(&cc.name)
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| format!("DB error looking up canister {}: {e}", cc.name))?;
+
+            let (canister_db_id, existing_canister_id, _canister_type) = match canister_row {
+                Some(row) => row,
+                None => {
+                    log_build(pool, &job.id, "warn", "deploy", &format!("No canister record for '{}' in project — skipping", cc.name)).await;
+                    continue;
+                }
+            };
+
+            // Create or upgrade canister
+            let (canister_id, is_upgrade) = if let Some(cid) = existing_canister_id {
+                log_build(pool, &job.id, "info", "deploy", &format!("Upgrading existing canister: {cid}")).await;
+                (cid, true)
+            } else {
+                log_build(pool, &job.id, "info", "deploy", "Creating new canister on IC...").await;
+                let cid = client.create_canister().await
+                    .map_err(|e| format!("Failed to create canister: {e}"))?;
+                log_build(pool, &job.id, "info", "deploy", &format!("Created canister: {cid}")).await;
+
+                let _ = sqlx::query("UPDATE canisters SET canister_id = $1, status = 'created', updated_at = to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS') WHERE id = $2")
+                    .bind(&cid)
+                    .bind(&canister_db_id)
+                    .execute(pool)
+                    .await;
+
+                (cid, false)
+            };
+
+            // Install code
+            log_build(pool, &job.id, "info", "deploy", &format!("Installing code on {canister_id}...")).await;
+            client.install_code(&canister_id, wasm_bytes, is_upgrade, None).await
+                .map_err(|e| format!("install_code failed for {canister_id}: {e}"))?;
+
+            // Sync assets if this is an asset canister
+            if is_asset {
+                if let Some(ref asset_dir) = cc.asset_dir {
+                    let full_asset_dir = format!("{work_dir}/{asset_dir}");
+                    if tokio::fs::metadata(&full_asset_dir).await.is_ok() {
+                        log_build(pool, &job.id, "info", "deploy", &format!("Syncing assets from {asset_dir} to {canister_id}...")).await;
+
+                        sync_assets(&client, &canister_id, &full_asset_dir).await
+                            .map_err(|e| format!("Asset sync failed for {canister_id}: {e}"))?;
+
+                        log_build(pool, &job.id, "info", "deploy", &format!("Assets synced to {canister_id}")).await;
+                    } else {
+                        log_build(pool, &job.id, "warn", "deploy", &format!("Asset dir '{asset_dir}' not found — skipping sync")).await;
+                    }
+                } else {
+                    log_build(pool, &job.id, "warn", "deploy", &format!("No asset dir configured for {} — wasm installed but no assets synced", cc.name)).await;
+                }
             }
-        };
 
-        // Read wasm bytes
-        let wasm_bytes = tokio::fs::read(wasm_path).await
-            .map_err(|e| format!("Failed to read wasm {wasm_path}: {e}"))?;
-
-        log_build(pool, &job.id, "info", "deploy", &format!("Wasm size: {} bytes", wasm_bytes.len())).await;
-
-        // Create or upgrade canister
-        let (canister_id, is_upgrade) = if let Some(cid) = existing_canister_id {
-            log_build(pool, &job.id, "info", "deploy", &format!("Upgrading existing canister: {cid}")).await;
-            (cid, true)
-        } else {
-            log_build(pool, &job.id, "info", "deploy", "Creating new canister on IC...").await;
-            let cid = client.create_canister().await
-                .map_err(|e| format!("Failed to create canister: {e}"))?;
-            log_build(pool, &job.id, "info", "deploy", &format!("Created canister: {cid}")).await;
-
-            // Save canister_id to DB
-            let _ = sqlx::query("UPDATE canisters SET canister_id = $1, status = 'created', updated_at = to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS') WHERE id = $2")
-                .bind(&cid)
+            // Update canister status
+            let _ = sqlx::query("UPDATE canisters SET status = 'running', updated_at = to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS') WHERE id = $1")
                 .bind(&canister_db_id)
                 .execute(pool)
                 .await;
 
-            (cid, false)
-        };
-
-        // Install code
-        log_build(pool, &job.id, "info", "deploy", &format!("Installing code on {}...", canister_id)).await;
-        client.install_code(&canister_id, wasm_bytes, is_upgrade, None).await
-            .map_err(|e| format!("install_code failed for {canister_id}: {e}"))?;
-
-        // Update canister status
-        let _ = sqlx::query("UPDATE canisters SET status = 'running', updated_at = to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS') WHERE id = $1")
-            .bind(&canister_db_id)
+            // Create deployment record
+            let deploy_id = uuid::Uuid::new_v4().to_string();
+            let _ = sqlx::query(
+                "INSERT INTO deployments (id, project_id, canister_name, status, commit_sha, commit_message, started_at, completed_at) VALUES ($1, $2, $3, 'succeeded', $4, $5, to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'), to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'))"
+            )
+            .bind(&deploy_id)
+            .bind(&job.project_id)
+            .bind(&cc.name)
+            .bind(&job.commit_sha)
+            .bind(&format!("Auto-deploy from push to {}", job.branch))
             .execute(pool)
             .await;
 
-        // Create deployment record
-        let deploy_id = uuid::Uuid::new_v4().to_string();
-        let _ = sqlx::query(
-            "INSERT INTO deployments (id, project_id, canister_name, status, commit_sha, commit_message, started_at, completed_at) VALUES ($1, $2, $3, 'succeeded', $4, $5, to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'), to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'))"
-        )
-        .bind(&deploy_id)
-        .bind(&job.project_id)
-        .bind(canister_name)
-        .bind(&job.commit_sha)
-        .bind(&format!("Auto-deploy from push to {}", job.branch))
-        .execute(pool)
-        .await;
+            log_build(pool, &job.id, "info", "deploy", &format!("✅ Canister {} deployed to {canister_id}", cc.name)).await;
+        }
+    } else {
+        // Fallback: find all wasm files and deploy each one (non-icp.yaml projects)
+        let wasm_files = find_all_wasms(&work_dir).await;
+        if wasm_files.is_empty() {
+            log_build(pool, &job.id, "warn", "deploy", "No .wasm files found after build").await;
+        }
 
-        log_build(pool, &job.id, "info", "deploy", &format!("✅ Canister {canister_name} deployed to {canister_id}")).await;
+        for (canister_name, wasm_path) in &wasm_files {
+            log_build(pool, &job.id, "info", "deploy", &format!("Deploying canister: {canister_name} ({wasm_path})")).await;
+
+            let canister_row = sqlx::query_as::<_, (String, Option<String>, String)>(
+                "SELECT id, canister_id, type FROM canisters WHERE project_id = $1 AND name = $2"
+            )
+            .bind(&job.project_id)
+            .bind(canister_name)
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| format!("DB error looking up canister: {e}"))?;
+
+            let (canister_db_id, existing_canister_id, _canister_type) = match canister_row {
+                Some(row) => row,
+                None => {
+                    log_build(pool, &job.id, "warn", "deploy", &format!("No canister record for '{canister_name}' in project — skipping")).await;
+                    continue;
+                }
+            };
+
+            let wasm_bytes = tokio::fs::read(wasm_path).await
+                .map_err(|e| format!("Failed to read wasm {wasm_path}: {e}"))?;
+
+            log_build(pool, &job.id, "info", "deploy", &format!("Wasm size: {} bytes", wasm_bytes.len())).await;
+
+            let (canister_id, is_upgrade) = if let Some(cid) = existing_canister_id {
+                log_build(pool, &job.id, "info", "deploy", &format!("Upgrading existing canister: {cid}")).await;
+                (cid, true)
+            } else {
+                log_build(pool, &job.id, "info", "deploy", "Creating new canister on IC...").await;
+                let cid = client.create_canister().await
+                    .map_err(|e| format!("Failed to create canister: {e}"))?;
+                log_build(pool, &job.id, "info", "deploy", &format!("Created canister: {cid}")).await;
+
+                let _ = sqlx::query("UPDATE canisters SET canister_id = $1, status = 'created', updated_at = to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS') WHERE id = $2")
+                    .bind(&cid)
+                    .bind(&canister_db_id)
+                    .execute(pool)
+                    .await;
+
+                (cid, false)
+            };
+
+            log_build(pool, &job.id, "info", "deploy", &format!("Installing code on {canister_id}...")).await;
+            client.install_code(&canister_id, wasm_bytes, is_upgrade, None).await
+                .map_err(|e| format!("install_code failed for {canister_id}: {e}"))?;
+
+            let _ = sqlx::query("UPDATE canisters SET status = 'running', updated_at = to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS') WHERE id = $1")
+                .bind(&canister_db_id)
+                .execute(pool)
+                .await;
+
+            let deploy_id = uuid::Uuid::new_v4().to_string();
+            let _ = sqlx::query(
+                "INSERT INTO deployments (id, project_id, canister_name, status, commit_sha, commit_message, started_at, completed_at) VALUES ($1, $2, $3, 'succeeded', $4, $5, to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'), to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'))"
+            )
+            .bind(&deploy_id)
+            .bind(&job.project_id)
+            .bind(canister_name)
+            .bind(&job.commit_sha)
+            .bind(&format!("Auto-deploy from push to {}", job.branch))
+            .execute(pool)
+            .await;
+
+            log_build(pool, &job.id, "info", "deploy", &format!("✅ Canister {canister_name} deployed to {canister_id}")).await;
+        }
     }
 
     // Cleanup
     let _ = tokio::fs::remove_dir_all(&work_dir).await;
 
     log_build(pool, &job.id, "info", "complete", "Build complete").await;
+    Ok(())
+}
+
+/// Parse icp.yaml and each canister's canister.yaml to build CanisterConfig list.
+async fn parse_icp_yaml(work_dir: &str) -> Vec<CanisterConfig> {
+    let icp_yaml_path = format!("{work_dir}/icp.yaml");
+    let content = match tokio::fs::read_to_string(&icp_yaml_path).await {
+        Ok(c) => c,
+        Err(_) => return vec![],
+    };
+
+    let mut configs = vec![];
+
+    // Parse the YAML-like icp.yaml to extract canister names
+    // icp.yaml format:
+    //   canisters:
+    //     - backend
+    //     - frontend
+    // OR:
+    //   canisters:
+    //     - name: backend
+    //       ...
+    let mut in_canisters = false;
+    for line in content.lines() {
+        let trimmed = line.trim();
+
+        if trimmed.starts_with("canisters:") || trimmed == "canisters" {
+            in_canisters = true;
+            continue;
+        }
+
+        if !in_canisters {
+            continue;
+        }
+
+        // End of canisters section if we hit a non-indented, non-list line
+        if !line.starts_with(' ') && !line.starts_with('\t') && !trimmed.starts_with('-') {
+            break;
+        }
+
+        // Extract canister name from list item
+        let entry = trimmed.trim_start_matches('-').trim();
+        if entry.is_empty() || entry.starts_with('#') {
+            continue;
+        }
+
+        // Could be a simple string like "backend" or "name: backend"
+        let canister_name = if entry.starts_with("name:") {
+            entry.trim_start_matches("name:").trim().trim_matches('"').trim_matches('\'').to_string()
+        } else if entry.contains(':') {
+            // Skip non-name key:value pairs
+            continue;
+        } else {
+            entry.trim_matches('"').trim_matches('\'').to_string()
+        };
+
+        if canister_name.is_empty() {
+            continue;
+        }
+
+        // Read canister.yaml for this canister
+        let canister_yaml_path = format!("{work_dir}/{canister_name}/canister.yaml");
+        let mut cc = CanisterConfig {
+            name: canister_name.clone(),
+            recipe_type: None,
+            asset_dir: None,
+            asset_version: None,
+            build_commands: vec![],
+            wasm_path: None,
+        };
+
+        if let Ok(cy_content) = tokio::fs::read_to_string(&canister_yaml_path).await {
+            // Parse canister.yaml fields
+            for cy_line in cy_content.lines() {
+                let cy_trimmed = cy_line.trim();
+
+                // recipe type: e.g. type: "@dfinity/asset-canister@v2.1.0"
+                if cy_trimmed.starts_with("type:") {
+                    let val = cy_trimmed.trim_start_matches("type:").trim().trim_matches('"').trim_matches('\'');
+                    cc.recipe_type = Some(val.to_string());
+                }
+
+                // asset dir: e.g. dir: dist
+                if cy_trimmed.starts_with("dir:") {
+                    let val = cy_trimmed.trim_start_matches("dir:").trim().trim_matches('"').trim_matches('\'');
+                    cc.asset_dir = Some(val.to_string());
+                }
+
+                // SDK version: e.g. version: 0.30.2
+                if cy_trimmed.starts_with("version:") {
+                    let val = cy_trimmed.trim_start_matches("version:").trim().trim_matches('"').trim_matches('\'');
+                    cc.asset_version = Some(val.to_string());
+                }
+
+                // wasm path: e.g. wasm: target/wasm32-unknown-unknown/release/backend.wasm
+                if cy_trimmed.starts_with("wasm:") {
+                    let val = cy_trimmed.trim_start_matches("wasm:").trim().trim_matches('"').trim_matches('\'');
+                    cc.wasm_path = Some(val.to_string());
+                }
+
+                // build commands: e.g. - npm install
+                // These are under the `build:` section as list items
+                if cy_trimmed.starts_with("- ") && cy_content.contains("build:") {
+                    // Crude: collect list items that appear after "build:" line
+                    // Better parsing would use a proper YAML parser, but this handles the common case
+                }
+            }
+
+            // Second pass: extract build commands (items under build: section)
+            let mut in_build = false;
+            for cy_line in cy_content.lines() {
+                let cy_trimmed = cy_line.trim();
+                if cy_trimmed == "build:" || cy_trimmed.starts_with("build:") {
+                    in_build = true;
+                    continue;
+                }
+                if in_build {
+                    if cy_trimmed.starts_with("- ") {
+                        let cmd = cy_trimmed.trim_start_matches("- ").trim().trim_matches('"').trim_matches('\'');
+                        if !cmd.is_empty() {
+                            cc.build_commands.push(cmd.to_string());
+                        }
+                    } else if !cy_trimmed.is_empty() && !cy_line.starts_with(' ') && !cy_line.starts_with('\t') {
+                        in_build = false;
+                    }
+                }
+            }
+
+            // If no recipe_type set but canister.yaml exists, try to infer from content
+            if cc.recipe_type.is_none() {
+                if cy_content.contains("asset-canister") || cy_content.contains("asset") {
+                    cc.recipe_type = Some("asset-canister".into());
+                } else if cy_content.contains("rust") {
+                    cc.recipe_type = Some("rust".into());
+                }
+            }
+        } else {
+            // No canister.yaml — mark as unknown
+            cc.recipe_type = Some("unknown".into());
+        }
+
+        configs.push(cc);
+    }
+
+    configs
+}
+
+/// Download the official IC asset canister wasm.gz from the dfinity SDK releases.
+async fn download_asset_canister_wasm(version: &str, dest_path: &str) -> Result<(), String> {
+    let url = format!(
+        "https://github.com/dfinity/sdk/raw/refs/tags/{version}/src/distributed/assetstorage.wasm.gz"
+    );
+
+    // Create parent dir
+    if let Some(parent) = std::path::Path::new(dest_path).parent() {
+        tokio::fs::create_dir_all(parent).await
+            .map_err(|e| format!("Failed to create cache dir: {e}"))?;
+    }
+
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::limited(10))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
+
+    let resp = client.get(&url).send().await
+        .map_err(|e| format!("Failed to download asset canister wasm from {url}: {e}"))?;
+
+    if !resp.status().is_success() {
+        return Err(format!(
+            "Failed to download asset canister wasm: HTTP {} from {url}",
+            resp.status()
+        ));
+    }
+
+    let bytes = resp.bytes().await
+        .map_err(|e| format!("Failed to read asset canister wasm response: {e}"))?;
+
+    if bytes.len() < 1000 {
+        return Err(format!(
+            "Asset canister wasm too small ({} bytes) — likely a 404 page. Check SDK version {version}",
+            bytes.len()
+        ));
+    }
+
+    tokio::fs::write(dest_path, &bytes).await
+        .map_err(|e| format!("Failed to write asset canister wasm to {dest_path}: {e}"))?;
+
+    Ok(())
+}
+
+/// Sync static assets to an IC asset canister using ic_asset::sync.
+async fn sync_assets(client: &IcClient, canister_id: &str, assets_dir: &str) -> Result<(), String> {
+    let canister_principal = candid::Principal::from_text(canister_id)
+        .map_err(|e| format!("Invalid canister principal for asset sync: {e}"))?;
+
+    let canister = ic_utils::Canister::builder()
+        .with_canister_id(canister_principal)
+        .with_agent(client.agent())
+        .build()
+        .map_err(|e| format!("Failed to build Canister object for asset sync: {e}"))?;
+
+    let logger = slog::Logger::root(slog::Discard, slog::o!());
+    let assets_path = std::path::PathBuf::from(assets_dir);
+
+    ic_asset::sync(&canister, &[assets_path.as_path()], false, &logger, None)
+        .await
+        .map_err(|e| format!("ic_asset::sync failed: {e}"))?;
+
     Ok(())
 }
 

@@ -341,7 +341,7 @@ async fn execute_build(
                     // Run any build commands first (e.g. npm install && npm run build)
                     for cmd in &cc.build_commands {
                         log_build(pool, &job.id, "info", "build", &format!("[{}] Running: {cmd}", cc.name)).await;
-                        run_cmd(&work_dir, &["sh", "-c", cmd]).await?;
+                        run_cmd(&canister_dir, &["sh", "-c", cmd]).await?;
                     }
 
                     // Download the asset canister wasm from dfinity SDK
@@ -462,7 +462,7 @@ async fn execute_build(
             // Sync assets if this is an asset canister
             if is_asset {
                 if let Some(ref asset_dir) = cc.asset_dir {
-                    let full_asset_dir = format!("{work_dir}/{asset_dir}");
+                    let full_asset_dir = format!("{work_dir}/{}/{asset_dir}", cc.name);
                     if tokio::fs::metadata(&full_asset_dir).await.is_ok() {
                         log_build(pool, &job.id, "info", "deploy", &format!("Syncing assets from {asset_dir} to {canister_id}...")).await;
 

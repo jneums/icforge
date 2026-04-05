@@ -123,7 +123,7 @@ npx icforge deploy    # Ship it 🚀
 | `icforge env` | Manage environment variables for canisters |
 | `icforge whoami` | Show current user and linked project |
 | `icforge link` | Link existing IC canister to ICForge |
-| `icforge export-keys` | Export custodial identity (escape hatch) |
+| `icforge eject` | Transfer canister control to your own IC identity |
 
 **Auth Flow:**
 ```
@@ -200,7 +200,6 @@ ICForge detects canister types from recipes: `asset-canister` → frontend,
 
 **Why Rust:**
 - DFINITY's `ic-agent` crate is the first-party Rust SDK for IC interaction
-- Custodial key management demands memory safety
 - Axum is production-grade and async-native
 - Same language as IC canisters (Rust backend devs = IC Rust devs)
 
@@ -219,14 +218,14 @@ ICForge detects canister types from recipes: `asset-canister` → frontend,
 | GET | `/api/v1/deploy/:id/logs` | Stream deployment logs (SSE) |
 | POST | `/api/v1/billing/subscribe` | Create Stripe subscription |
 | GET | `/api/v1/billing/usage` | Cycles usage & cost breakdown |
-| POST | `/api/v1/identity/export` | Export user's IC private key |
+| POST | `/api/v1/eject` | Transfer canister control to user-provided principal |
 
 **Deploy Pipeline (server-side):**
 ```
 1. Receive .wasm + .did + assets from CLI
 2. Validate artifacts (wasm magic bytes, size limits)
-3. Look up user's custodial IC identity
-4. Check cycles balance, auto-top-up if needed
+3. Use platform IC identity (single identity for all deploys)
+4. Check cycles pool balance, auto-top-up if needed
 5. If new canister:
    a. Call management canister: create_canister()
    b. Record canister ID in database
@@ -237,22 +236,22 @@ ICForge detects canister types from recipes: `asset-canister` → frontend,
 10. Return canister URL
 ```
 
-### 5.3 Identity Manager
+### 5.3 Platform Identity Model
 
-Each ICForge user gets a **custodial IC identity** generated server-side.
+ICForge uses a **single platform IC identity** for all canister operations. Users do not have individual IC identities — ICForge abstracts away the IC layer entirely.
 
-**Key Management:**
-- Identity = Ed25519 keypair (same as icp-cli generates)
-- Private keys encrypted at rest (AES-256-GCM, key from HSM/KMS in production)
-- One identity per user account
-- ICForge's principal is set as controller of all user canisters
-- User's principal is added as secondary controller (enables future self-custody)
+**How it works:**
+- One Ed25519 identity configured via `IC_IDENTITY_PEM` environment variable
+- This identity is the sole controller of all canisters created through ICForge
+- Users interact with projects, not canisters or identities
+- No per-user key generation, encryption, or custody
 
-**Export Flow:**
-- User requests key export via CLI or dashboard
-- Require re-authentication (password or OAuth re-consent)
-- Generate PEM file compatible with `icp identity import`
-- After export, user can add their own controller and remove ICForge's
+**Eject flow (escape hatch):**
+- User provides their own IC principal (from `dfx`, `icp-cli`, or any IC wallet)
+- ICForge adds their principal as controller of their project's canisters
+- ICForge removes its own principal as controller
+- User now has full self-custody — ICForge can no longer manage those canisters
+- This is a one-way operation; re-linking requires `icforge link`
 
 ### 5.4 Cycles Pool
 
@@ -281,7 +280,7 @@ ICForge maintains a pool of cycles funded by bulk ICP purchases.
 - `/projects/:id` — Project detail: canisters, deploys, settings
 - `/projects/:id/deployments/:deployId` — Deploy logs (real-time)
 - `/billing` — Subscription, usage, payment methods
-- `/settings` — Account, identity export, API keys
+- `/settings` — Account, API keys, eject
 
 ## 6. Pricing Model (Draft)
 
@@ -390,7 +389,7 @@ Several current design decisions anticipate Cloud Engine support:
 
 1. **Subnet selection (v0.3):** The `.icforge` config already plans for user-specified subnet targeting. This is the exact hook where Cloud Engine IDs plug in.
 
-2. **Identity Manager:** Cloud Engine owners control who can deploy to their engine. ICForge's custodial identity model naturally extends — the user's ICForge-managed identity gets authorized on the target engine.
+2. **Platform identity:** Cloud Engine owners control who can deploy to their engine. ICForge's platform identity gets authorized on the target engine — no per-user identity management needed.
 
 3. **`.icforge` config extension (future):**
 ```json
@@ -420,19 +419,19 @@ The progression is natural: start free on shared infra, graduate to your own Clo
 
 ## 10. Security Considerations
 
-- **Key custody:** Private keys encrypted at rest, accessed only during deploy operations
-- **Blast radius:** Each user has isolated identity — compromise of one user doesn't affect others
+- **Platform identity:** Single IC identity stored as environment variable on the backend; never exposed to users
+- **Blast radius:** Platform identity controls all canisters, so backend security is critical — defense in depth with network isolation, secret management, and audit logging
 - **Auth tokens:** Short-lived access tokens (1h) + long-lived refresh tokens (30d)
 - **API:** Rate limiting, request size limits (wasm max 2MB per IC spec, assets chunked)
 - **Audit log:** All deploy operations logged with timestamps and actor
-- **Export escape hatch:** Users can always export keys and take full ownership
+- **Eject escape hatch:** Users can transfer canister control to their own principal and leave ICForge entirely
 
 ## 11. Tech Stack Summary
 
 | Layer | Technology | Rationale |
 |-------|-----------|-----------|
 | CLI | TypeScript, Commander | npm ecosystem, `npx` distribution |
-| Backend API | Rust, Axum | ic-agent crate, memory safety for keys |
+| Backend API | Rust, Axum | ic-agent crate, async-native |
 | Database | SQLite → PostgreSQL | Start simple, migrate when needed |
 | Auth | OAuth2 (GitHub, Google) | Familiar to developers |
 | Billing | Stripe | Industry standard, subscription + metering |
@@ -446,7 +445,7 @@ The progression is natural: start free on shared infra, graduate to your own Clo
 
 ### v0.1 — "Hello World Deploy" (MVP)
 - [ ] CLI: login, init, deploy commands working
-- [ ] Backend: OAuth, identity generation, single frontend canister deploy
+- [ ] Backend: OAuth, single platform identity deploy, single frontend canister deploy
 - [ ] Deploy a static HTML/JS site to IC mainnet via `icforge deploy`
 - [ ] Return `<canister-id>.icp0.io` URL
 
@@ -462,7 +461,7 @@ The progression is natural: start free on shared infra, graduate to your own Clo
 - [ ] GitHub Actions deploy action (builds with `icp-cli` in CI)
 - [ ] Custom domain support
 - [ ] Cycles monitoring + auto top-up alerts
-- [ ] Identity export flow
+- [ ] Canister eject flow (transfer control to user's principal)
 - [ ] Subnet selection (in .icforge or dashboard)
 
 ### v0.4 — "Growth"
@@ -476,7 +475,7 @@ The progression is natural: start free on shared infra, graduate to your own Clo
 ### v0.5 — "Cloud Engines"
 - [ ] Cloud Engine targeting — deploy to a specific engine via `.icforge` config or dashboard
 - [ ] Engine discovery — list available Cloud Engines the user has access to
-- [ ] Engine-aware identity authorization — register ICForge-managed identity with target engine
+- [ ] Engine-aware authorization — register ICForge platform identity with target engine
 - [ ] Dual billing model — cycles pool for public subnets, platform fee for Cloud Engine deploys
 - [ ] Region/jurisdiction display — show node geography and compliance metadata in dashboard
 - [ ] Migration path — move existing project from public subnet to Cloud Engine without redeploying from scratch

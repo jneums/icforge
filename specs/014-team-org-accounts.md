@@ -166,5 +166,5 @@ Org plans use the Team tier pricing from spec 007 ($50/mo for 100 canisters, 50T
 
 ## 10. Open Questions
 
-1. **Canister controller:** When a project belongs to an org, whose IC identity controls the canisters? Options: (a) org-level identity (new keypair per org), (b) creator's identity, (c) platform identity. Recommend (a) — each org gets its own IC identity, org admins can export it.
+1. **Canister controller:** All canisters are controlled by ICForge's single platform identity regardless of whether they belong to a user or org. No per-org identity needed. If an org ejects, canister control transfers to a principal the org admin provides.
 2. **Migration:** How do users move personal projects into an org? Need a "transfer project" feature.

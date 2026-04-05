@@ -70,7 +70,7 @@ Shows full deploy log for a specific deployment:
 - IC principal (read-only)
 - API token management (generate/revoke tokens for CI)
 - Plan info (free tier, usage)
-- Identity export button (v0.3, links to spec 011)
+- Eject button (v0.3, links to spec 011)
 
 ### 4.4 Landing Page — Polish
 
@@ -114,7 +114,7 @@ This works. The callback redirect URL needs to point to the dashboard's domain (
 
 ### New pages
 - [x] Deploy Detail page (`/projects/:id/deploys/:deployId`) with SSE log streaming
-- [x] Settings page (`/settings`) with profile, plan, placeholder API tokens + identity export
+- [x] Settings page (`/settings`) with profile, plan, placeholder API tokens + eject
 - [x] Wire SSE log streaming to Deploy Detail page (fetch+ReadableStream with auth)
 
 ### Enhancements

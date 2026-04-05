@@ -100,20 +100,17 @@ pub async fn auth_callback(
         .map_err(AppError::Database)?;
         (user.id, github_user.login)
     } else {
-        // Create new user with IC identity
+        // Create new user
         let user_id = uuid::Uuid::new_v4().to_string();
-        let (ic_pem, ic_principal) = crate::identity::generate_identity()?;
 
         sqlx::query(
-            "INSERT INTO users (id, github_id, email, name, avatar_url, ic_identity_pem, ic_principal, plan) VALUES ($1, $2, $3, $4, $5, $6, $7, 'free')",
+            "INSERT INTO users (id, github_id, email, name, avatar_url, plan) VALUES ($1, $2, $3, $4, $5, 'free')",
         )
         .bind(&user_id)
         .bind(github_user.id)
         .bind(&github_user.email)
         .bind(&github_user.name)
         .bind(&github_user.avatar_url)
-        .bind(&ic_pem)
-        .bind(&ic_principal)
         .execute(&state.db)
         .await
         .map_err(AppError::Database)?;
@@ -413,27 +410,24 @@ pub async fn dev_token(
             .map_err(AppError::Database)?;
 
     if existing.is_none() {
-        // Create dev user with a fresh IC identity
-        let (ic_pem, ic_principal) = crate::identity::generate_identity()?;
+        // Create dev user (no per-user IC identity — platform identity used for all deploys)
         let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
         sqlx::query(
-            "INSERT INTO users (id, github_id, email, name, avatar_url, ic_identity_pem, ic_principal, plan, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, 'free', $8, $9)",
+            "INSERT INTO users (id, github_id, email, name, avatar_url, plan, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, 'free', $6, $7)",
         )
         .bind(&user_id)
         .bind(github_id)
         .bind("dev@icforge.local")
         .bind("Dev User")
         .bind::<Option<&str>>(None)
-        .bind(&ic_pem)
-        .bind(&ic_principal)
         .bind(&now)
         .bind(&now)
         .execute(&state.db)
         .await
         .map_err(AppError::Database)?;
 
-        tracing::info!(principal = %ic_principal, "Created dev user with IC identity");
+        tracing::info!("Created dev user");
     }
 
     let token = auth::create_token(&user_id, &state.config.jwt_secret)?;

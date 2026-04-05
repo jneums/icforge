@@ -17,7 +17,6 @@ mod db;
 mod deploy;
 mod error;
 mod ic_client;
-mod identity;
 mod models;
 mod routes;
 

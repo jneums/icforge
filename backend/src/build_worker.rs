@@ -3,6 +3,7 @@ use std::time::Instant;
 use crate::db::DbPool;
 use crate::config::AppConfig;
 use crate::github::{self, GitHubNotifier};
+use crate::ic_client::IcClient;
 use crate::models::BuildJob;
 
 /// Spawn the background build worker that polls for pending jobs.
@@ -250,7 +251,7 @@ async fn claim_and_run(
 /// Execute the build: clone, detect framework, build wasm, deploy.
 async fn execute_build(
     pool: &DbPool,
-    _config: &AppConfig,
+    config: &AppConfig,
     job: &BuildJob,
     token: &str,
 ) -> Result<(), String> {
@@ -353,16 +354,90 @@ async fn execute_build(
     // Phase: deploy
     log_build(pool, &job.id, "info", "deploy", "Deploying to IC...").await;
 
-    // Find the wasm file
-    let wasm_path = find_wasm(&work_dir).await;
-    if let Some(wasm) = wasm_path {
-        log_build(pool, &job.id, "info", "deploy", &format!("Found wasm: {wasm}")).await;
+    let ic_pem = config.ic_identity_pem.as_deref()
+        .ok_or_else(|| "IC_IDENTITY_PEM not configured — cannot deploy".to_string())?;
 
-        // Create a deployment record and trigger the existing deploy pipeline
-        // TODO: integrate with deploy module to install_code the wasm
-        log_build(pool, &job.id, "info", "deploy", "Wasm deploy via build pipeline not yet wired — use CLI for now").await;
-    } else {
-        log_build(pool, &job.id, "warn", "deploy", "No .wasm file found after build").await;
+    let client = IcClient::new(ic_pem, &config.ic_url).await
+        .map_err(|e| format!("Failed to create IC agent: {e}"))?;
+
+    // Find all wasm files and deploy each one
+    let wasm_files = find_all_wasms(&work_dir).await;
+    if wasm_files.is_empty() {
+        log_build(pool, &job.id, "warn", "deploy", "No .wasm files found after build").await;
+    }
+
+    for (canister_name, wasm_path) in &wasm_files {
+        log_build(pool, &job.id, "info", "deploy", &format!("Deploying canister: {canister_name} ({wasm_path})")).await;
+
+        // Look up canister record in DB
+        let canister_row = sqlx::query_as::<_, (String, Option<String>, String)>(
+            "SELECT id, canister_id, type FROM canisters WHERE project_id = $1 AND name = $2"
+        )
+        .bind(&job.project_id)
+        .bind(canister_name)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| format!("DB error looking up canister: {e}"))?;
+
+        let (canister_db_id, existing_canister_id, _canister_type) = match canister_row {
+            Some(row) => row,
+            None => {
+                log_build(pool, &job.id, "warn", "deploy", &format!("No canister record for '{canister_name}' in project — skipping")).await;
+                continue;
+            }
+        };
+
+        // Read wasm bytes
+        let wasm_bytes = tokio::fs::read(wasm_path).await
+            .map_err(|e| format!("Failed to read wasm {wasm_path}: {e}"))?;
+
+        log_build(pool, &job.id, "info", "deploy", &format!("Wasm size: {} bytes", wasm_bytes.len())).await;
+
+        // Create or upgrade canister
+        let (canister_id, is_upgrade) = if let Some(cid) = existing_canister_id {
+            log_build(pool, &job.id, "info", "deploy", &format!("Upgrading existing canister: {cid}")).await;
+            (cid, true)
+        } else {
+            log_build(pool, &job.id, "info", "deploy", "Creating new canister on IC...").await;
+            let cid = client.create_canister().await
+                .map_err(|e| format!("Failed to create canister: {e}"))?;
+            log_build(pool, &job.id, "info", "deploy", &format!("Created canister: {cid}")).await;
+
+            // Save canister_id to DB
+            let _ = sqlx::query("UPDATE canisters SET canister_id = $1, status = 'created', updated_at = to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS') WHERE id = $2")
+                .bind(&cid)
+                .bind(&canister_db_id)
+                .execute(pool)
+                .await;
+
+            (cid, false)
+        };
+
+        // Install code
+        log_build(pool, &job.id, "info", "deploy", &format!("Installing code on {}...", canister_id)).await;
+        client.install_code(&canister_id, wasm_bytes, is_upgrade, None).await
+            .map_err(|e| format!("install_code failed for {canister_id}: {e}"))?;
+
+        // Update canister status
+        let _ = sqlx::query("UPDATE canisters SET status = 'running', updated_at = to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS') WHERE id = $1")
+            .bind(&canister_db_id)
+            .execute(pool)
+            .await;
+
+        // Create deployment record
+        let deploy_id = uuid::Uuid::new_v4().to_string();
+        let _ = sqlx::query(
+            "INSERT INTO deployments (id, project_id, canister_name, status, commit_sha, commit_message, started_at, completed_at) VALUES ($1, $2, $3, 'succeeded', $4, $5, to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'), to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'))"
+        )
+        .bind(&deploy_id)
+        .bind(&job.project_id)
+        .bind(canister_name)
+        .bind(&job.commit_sha)
+        .bind(&format!("Auto-deploy from push to {}", job.branch))
+        .execute(pool)
+        .await;
+
+        log_build(pool, &job.id, "info", "deploy", &format!("✅ Canister {canister_name} deployed to {canister_id}")).await;
     }
 
     // Cleanup
@@ -509,6 +584,49 @@ async fn find_wasm(work_dir: &str) -> Option<String> {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     stdout.lines().next().map(|s| s.to_string())
+}
+
+/// Find all .wasm files and map them to canister names.
+/// Returns Vec<(canister_name, wasm_path)>.
+async fn find_all_wasms(work_dir: &str) -> Vec<(String, String)> {
+    use tokio::process::Command;
+
+    let output = match Command::new("find")
+        .args([work_dir, "-name", "*.wasm", "-type", "f"])
+        .output()
+        .await
+    {
+        Ok(o) => o,
+        Err(_) => return vec![],
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut results = vec![];
+
+    for line in stdout.lines() {
+        let path = line.trim();
+        if path.is_empty() {
+            continue;
+        }
+        // Skip deps/ and build/ wasms — only want the actual canister output
+        if path.contains("/deps/") || path.contains("/build/") || path.contains("/.cargo/") {
+            continue;
+        }
+        // Extract canister name from wasm filename (e.g., backend.wasm -> backend)
+        if let Some(filename) = path.rsplit('/').next() {
+            if let Some(name) = filename.strip_suffix(".wasm") {
+                // Skip names with hashes (e.g., backend-abc123.wasm)
+                if !name.contains('-') || name.starts_with("ic_") {
+                    results.push((name.replace('_', "-").to_string(), path.to_string()));
+                } else {
+                    // Could be a hyphenated name like "my-canister" — use as-is
+                    results.push((name.to_string(), path.to_string()));
+                }
+            }
+        }
+    }
+
+    results
 }
 
 fn truncate(s: &str, max: usize) -> String {

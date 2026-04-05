@@ -106,7 +106,7 @@ async fn handle_push(state: AppState, payload: Value) -> Result<(), AppError> {
     let project = match project {
         Some(p) => p,
         None => {
-            tracing::debug!(
+            tracing::info!(
                 repo = repo_full_name,
                 branch = branch,
                 "No project linked to this repo/branch, skipping"
@@ -294,7 +294,14 @@ async fn handle_installation(state: AppState, payload: Value) -> Result<(), AppE
                     .map_err(AppError::Database)?;
 
             let user = match user {
-                Some(u) => u,
+                Some(u) => {
+                    tracing::info!(
+                        user_id = %u.id,
+                        github_id = account_id,
+                        "Matched installation to user"
+                    );
+                    u
+                }
                 None => {
                     tracing::warn!(
                         github_id = account_id,
@@ -323,7 +330,11 @@ async fn handle_installation(state: AppState, payload: Value) -> Result<(), AppE
             .await
             .map_err(AppError::Database)?;
 
-            // Store repos from the installation
+            tracing::info!(
+                installation_id = installation_id,
+                account = account_login,
+                "Installation stored successfully"
+            );
             if let Some(repos) = payload["repositories"].as_array() {
                 for repo in repos {
                     let repo_id = uuid::Uuid::new_v4().to_string();

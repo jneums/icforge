@@ -1,198 +1,134 @@
-# 08 — Technical Debt
+# 08 — Technical Debt & Error Handling
 
-**Scope:** Code quality, routing, error handling, accessibility
+**Scope:** Code quality, routing guards, error boundaries, loading patterns
 **Priority:** P2
-**Depends on:** 01-design-system, 02-navigation
-**Estimated effort:** Small
+**Depends on:** 00-setup, 01-design-system
+**Estimated effort:** Medium
 
 ---
 
 ## 1. Problem
 
-The codebase has several structural issues that should be cleaned up during the polish pass. These aren't user-visible bugs but they prevent the dashboard from feeling production-ready.
+The dashboard has several technical debt items that cause poor UX or developer experience:
+- No error boundary — any uncaught React error crashes the whole app
+- No 404 route — invalid URLs show a blank page
+- No routing guard — unauthenticated users can navigate to `/projects` and see broken state
+- Loading states are inconsistent — some use "Loading...", some use nothing
+- No consistent error handling pattern — each page handles errors differently
 
-## 2. Items
+## 2. Error Boundary
 
-### 2.1 Protected Routes
-
-**Current:** Each page individually checks `useAuth()` and renders a login prompt if unauthenticated.
-
-**Target:** A `<ProtectedRoute>` wrapper that redirects to `/login` automatically. The AppShell already handles this partially — make it explicit.
-
-```tsx
-function ProtectedRoute({ children }) {
-  const { user, loading } = useAuth();
-  if (loading) return <LoadingScreen />;
-  if (!user) return <Navigate to="/login" replace />;
-  return children;
-}
-```
-
-Wrap `/projects`, `/projects/:id`, `/projects/:id/deploys/:deployId`, `/settings` in `<ProtectedRoute>`.
-
-### 2.2 Error Boundary
-
-**Current:** No error boundary. React errors crash the whole app with a white screen.
-
-**Target:** A top-level `<ErrorBoundary>` component that catches render errors and shows a friendly error page with a "Reload" button.
+Add a global error boundary that catches React render errors and shows a recovery UI:
 
 ```tsx
-class ErrorBoundary extends React.Component {
-  state = { hasError: false, error: null };
+import { ErrorBoundary } from 'react-error-boundary';
 
-  static getDerivedStateFromError(error) {
-    return { hasError: true, error };
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div className="error-page">
-          <h1>Something went wrong</h1>
-          <p>{this.state.error?.message}</p>
-          <button onClick={() => window.location.reload()}>Reload</button>
-        </div>
-      );
-    }
-    return this.props.children;
-  }
+function ErrorFallback({ error, resetErrorBoundary }) {
+  return (
+    <div className="flex flex-col items-center justify-center min-h-[50vh] text-center">
+      <AlertCircle className="h-12 w-12 text-destructive mb-4" />
+      <h1 className="text-xl font-semibold mb-2">Something went wrong</h1>
+      <p className="text-sm text-muted-foreground mb-4 max-w-md">
+        {error.message}
+      </p>
+      <div className="flex gap-3">
+        <Button onClick={resetErrorBoundary}>Try Again</Button>
+        <Button variant="outline" asChild>
+          <Link to="/projects">Back to Projects</Link>
+        </Button>
+      </div>
+    </div>
+  );
 }
+
+// In App.tsx
+<ErrorBoundary FallbackComponent={ErrorFallback} onReset={() => navigate('/projects')}>
+  <Routes>...</Routes>
+</ErrorBoundary>
 ```
 
-### 2.3 404 Route
+Install: `npm install react-error-boundary`
 
-**Current:** No catch-all route. Bad URLs show a blank page.
-
-**Target:** A `*` route that renders a simple 404 page:
+## 3. Not Found (404) Route
 
 ```tsx
 function NotFound() {
   return (
-    <div className="not-found-page">
-      <h1>404</h1>
-      <p>Page not found</p>
-      <Link to="/projects">Go to Projects</Link>
+    <div className="flex flex-col items-center justify-center min-h-[50vh] text-center">
+      <h1 className="text-6xl font-bold text-muted-foreground">404</h1>
+      <p className="text-lg text-muted-foreground mt-2">Page not found</p>
+      <Button asChild className="mt-6">
+        <Link to="/projects">Back to Projects</Link>
+      </Button>
     </div>
   );
 }
+
+// In App.tsx routes
+<Route path="*" element={<NotFound />} />
 ```
 
-### 2.4 Loading States
+## 4. Auth Guard
 
-**Current:** Pages show "Loading..." text during data fetches.
-
-**Target:** Use skeleton components (defined in 01-design-system) for each page. At minimum:
-- Projects: 3-4 skeleton project rows
-- ProjectDetail: skeleton header + skeleton card + skeleton tab content
-- DeployDetail: skeleton summary + skeleton log viewer
-- Settings: skeleton profile card + skeleton plan card
-
-### 2.5 API Error Handling
-
-**Current:** `apiFetch()` throws on non-OK responses but pages may not catch gracefully.
-
-**Target:** Each page should have three states: loading, error, and loaded. Error state shows a retry button. Network errors are caught and displayed.
-
-Consider a simple `useApi()` hook:
+Wrap authenticated routes so unauthenticated users redirect to `/`:
 
 ```tsx
-function useApi<T>(fetcher: () => Promise<T>) {
-  const [data, setData] = useState<T | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+function RequireAuth({ children }) {
+  const { user, loading } = useAuth();
+  const location = useLocation();
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      setData(await fetcher());
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Unknown error');
-    } finally {
-      setLoading(false);
-    }
-  }, [fetcher]);
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <Spinner className="h-6 w-6" />
+      </div>
+    );
+  }
 
-  useEffect(() => { load(); }, [load]);
+  if (!user) {
+    return <Navigate to="/" state={{ from: location }} replace />;
+  }
 
-  return { data, error, loading, retry: load };
+  return children;
 }
+
+// In App.tsx
+<Route path="/projects" element={<RequireAuth><Projects /></RequireAuth>} />
+<Route path="/projects/:id" element={<RequireAuth><ProjectDetail /></RequireAuth>} />
+<Route path="/settings" element={<RequireAuth><Settings /></RequireAuth>} />
 ```
 
-### 2.6 Relative Time Formatting
+## 5. Data Fetching
 
-**Current:** `timeAgo()` helper exists in ProjectDetail.tsx but is duplicated/inlined.
+**Handled by [09-data-layer.md](09-data-layer.md)** — TanStack Query provides loading, error, retry, caching, deduplication, and background refetch out of the box. No custom `useApi` hook needed.
 
-**Target:** Move to a shared `utils/time.ts` module. Consider using `Intl.RelativeTimeFormat` for proper localization.
+## 6. Sonner Toast Notifications
 
-### 2.7 Copy to Clipboard Utility
-
-Several places need copy-to-clipboard (canister IDs, deploy URLs, log lines). Add a shared utility:
+shadcn's `<Sonner>` for non-intrusive notifications:
 
 ```tsx
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
+import { Toaster } from "@/components/ui/sonner"
+import { toast } from "sonner"
 
-  return (
-    <button
-      className="copy-btn"
-      onClick={() => {
-        navigator.clipboard.writeText(text);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      }}
-    >
-      {copied ? '✓' : '📋'}
-    </button>
-  );
-}
+// In App.tsx root
+<Toaster />
+
+// Usage anywhere:
+toast.success("Token created");
+toast.error("Failed to revoke token");
+toast("Canister ID copied to clipboard");
 ```
 
-## 3. File Structure After Cleanup
+## 7. Checklist
 
-```
-src/
-  components/
-    AppShell.tsx          (new — from 02-navigation)
-    Sidebar.tsx           (new — from 02-navigation)
-    Breadcrumbs.tsx       (new — from 02-navigation)
-    Tabs.tsx              (new — from 04-project-detail)
-    CopyButton.tsx        (new)
-    ErrorBoundary.tsx     (new)
-    ProtectedRoute.tsx    (new)
-    StatusBadge.tsx       (new — shared status dot + label)
-    Skeleton.tsx          (new — skeleton loading primitives)
-  contexts/
-    AuthContext.tsx        (existing, unchanged)
-  pages/
-    Landing.tsx           (rewritten)
-    Login.tsx             (minor cleanup)
-    Projects.tsx          (rewritten)
-    ProjectDetail.tsx     (rewritten, decomposed)
-    DeployDetail.tsx      (rewritten)
-    Settings.tsx          (rewritten)
-    NotFound.tsx          (new)
-  utils/
-    time.ts               (new — timeAgo, formatDuration)
-    status.ts             (new — getProjectStatus, status color mapping)
-  api.ts                  (existing, add useApi hook)
-  main.tsx                (existing, add ErrorBoundary)
-  App.tsx                 (rewritten — AppShell + ProtectedRoute)
-  index.css               (expanded with design system)
-```
-
-## 4. Checklist
-
-- [ ] Create `<ProtectedRoute>` component
-- [ ] Wrap authenticated routes in `<ProtectedRoute>`
-- [ ] Create `<ErrorBoundary>` component
-- [ ] Add `<ErrorBoundary>` to `main.tsx`
-- [ ] Create `<NotFound>` page with 404 catch-all route
-- [ ] Create `<Skeleton>` component (line, card, row variants)
-- [ ] Add skeleton loading states to all pages
-- [ ] Create `useApi()` hook with loading/error/retry
-- [ ] Create `<CopyButton>` component
-- [ ] Create `<StatusBadge>` component (dot + label, shared)
-- [ ] Extract `timeAgo()` to `utils/time.ts`
-- [ ] Extract `getProjectStatus()` to `utils/status.ts`
-- [ ] Add error states with retry buttons to all data-fetching pages
+- [ ] Install `react-error-boundary`
+- [ ] Create `<ErrorFallback>` component with retry + back-to-projects
+- [ ] Wrap `<Routes>` in `<ErrorBoundary>` in App.tsx
+- [ ] Add catch-all `<Route path="*">` for 404
+- [ ] Create `<NotFound>` component
+- [ ] Create `<RequireAuth>` component
+- [ ] Wrap all authenticated routes in `<RequireAuth>`
+- [ ] Add `<Toaster />` (Sonner) to App.tsx root
+- [ ] Replace all `alert()` calls with `toast()` calls
+- [ ] Add `<Spinner>` to auth loading state
+- [ ] Audit all pages for uncaught promise rejections

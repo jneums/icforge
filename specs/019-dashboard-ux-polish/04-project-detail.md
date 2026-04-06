@@ -2,7 +2,7 @@
 
 **Scope:** Redesign the `/projects/:id` page
 **Priority:** P1
-**Depends on:** 01-design-system, 02-navigation
+**Depends on:** 00-setup, 01-design-system, 02-navigation
 **Estimated effort:** Large (most complex page)
 
 ---
@@ -10,174 +10,237 @@
 ## 1. Problem
 
 The current ProjectDetail page is the most complex (~438 lines) and has several issues:
-- Stats row (Status / Deploys / Canisters / Created) is a 4-column grid that's redundant with info shown elsewhere
-- Deploy history is a table that duplicates info from the project header
-- Canister table with expandable env vars is functional but visually flat
+- Stats row (Status / Deploys / Canisters / Created) is a 4-column grid that's redundant
+- Deploy history is a flat table
+- Canister table with expandable env vars is visually flat
 - No "Visit" button to open the deployed site
-- No quick deploy actions (redeploy, rollback)
 - Information hierarchy is unclear — everything looks equally important
 
 ## 2. Target Layout
 
-Follow Vercel's project detail pattern: **production deploy card at top, tabbed content below**.
+**Production deploy card at top, tabbed content below** using shadcn `<Card>` and `<Tabs>`:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  ← Projects / my-dapp                                       │ breadcrumb
-│─────────────────────────────────────────────────────────────│
-│                                                             │
 │  my-dapp                                                    │
-│  my-dapp.icforge.dev  ↗         ● Deployed         Visit ↗ │
+│  my-dapp.icforge.dev ↗          ● Deployed         Visit ↗ │
 │                                                             │
 │  ┌─ Production Deployment ─────────────────────────────────┐│
-│  │                                                         ││
 │  │  "Updated canister controllers"                         ││
 │  │  abc1234 on main · 3 minutes ago · Built in 45s         ││
-│  │                                                         ││
 │  └─────────────────────────────────────────────────────────┘│
 │                                                             │
 │  ┌─ Deployments ──┬─ Canisters ──┬─ Settings ─────────────┐│
-│  │                │              │                         ││
 │  │  (tab content)                                          ││
-│  │                                                         ││
 │  └─────────────────────────────────────────────────────────┘│
 └─────────────────────────────────────────────────────────────┘
 ```
 
-## 3. Sections
-
-### 3.1 Page Header
-
-```
-┌────────────────────────────────────────────────────┐
-│  my-dapp                                           │  ← project name (h1)
-│  my-dapp.icforge.dev  ↗    ● Deployed     Visit ↗  │  ← vanity URL + status + action
-└────────────────────────────────────────────────────┘
-```
-
-- **Project name**: h1, bold
-- **Vanity URL**: monospace, clickable link to `https://my-dapp.icforge.dev`
-- **Status badge**: colored dot + text (Deployed / Building / Failed)
-- **Visit button**: primary button, opens the deployed site in new tab
-
-### 3.2 Production Deployment Card
-
-A prominent card showing the latest successful deployment:
-
-- Commit message (primary text)
-- Commit SHA (monospace, 7-char, linked to GitHub)
-- Branch name
-- Relative time ("3 minutes ago")
-- Build duration ("Built in 45s")
-- Clickable — navigates to `/projects/:id/deploys/:deployId`
-
-If currently building: show an animated progress indicator with "Building..." and a link to the live build log.
-
-### 3.3 Tabbed Content
-
-Replace the current stacked tables with tabs:
-
-**Tab: Deployments** (default)
-- Vertical list of deploy rows (not a table)
-- Each row: status dot + commit message + SHA + time ago
-- Clickable → navigates to deploy detail
-- Show last 20, with "View all" link if more
-
-**Tab: Canisters**
-- Card per canister (not a table row)
-- Shows: name, type badge (frontend/backend), canister ID (mono, copyable), status dot
-- Expandable: click to reveal environment variables
-- Each env var: key (mono bold) = value (mono, masked by default, click to reveal)
-
-**Tab: Settings** (project-level)
-- Repository link (GitHub icon + repo name, clickable)
-- Connected branch
-- Auto-deploy toggle
-- Danger zone: delete project (future, placeholder for now)
-
-## 4. Component Structure
+## 3. Page Header
 
 ```tsx
-function ProjectDetail() {
-  const [activeTab, setActiveTab] = useState<'deploys' | 'canisters' | 'settings'>('deploys');
+function ProjectHeader({ project, status }) {
+  const vanityUrl = `https://${project.name}.icforge.dev`;
 
   return (
-    <div className="project-detail">
-      <ProjectHeader project={project} />
-      <ProductionDeployCard deploy={latestDeploy} />
-      <Tabs active={activeTab} onChange={setActiveTab}>
-        <Tab id="deploys" label={`Deployments (${deploys.length})`}>
-          <DeployList deploys={deploys} projectId={project.id} />
-        </Tab>
-        <Tab id="canisters" label={`Canisters (${canisters.length})`}>
-          <CanisterList canisters={canisters} />
-        </Tab>
-        <Tab id="settings" label="Settings">
-          <ProjectSettings project={project} />
-        </Tab>
-      </Tabs>
+    <div className="flex items-start justify-between">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">{project.name}</h1>
+        <a
+          href={vanityUrl}
+          target="_blank"
+          className="text-sm font-mono text-muted-foreground hover:text-primary inline-flex items-center gap-1"
+        >
+          {project.name}.icforge.dev
+          <ExternalLink className="h-3 w-3" />
+        </a>
+      </div>
+      <div className="flex items-center gap-3">
+        <StatusBadge status={status} />
+        <Button asChild>
+          <a href={vanityUrl} target="_blank">
+            Visit <ExternalLink className="h-4 w-4 ml-1" />
+          </a>
+        </Button>
+      </div>
     </div>
   );
 }
 ```
 
-### Sub-components to extract:
-- `<ProjectHeader>` — name, URL, status, visit button
-- `<ProductionDeployCard>` — latest deploy summary
-- `<Tabs>` / `<Tab>` — reusable tab component
-- `<DeployList>` / `<DeployRow>` — deploy history
-- `<CanisterList>` / `<CanisterCard>` — canister cards with expandable env vars
-- `<ProjectSettings>` — settings tab content
+## 4. Production Deployment Card
 
-## 5. Deploy Row Design
+```tsx
+function ProductionDeployCard({ deploy, projectId }) {
+  if (!deploy) return null;
 
+  const isBuilding = IN_PROGRESS_STATUSES.includes(deploy.status);
+
+  return (
+    <Link to={`/projects/${projectId}/deploys/${deploy.id}`}>
+      <Card className="p-4 mt-6 hover:border-border/80 transition-colors cursor-pointer">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
+          <span className="font-semibold text-foreground">Production Deployment</span>
+          {isBuilding && <Spinner className="h-3 w-3" />}
+        </div>
+        <p className="text-sm font-medium truncate">
+          {deploy.commit_message || 'No commit message'}
+        </p>
+        <div className="flex items-center gap-2 mt-1.5 text-xs text-muted-foreground">
+          <GitCommit className="h-3 w-3" />
+          <span className="font-mono">{deploy.commit_sha?.slice(0, 7)}</span>
+          <span>on</span>
+          <span>{deploy.branch || 'main'}</span>
+          <span>·</span>
+          <Clock className="h-3 w-3" />
+          <span>{timeAgo(deploy.created_at)}</span>
+          {deploy.duration && (
+            <>
+              <span>·</span>
+              <span>Built in {formatDuration(deploy.duration)}</span>
+            </>
+          )}
+        </div>
+      </Card>
+    </Link>
+  );
+}
 ```
-┌──────────────────────────────────────────────────────────────┐
-│  ● Updated canister controllers          abc1234  3m ago     │
-│    on main                                                   │
-└──────────────────────────────────────────────────────────────┘
+
+## 5. Tabbed Content
+
+Using shadcn `<Tabs>`:
+
+```tsx
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+
+<Tabs defaultValue="deploys" className="mt-6">
+  <TabsList>
+    <TabsTrigger value="deploys">
+      Deployments ({deploys.length})
+    </TabsTrigger>
+    <TabsTrigger value="canisters">
+      Canisters ({canisters.length})
+    </TabsTrigger>
+    <TabsTrigger value="settings">
+      Settings
+    </TabsTrigger>
+  </TabsList>
+
+  <TabsContent value="deploys">
+    <DeployList deploys={deploys} projectId={project.id} />
+  </TabsContent>
+
+  <TabsContent value="canisters">
+    <CanisterList canisters={canisters} />
+  </TabsContent>
+
+  <TabsContent value="settings">
+    <ProjectSettings project={project} />
+  </TabsContent>
+</Tabs>
 ```
 
-- Status dot (green/yellow/red) on far left
-- Commit message (primary text, truncated if long)
-- SHA (mono, 7-char) right-aligned
-- Time ago right-aligned
-- Branch name (secondary line, muted)
+### Deploy List (Tab)
 
-## 6. Canister Card Design
-
-```
-┌──────────────────────────────────────────────────────────────┐
-│  frontend_assets          Asset Canister     ● Running       │
-│  rrkah-fqaaa-aaaaa-aaaaq-cai  📋                            │
-│                                                              │
-│  ▼ Environment Variables (3)                                 │
-│  ┌──────────────────────────────────────────────────────────┐│
-│  │  PUBLIC_CANISTER_ID_BACKEND  =  ryjl3-tyaaa-aaaa-...    ││
-│  │  PUBLIC_CANISTER_ID_FRONTEND =  rrkah-fqaaa-aaaa-...    ││
-│  │  PUBLIC_IC_HOST              =  https://ic0.app          ││
-│  └──────────────────────────────────────────────────────────┘│
-└──────────────────────────────────────────────────────────────┘
+```tsx
+function DeployRow({ deploy, projectId }) {
+  return (
+    <Link to={`/projects/${projectId}/deploys/${deploy.id}`}>
+      <div className="flex items-center gap-3 px-3 py-2.5 rounded-md hover:bg-muted/50 transition-colors">
+        <StatusDot status={deploy.status} pulse={IN_PROGRESS_STATUSES.includes(deploy.status)} />
+        <span className="text-sm truncate flex-1">{deploy.commit_message || 'No message'}</span>
+        <span className="font-mono text-xs text-muted-foreground">{deploy.commit_sha?.slice(0, 7)}</span>
+        <span className="text-xs text-muted-foreground whitespace-nowrap">{timeAgo(deploy.created_at)}</span>
+      </div>
+    </Link>
+  );
+}
 ```
 
-- Canister name (bold)
-- Type badge (Asset Canister / Rust Backend / Motoko Backend)
-- Status dot + label
-- Canister ID (monospace, with copy button)
-- Expandable env vars section
+### Canister Card (Tab)
 
-## 7. Checklist
+Using shadcn `<Card>` + `<Collapsible>`:
+
+```tsx
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
+
+function CanisterCard({ canister }) {
+  const [open, setOpen] = useState(false);
+  const [envVars, setEnvVars] = useState(null);
+
+  return (
+    <Card className="p-4">
+      <div className="flex items-center gap-3">
+        <span className="text-sm font-semibold">{canister.name}</span>
+        <Badge variant="outline" className="text-xs">{canister.canister_type}</Badge>
+        <StatusDot status={canister.status} />
+        <span className="ml-auto font-mono text-xs text-muted-foreground">
+          {canister.canister_id}
+        </span>
+        <CopyButton text={canister.canister_id} />
+      </div>
+
+      <Collapsible open={open} onOpenChange={setOpen} className="mt-2">
+        <CollapsibleTrigger asChild>
+          <Button variant="ghost" size="sm" className="text-xs text-muted-foreground">
+            {open ? 'Hide' : 'Show'} Environment Variables
+          </Button>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <div className="mt-2 rounded-md bg-popover p-3 font-mono text-xs space-y-1">
+            {envVars?.map(v => (
+              <div key={v.key} className="flex gap-2">
+                <span className="font-semibold text-foreground">{v.key}</span>
+                <span className="text-muted-foreground">=</span>
+                <span className="text-muted-foreground truncate">{v.value}</span>
+              </div>
+            ))}
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+    </Card>
+  );
+}
+```
+
+### Project Settings (Tab)
+
+Placeholder for now — minimal info:
+
+```tsx
+function ProjectSettings({ project }) {
+  return (
+    <Card className="p-4">
+      <h3 className="text-sm font-semibold mb-3">Repository</h3>
+      <div className="text-sm text-muted-foreground">
+        {project.repo_url ? (
+          <a href={project.repo_url} target="_blank" className="hover:text-primary inline-flex items-center gap-1">
+            {project.repo_url.replace('https://github.com/', '')}
+            <ExternalLink className="h-3 w-3" />
+          </a>
+        ) : (
+          'No repository connected'
+        )}
+      </div>
+    </Card>
+  );
+}
+```
+
+## 6. Checklist
 
 - [ ] Create `<ProjectHeader>` component
 - [ ] Create `<ProductionDeployCard>` component
-- [ ] Create reusable `<Tabs>` / `<Tab>` components
 - [ ] Create `<DeployList>` / `<DeployRow>` components
-- [ ] Create `<CanisterList>` / `<CanisterCard>` components
+- [ ] Create `<CanisterList>` / `<CanisterCard>` components using shadcn Collapsible
 - [ ] Create `<ProjectSettings>` placeholder component
-- [ ] Add "Visit" button that opens vanity URL
-- [ ] Add copy-to-clipboard for canister IDs
+- [ ] Wire up shadcn `<Tabs>` for the three sections
+- [ ] Add "Visit" button using shadcn `<Button>`
+- [ ] Add `<CopyButton>` for canister IDs
 - [ ] Show build duration on production deploy card
-- [ ] Show animated building state when deploy in progress
+- [ ] Show `<Spinner>` when deploy in progress
 - [ ] Remove the 4-column stats grid
-- [ ] Rewrite `ProjectDetail.tsx` to compose these sub-components
+- [ ] Delete old inline style objects
+- [ ] Rewrite `ProjectDetail.tsx` to compose sub-components
 - [ ] Verify navigation to deploy detail from deploy rows

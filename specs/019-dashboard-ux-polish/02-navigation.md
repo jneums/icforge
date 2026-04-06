@@ -1,8 +1,8 @@
 # 02 — Navigation
 
-**Scope:** Sidebar layout, breadcrumbs, responsive mobile nav
+**Scope:** shadcn Sidebar + Breadcrumb, responsive mobile nav
 **Priority:** P0 — the biggest structural change
-**Depends on:** 01-design-system
+**Depends on:** 00-setup, 01-design-system
 **Estimated effort:** Medium
 
 ---
@@ -16,18 +16,17 @@ The current Header is a simple horizontal bar (logo + 3 links + user info). This
 
 ## 2. Target Layout
 
-Replace the top Header with a Vercel/Render-style sidebar + breadcrumb layout:
+Use shadcn's `<Sidebar>` and `<Breadcrumb>` components:
 
 ```
 ┌──────────┬──────────────────────────────────────────────┐
-│          │ Projects / my-project / Deploy #42           │ ← breadcrumbs
+│          │ Projects / my-project / Deploy #42           │ ← shadcn Breadcrumb
 │  ⬡       │─────────────────────────────────────────────│
 │ ICForge  │                                              │
 │          │                                              │
 │ Projects │              Main Content Area               │
 │ Settings │                                              │
-│          │              (max-width 1200px,              │
-│          │               centered in panel)             │
+│          │              (max-w-[1200px] mx-auto)        │
 │          │                                              │
 │          │                                              │
 │──────────│                                              │
@@ -37,187 +36,187 @@ Replace the top Header with a Vercel/Render-style sidebar + breadcrumb layout:
 ```
 
 ### Desktop (≥768px)
-- **Left sidebar**: fixed 240px, full viewport height
-  - Top: logo + app name
-  - Middle: nav links (icon + label per item)
-  - Bottom: user info + logout
-- **Right panel**: flex-grow, scrollable
-  - Top: breadcrumb bar (sticky)
-  - Below: page content (max-width 1200px, centered)
+- **Left sidebar**: shadcn `<Sidebar>` component, 240px fixed
+  - Top: `<SidebarHeader>` — logo + app name
+  - Middle: `<SidebarContent>` → `<SidebarMenu>` — nav links
+  - Bottom: `<SidebarFooter>` — user info + logout
+- **Right panel**: `<SidebarInset>` — scrollable content
+  - Top: shadcn `<Breadcrumb>` (sticky)
+  - Below: page content (max-w-[1200px], centered)
 
 ### Mobile (<768px)
-- Sidebar collapses to hidden
-- Bottom floating bar with icons (Vercel-style) or hamburger menu
+- shadcn Sidebar automatically collapses to a sheet/drawer
+- `<SidebarTrigger>` hamburger button shown in breadcrumb bar
 - Breadcrumbs remain at top
 
 ## 3. Sidebar Nav Items
 
-```
-Icon  Label       Route          Auth Required
-──────────────────────────────────────────────
-▦     Projects    /projects      Yes
-⚙     Settings    /settings      Yes
-```
+Using shadcn `<SidebarMenu>` + `<SidebarMenuButton>`:
 
-Keep it minimal for now. v0.3 adds: Billing, Domains, API Tokens.
+```tsx
+<SidebarMenu>
+  <SidebarMenuItem>
+    <SidebarMenuButton asChild isActive={pathname.startsWith('/projects')}>
+      <Link to="/projects">
+        <Folder className="h-4 w-4" />
+        <span>Projects</span>
+      </Link>
+    </SidebarMenuButton>
+  </SidebarMenuItem>
+  <SidebarMenuItem>
+    <SidebarMenuButton asChild isActive={pathname === '/settings'}>
+      <Link to="/settings">
+        <Settings className="h-4 w-4" />
+        <span>Settings</span>
+      </Link>
+    </SidebarMenuButton>
+  </SidebarMenuItem>
+</SidebarMenu>
+```
 
 The Landing page (`/`) does NOT show the sidebar — it's a full-width marketing page. Sidebar only appears for authenticated routes.
 
 ## 4. Breadcrumbs
 
-Dynamic breadcrumb bar based on current route:
+Using shadcn `<Breadcrumb>`:
+
+```tsx
+import {
+  Breadcrumb, BreadcrumbItem, BreadcrumbLink,
+  BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb"
+
+function AppBreadcrumbs() {
+  // Dynamic based on route
+  return (
+    <Breadcrumb>
+      <BreadcrumbList>
+        <BreadcrumbItem>
+          <BreadcrumbLink asChild>
+            <Link to="/projects">Projects</Link>
+          </BreadcrumbLink>
+        </BreadcrumbItem>
+        <BreadcrumbSeparator />
+        <BreadcrumbItem>
+          <BreadcrumbPage>{project.name}</BreadcrumbPage>
+        </BreadcrumbItem>
+      </BreadcrumbList>
+    </Breadcrumb>
+  );
+}
+```
+
+Route → breadcrumb mapping:
 
 ```
 /projects                          →  Projects
 /projects/:id                      →  Projects / {project.name}
-/projects/:id/deploys/:deployId    →  Projects / {project.name} / Deploy #{deployId}
+/projects/:id/deploys/:deployId    →  Projects / {project.name} / Deploy #{shortId}
 /settings                          →  Settings
 ```
 
-Each segment is clickable (navigates to that level). Current segment is non-clickable, bold.
+## 5. Component Structure
 
-Implementation: a `<Breadcrumbs>` component that reads `useLocation()` + `useParams()` and renders the trail. Project names come from a lightweight context or fetched on mount.
-
-## 5. Component Breakdown
-
-### 5.1 `<AppShell>`
-
-New wrapper component that replaces the current `<Header> + <Outlet>` pattern in App.tsx:
+### 5.1 `<AppShell>` (new wrapper)
 
 ```tsx
-// Unauthenticated routes (Landing, Login): render children directly, no sidebar
-// Authenticated routes: render sidebar + breadcrumb + content panel
+import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
+
 function AppShell({ children }) {
   const { user } = useAuth();
   const location = useLocation();
   const isPublicRoute = ['/', '/login'].includes(location.pathname);
 
+  // Public routes: no sidebar
   if (isPublicRoute || !user) {
     return <>{children}</>;
   }
 
+  // Authenticated routes: sidebar + breadcrumbs
   return (
-    <div className="app-shell">
-      <Sidebar />
-      <main className="main-panel">
-        <Breadcrumbs />
-        <div className="page-content">
-          {children}
-        </div>
-      </main>
-    </div>
+    <SidebarProvider>
+      <AppSidebar />
+      <SidebarInset>
+        <header className="flex h-12 items-center gap-2 border-b px-4">
+          <SidebarTrigger className="-ml-1" />
+          <Separator orientation="vertical" className="mr-2 h-4" />
+          <AppBreadcrumbs />
+        </header>
+        <main className="flex-1 p-6">
+          <div className="mx-auto max-w-[1200px]">
+            {children}
+          </div>
+        </main>
+      </SidebarInset>
+    </SidebarProvider>
   );
 }
 ```
 
-### 5.2 `<Sidebar>`
+### 5.2 `<AppSidebar>`
 
 ```tsx
-function Sidebar() {
+import {
+  Sidebar, SidebarContent, SidebarFooter, SidebarHeader,
+  SidebarMenu, SidebarMenuButton, SidebarMenuItem,
+} from "@/components/ui/sidebar"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+
+function AppSidebar() {
   const { user, logout } = useAuth();
-  const location = useLocation();
 
   return (
-    <nav className="sidebar">
-      <div className="sidebar-header">
-        <Link to="/projects">⬡ ICForge</Link>
-      </div>
-      <div className="sidebar-nav">
-        <NavLink to="/projects" icon="▦">Projects</NavLink>
-        <NavLink to="/settings" icon="⚙">Settings</NavLink>
-      </div>
-      <div className="sidebar-footer">
-        <span className="sidebar-user">{user?.name}</span>
-        <button onClick={logout}>Logout</button>
-      </div>
-    </nav>
+    <Sidebar>
+      <SidebarHeader>
+        <Link to="/projects" className="flex items-center gap-2 px-2 py-1">
+          <span className="text-lg">⬡</span>
+          <span className="font-semibold">ICForge</span>
+        </Link>
+      </SidebarHeader>
+
+      <SidebarContent>
+        <SidebarMenu>
+          {/* nav items */}
+        </SidebarMenu>
+      </SidebarContent>
+
+      <SidebarFooter>
+        <div className="flex items-center gap-2 px-2">
+          <Avatar className="h-6 w-6">
+            <AvatarImage src={user?.avatar_url} />
+            <AvatarFallback>{user?.name?.[0]}</AvatarFallback>
+          </Avatar>
+          <span className="text-sm truncate">{user?.name}</span>
+          <Button variant="ghost" size="sm" onClick={logout} className="ml-auto">
+            Logout
+          </Button>
+        </div>
+      </SidebarFooter>
+    </Sidebar>
   );
 }
 ```
 
-### 5.3 `<Breadcrumbs>`
+## 6. Migration Steps
 
-```tsx
-function Breadcrumbs() {
-  // Parse location + params into segments
-  // Fetch project name for /projects/:id routes
-  // Render: segment / segment / current
-}
-```
+1. Install shadcn sidebar + breadcrumb components (done in 00-setup)
+2. Create `<AppSidebar>` component
+3. Create `<AppBreadcrumbs>` component
+4. Create `<AppShell>` wrapper
+5. Update `App.tsx` to use `<AppShell>` instead of `<Header>`
+6. Delete `components/Header.tsx`
+7. Remove old header-related styles from CSS
+8. Test all routes at desktop and mobile widths
 
-## 6. CSS Structure
+## 7. Checklist
 
-```css
-.app-shell {
-  display: flex;
-  min-height: 100vh;
-}
-
-.sidebar {
-  width: var(--sidebar-width);
-  background: var(--bg-primary);
-  border-right: 1px solid var(--border-default);
-  display: flex;
-  flex-direction: column;
-  position: fixed;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  z-index: 10;
-}
-
-.main-panel {
-  margin-left: var(--sidebar-width);
-  flex: 1;
-  min-height: 100vh;
-}
-
-.breadcrumb-bar {
-  position: sticky;
-  top: 0;
-  z-index: 5;
-  background: var(--bg-primary);
-  border-bottom: 1px solid var(--border-subtle);
-  padding: var(--space-3) var(--space-5);
-}
-
-.page-content {
-  max-width: var(--content-max-width);
-  margin: 0 auto;
-  padding: var(--space-5);
-}
-
-/* Active nav link */
-.sidebar-nav a.active {
-  background: var(--surface-card-hover);
-  color: var(--text-primary);
-}
-
-/* Mobile */
-@media (max-width: 767px) {
-  .sidebar { display: none; }
-  .main-panel { margin-left: 0; }
-  .mobile-nav { display: flex; }
-}
-```
-
-## 7. Migration Steps
-
-1. Create `<Sidebar>`, `<Breadcrumbs>`, `<AppShell>` components
-2. Update `App.tsx` to use `<AppShell>` instead of `<Header>`
-3. Remove `<Header>` component
-4. Adjust all page components to remove any top padding that assumed the header
-5. Test all routes at desktop and mobile widths
-
-## 8. Checklist
-
-- [ ] Create `components/Sidebar.tsx`
-- [ ] Create `components/Breadcrumbs.tsx`
-- [ ] Create `components/AppShell.tsx`
-- [ ] Add sidebar + layout CSS to `index.css`
+- [ ] Create `src/components/app-sidebar.tsx`
+- [ ] Create `src/components/app-breadcrumbs.tsx`
+- [ ] Create `src/components/app-shell.tsx`
 - [ ] Update `App.tsx` routing to use `<AppShell>`
-- [ ] Remove `components/Header.tsx`
-- [ ] Remove old header-related styles from `index.css`
-- [ ] Add mobile breakpoint (hide sidebar, show bottom nav or hamburger)
-- [ ] Verify all 6 routes render correctly in new layout
-- [ ] Verify unauthenticated routes (Landing, Login) skip the sidebar
+- [ ] Delete `src/components/Header.tsx`
+- [ ] Delete old header styles from `index.css`
+- [ ] Verify shadcn sidebar collapses on mobile
+- [ ] Verify breadcrumbs show correct trail for all routes
+- [ ] Verify Landing + Login pages render without sidebar
+- [ ] Verify active nav link highlights correctly

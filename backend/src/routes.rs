@@ -70,7 +70,7 @@ pub async fn auth_callback(
     use axum::response::IntoResponse;
 
     // Exchange code for GitHub access token
-    let access_token=auth::exchange_github_code(
+    let access_token = auth::exchange_github_code(
         &state.config.github_client_id,
         &state.config.github_client_secret,
         &params.code,
@@ -145,7 +145,8 @@ pub async fn auth_callback(
         "token": token,
         "user_id": user_id,
         "username": username,
-    })).into_response())
+    }))
+    .into_response())
 }
 
 /// GET /api/v1/auth/me — Get current user info
@@ -169,13 +170,12 @@ pub async fn list_projects(
 
     let mut result: Vec<ProjectWithCanisters> = Vec::new();
     for project in projects {
-        let canisters: Vec<CanisterRecord> = sqlx::query_as(
-            "SELECT * FROM canisters WHERE project_id = $1",
-        )
-        .bind(&project.id)
-        .fetch_all(&state.db)
-        .await
-        .map_err(AppError::Database)?;
+        let canisters: Vec<CanisterRecord> =
+            sqlx::query_as("SELECT * FROM canisters WHERE project_id = $1")
+                .bind(&project.id)
+                .fetch_all(&state.db)
+                .await
+                .map_err(AppError::Database)?;
 
         result.push(ProjectWithCanisters { project, canisters });
     }
@@ -199,13 +199,12 @@ pub async fn create_project(
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
     // Check if project already exists with this slug (globally unique for subdomain routing)
-    let existing: Option<(String, String, String, String)> = sqlx::query_as(
-        "SELECT id, user_id, name, slug FROM projects WHERE slug = $1",
-    )
-    .bind(&slug)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(AppError::Database)?;
+    let existing: Option<(String, String, String, String)> =
+        sqlx::query_as("SELECT id, user_id, name, slug FROM projects WHERE slug = $1")
+            .bind(&slug)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(AppError::Database)?;
 
     if let Some((existing_id, existing_user_id, existing_name, existing_slug)) = existing {
         // If it belongs to a different user, reject with a helpful error
@@ -216,13 +215,12 @@ pub async fn create_project(
             )));
         }
         // Same user — return existing project (idempotent init)
-        let canisters: Vec<CanisterRecord> = sqlx::query_as(
-            "SELECT * FROM canisters WHERE project_id = $1",
-        )
-        .bind(&existing_id)
-        .fetch_all(&state.db)
-        .await
-        .map_err(AppError::Database)?;
+        let canisters: Vec<CanisterRecord> =
+            sqlx::query_as("SELECT * FROM canisters WHERE project_id = $1")
+                .bind(&existing_id)
+                .fetch_all(&state.db)
+                .await
+                .map_err(AppError::Database)?;
 
         return Ok(Json(serde_json::json!({
             "project": {
@@ -306,14 +304,13 @@ pub async fn get_project(
     auth_user: AuthUser,
     Path(project_id): Path<String>,
 ) -> Result<Json<Value>, AppError> {
-    let project: Project =
-        sqlx::query_as("SELECT * FROM projects WHERE id = $1 AND user_id = $2")
-            .bind(&project_id)
-            .bind(&auth_user.user.id)
-            .fetch_optional(&state.db)
-            .await
-            .map_err(AppError::Database)?
-            .ok_or_else(|| AppError::NotFound("Project not found".into()))?;
+    let project: Project = sqlx::query_as("SELECT * FROM projects WHERE id = $1 AND user_id = $2")
+        .bind(&project_id)
+        .bind(&auth_user.user.id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(AppError::Database)?
+        .ok_or_else(|| AppError::NotFound("Project not found".into()))?;
 
     let canisters: Vec<CanisterRecord> =
         sqlx::query_as("SELECT * FROM canisters WHERE project_id = $1")
@@ -381,7 +378,10 @@ pub async fn cycles_balance(
     State(state): State<AppState>,
     _auth_user: AuthUser,
 ) -> Result<Json<Value>, AppError> {
-    let pem = state.config.ic_identity_pem.as_deref()
+    let pem = state
+        .config
+        .ic_identity_pem
+        .as_deref()
         .ok_or_else(|| AppError::Internal("IC_IDENTITY_PEM not configured".into()))?;
 
     let client = crate::ic_client::IcClient::new(pem, &state.config.ic_url).await?;
@@ -396,9 +396,7 @@ pub async fn cycles_balance(
 
 /// POST /api/v1/auth/dev-token — Dev-mode only: create a test user and return a JWT.
 /// Only available when DEV_MODE=true.
-pub async fn dev_token(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, AppError> {
+pub async fn dev_token(State(state): State<AppState>) -> Result<Json<Value>, AppError> {
     if !state.config.dev_mode {
         return Err(AppError::NotFound("Not found".into()));
     }
@@ -407,12 +405,11 @@ pub async fn dev_token(
     let github_id: i64 = 99999;
 
     // Check if dev user exists
-    let existing: Option<crate::models::User> =
-        sqlx::query_as("SELECT * FROM users WHERE id = $1")
-            .bind(&user_id)
-            .fetch_optional(&state.db)
-            .await
-            .map_err(AppError::Database)?;
+    let existing: Option<crate::models::User> = sqlx::query_as("SELECT * FROM users WHERE id = $1")
+        .bind(&user_id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(AppError::Database)?;
 
     if existing.is_none() {
         // Create dev user (no per-user IC identity — platform identity used for all deploys)
@@ -496,13 +493,12 @@ pub async fn list_api_tokens(
     State(state): State<AppState>,
     auth_user: AuthUser,
 ) -> Result<Json<Value>, AppError> {
-    let tokens: Vec<ApiToken> = sqlx::query_as(
-        "SELECT * FROM api_tokens WHERE user_id = $1 ORDER BY created_at DESC",
-    )
-    .bind(&auth_user.user.id)
-    .fetch_all(&state.db)
-    .await
-    .map_err(AppError::Database)?;
+    let tokens: Vec<ApiToken> =
+        sqlx::query_as("SELECT * FROM api_tokens WHERE user_id = $1 ORDER BY created_at DESC")
+            .bind(&auth_user.user.id)
+            .fetch_all(&state.db)
+            .await
+            .map_err(AppError::Database)?;
 
     Ok(Json(json!({ "tokens": tokens })))
 }
@@ -513,14 +509,12 @@ pub async fn delete_api_token(
     auth_user: AuthUser,
     Path(token_id): Path<String>,
 ) -> Result<Json<Value>, AppError> {
-    let result = sqlx::query(
-        "DELETE FROM api_tokens WHERE id = $1 AND user_id = $2",
-    )
-    .bind(&token_id)
-    .bind(&auth_user.user.id)
-    .execute(&state.db)
-    .await
-    .map_err(AppError::Database)?;
+    let result = sqlx::query("DELETE FROM api_tokens WHERE id = $1 AND user_id = $2")
+        .bind(&token_id)
+        .bind(&auth_user.user.id)
+        .execute(&state.db)
+        .await
+        .map_err(AppError::Database)?;
 
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound("Token not found".into()));
@@ -575,13 +569,12 @@ pub async fn get_build(
     .map_err(AppError::Database)?
     .ok_or_else(|| AppError::NotFound("Build not found".into()))?;
 
-    let logs: Vec<crate::models::BuildLog> = sqlx::query_as(
-        "SELECT * FROM build_logs WHERE build_job_id = $1 ORDER BY id ASC",
-    )
-    .bind(&build_id)
-    .fetch_all(&state.db)
-    .await
-    .map_err(AppError::Database)?;
+    let logs: Vec<crate::models::BuildLog> =
+        sqlx::query_as("SELECT * FROM build_logs WHERE build_job_id = $1 ORDER BY id ASC")
+            .bind(&build_id)
+            .fetch_all(&state.db)
+            .await
+            .map_err(AppError::Database)?;
 
     Ok(Json(json!({
         "build": build,
@@ -691,14 +684,13 @@ pub async fn link_repo(
     Json(params): Json<LinkRepoParams>,
 ) -> Result<Json<Value>, AppError> {
     // Verify the project belongs to this user
-    let _project: Project =
-        sqlx::query_as("SELECT * FROM projects WHERE id = $1 AND user_id = $2")
-            .bind(&params.project_id)
-            .bind(&auth_user.user.id)
-            .fetch_optional(&state.db)
-            .await
-            .map_err(AppError::Database)?
-            .ok_or_else(|| AppError::NotFound("Project not found".into()))?;
+    let _project: Project = sqlx::query_as("SELECT * FROM projects WHERE id = $1 AND user_id = $2")
+        .bind(&params.project_id)
+        .bind(&auth_user.user.id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(AppError::Database)?
+        .ok_or_else(|| AppError::NotFound("Project not found".into()))?;
 
     // Verify the repo belongs to this user's installation
     let _repo: crate::models::GitHubRepo = sqlx::query_as(
@@ -715,10 +707,7 @@ pub async fn link_repo(
     .map_err(AppError::Database)?
     .ok_or_else(|| AppError::NotFound("GitHub repo not found or not accessible".into()))?;
 
-    let branch = params
-        .production_branch
-        .as_deref()
-        .unwrap_or("main");
+    let branch = params.production_branch.as_deref().unwrap_or("main");
 
     sqlx::query(
         "UPDATE projects SET github_repo_id = $1, production_branch = $2, updated_at = to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS') WHERE id = $3",
@@ -750,7 +739,10 @@ pub async fn canister_env(
     .map_err(AppError::Database)?
     .ok_or_else(|| AppError::NotFound("Canister not found or not owned by you".into()))?;
 
-    let pem = state.config.ic_identity_pem.as_deref()
+    let pem = state
+        .config
+        .ic_identity_pem
+        .as_deref()
         .ok_or_else(|| AppError::Internal("IC_IDENTITY_PEM not configured".into()))?;
     let client = crate::ic_client::IcClient::new(pem, &state.config.ic_url).await?;
     let status = client.canister_status(&canister_id).await?;

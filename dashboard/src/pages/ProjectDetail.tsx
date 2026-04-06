@@ -1,438 +1,303 @@
-import { useState, useEffect } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
-import { fetchProject, fetchCanisterEnv } from '../api';
-import type { Project, Deployment, EnvironmentVariable, Canister } from '../api';
-import { useAuth } from '../contexts/AuthContext';
+import { useState } from "react";
+import { useParams, Link, useNavigate } from "react-router-dom";
+import {
+  ExternalLink,
+  GitCommit,
+  Clock,
+  ChevronDown,
+  ChevronRight,
+} from "lucide-react";
+import { useProject } from "@/hooks/use-project";
+import { useCanisterEnv } from "@/hooks/use-canister-env";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Spinner } from "@/components/ui/spinner";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { StatusBadge } from "@/components/status-badge";
+import { StatusDot } from "@/components/status-dot";
+import { CopyButton } from "@/components/copy-button";
+import type { Canister, Deployment } from "@/api/types";
 
-const statusBadge: Record<string, string> = {
-  live: 'badge-success',
-  deployed: 'badge-success',
-  running: 'badge-success',
-  building: 'badge-warning',
-  deploying: 'badge-warning',
-  pending: 'badge-warning',
-  created: 'badge-warning',
-  failed: 'badge-error',
-};
-
-const IN_PROGRESS_STATUSES = ['pending', 'building', 'deploying', 'created'];
+const IN_PROGRESS_STATUSES = ["pending", "building", "deploying", "created"];
 
 function timeAgo(dateStr: string): string {
-  const date = new Date(dateStr + 'Z');
+  const date = new Date(dateStr + "Z");
   const now = new Date();
   const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
-
-  if (seconds < 60) return 'just now';
+  if (seconds < 60) return "just now";
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
   if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
   if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`;
   return date.toLocaleDateString();
 }
 
-function CanisterRow({ canister: c }: { canister: Canister }) {
-  const [expanded, setExpanded] = useState(false);
-  const [envVars, setEnvVars] = useState<EnvironmentVariable[] | null>(null);
-  const [envLoading, setEnvLoading] = useState(false);
-  const [envError, setEnvError] = useState<string | null>(null);
+/* -- Sub-components -- */
 
-  const toggleEnv = () => {
-    if (!expanded && envVars === null && c.canister_id) {
-      setEnvLoading(true);
-      setEnvError(null);
-      fetchCanisterEnv(c.canister_id)
-        .then(setEnvVars)
-        .catch((e) => setEnvError(e.message))
-        .finally(() => setEnvLoading(false));
-    }
-    setExpanded((prev) => !prev);
-  };
+function CanisterCard({ canister, projectSlug }: { canister: Canister; projectSlug: string }) {
+  const [open, setOpen] = useState(false);
+  const { data: envVars, isLoading: envLoading } = useCanisterEnv(
+    canister.canister_id,
+    open
+  );
+  const subdomainUrl = canister.canister_id
+    ? `https://${canister.name}.${projectSlug}.icforge.dev`
+    : null;
 
   return (
-    <>
-      <tr>
-        <td style={{ fontWeight: 500 }}>{c.name}</td>
-        <td style={{ color: 'var(--text-secondary)' }}>{c.type}</td>
-        <td>
-          {c.canister_id ? (
-            <a
-              href={`https://${c.canister_id}.icp0.io`}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ color: 'var(--accent)', textDecoration: 'none' }}
+    <Card className="p-4 border-border/50">
+      <div className="flex items-center gap-3">
+        <span className="text-sm font-semibold">{canister.name}</span>
+        <Badge variant="outline" className="text-xs">
+          {canister.type}
+        </Badge>
+        <StatusDot status={canister.status} />
+        {canister.canister_id && (
+          <>
+            <span className="ml-auto font-mono text-xs text-muted-foreground">
+              {canister.canister_id}
+            </span>
+            <CopyButton text={canister.canister_id} />
+          </>
+        )}
+      </div>
+
+      {subdomainUrl && (
+        <div className="mt-2 flex items-center gap-1.5">
+          <a
+            href={subdomainUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs font-mono text-muted-foreground hover:text-primary inline-flex items-center gap-1"
+          >
+            {canister.name}.{projectSlug}.icforge.dev
+            <ExternalLink className="h-3 w-3" />
+          </a>
+        </div>
+      )}
+
+      {canister.canister_id && (
+        <Collapsible open={open} onOpenChange={setOpen} className="mt-2">
+          <CollapsibleTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-xs text-muted-foreground h-7 px-2"
             >
-              <code>{c.canister_id}</code> ↗
-            </a>
-          ) : (
-            <span style={{ color: 'var(--text-muted)' }}>—</span>
-          )}
-        </td>
-        <td>
-          <span className={`badge ${statusBadge[c.status] ?? 'badge-warning'}`}>
-            {c.status}
-          </span>
-        </td>
-        <td>
-          {c.canister_id && (
-            <button
-              onClick={toggleEnv}
-              style={styles.envToggleBtn}
-              title="View environment variables"
-            >
-              {expanded ? '▾' : '▸'}
-            </button>
-          )}
-        </td>
-      </tr>
-      {expanded && (
-        <tr>
-          <td colSpan={5} style={{ padding: 0 }}>
-            <div style={styles.envPanel}>
-              <div style={styles.envHeader}>Environment Variables</div>
-              {envLoading && (
-                <p style={{ color: 'var(--text-secondary)', margin: '0.5rem 0' }}>Loading...</p>
+              {open ? (
+                <ChevronDown className="h-3 w-3 mr-1" />
+              ) : (
+                <ChevronRight className="h-3 w-3 mr-1" />
               )}
-              {envError && (
-                <p style={{ color: 'var(--error)', margin: '0.5rem 0' }}>{envError}</p>
+              Environment Variables
+            </Button>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="mt-2 rounded-md bg-popover p-3 font-mono text-xs space-y-1">
+              {envLoading && (
+                <p className="text-muted-foreground">Loading...</p>
               )}
               {envVars && envVars.length === 0 && (
-                <p style={{ color: 'var(--text-muted)', margin: '0.5rem 0', fontSize: '0.85rem' }}>
+                <p className="text-muted-foreground">
                   No environment variables set
                 </p>
               )}
-              {envVars && envVars.length > 0 && (
-                <table style={{ width: '100%', fontSize: '0.85rem' }}>
-                  <tbody>
-                    {envVars.map((ev) => (
-                      <tr key={ev.name}>
-                        <td style={styles.envName}><code>{ev.name}</code></td>
-                        <td style={styles.envValue}><code>{ev.value}</code></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
+              {envVars?.map((v) => (
+                <div key={v.name} className="flex gap-2">
+                  <span className="font-semibold text-foreground">
+                    {v.name}
+                  </span>
+                  <span className="text-muted-foreground">=</span>
+                  <span className="text-muted-foreground truncate">
+                    {v.value}
+                  </span>
+                </div>
+              ))}
             </div>
-          </td>
-        </tr>
+          </CollapsibleContent>
+        </Collapsible>
       )}
-    </>
+    </Card>
   );
 }
 
-export default function ProjectDetail() {
-  const { id } = useParams();
+function DeployRow({
+  deploy,
+  projectId,
+}: {
+  deploy: Deployment;
+  projectId: string;
+}) {
   const navigate = useNavigate();
-  const { user, loading: authLoading } = useAuth();
-  const [project, setProject] = useState<Project | null>(null);
-  const [deployments, setDeployments] = useState<Deployment[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (authLoading || !user || !id) return;
-    fetchProject(id)
-      .then((data) => {
-        setProject(data.project);
-        setDeployments(data.deployments ?? []);
-      })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  }, [id, user, authLoading]);
-
-  if (authLoading || loading) {
-    return (
-      <div className="container">
-        <p style={{ color: 'var(--text-secondary)', padding: '3rem 0', textAlign: 'center' }}>
-          Loading...
-        </p>
-      </div>
-    );
-  }
-
-  if (error || !project) {
-    return (
-      <div className="container">
-        <p style={{ color: 'var(--error)', padding: '3rem 0', textAlign: 'center' }}>
-          {error ?? 'Project not found'}
-        </p>
-        <Link to="/projects" style={{ display: 'block', textAlign: 'center' }}>
-          ← Back to Projects
-        </Link>
-      </div>
-    );
-  }
-
-  const latestStatus = deployments[0]?.status ?? project.canisters?.[0]?.status ?? 'pending';
-  const primaryCanister = project.canisters?.[0];
-  const hasInProgress = deployments.some((d) => IN_PROGRESS_STATUSES.includes(d.status));
-  const vanityUrl = `${project.slug}.icforge.dev`;
+  const inProgress = IN_PROGRESS_STATUSES.includes(deploy.status);
 
   return (
-    <div className="container">
-      <div style={styles.breadcrumb}>
-        <Link to="/projects">Projects</Link>
-        <span style={{ color: 'var(--text-muted)', margin: '0 0.5rem' }}>/</span>
-        <span>{project.name}</span>
-      </div>
-
-      <div style={styles.header}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <h1 style={styles.title}>{project.name}</h1>
-            {hasInProgress && (
-              <span style={styles.deployingIndicator}>
-                <span style={styles.deployingDot} />
-                Deploying
-              </span>
-            )}
-          </div>
-          <p style={styles.meta}>
-            <code>{project.slug}</code>
-            <span style={styles.separator}>•</span>
-            <a
-              href={`https://${vanityUrl}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ color: 'var(--accent)', textDecoration: 'none', fontSize: '0.85rem' }}
-            >
-              {vanityUrl} ↗
-            </a>
-            {primaryCanister?.canister_id && (
-              <>
-                <span style={styles.separator}>•</span>
-                Canister:{' '}
-                <a
-                  href={`https://${primaryCanister.canister_id}.icp0.io`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ color: 'var(--accent)', textDecoration: 'none' }}
-                >
-                  <code>{primaryCanister.canister_id}</code> ↗
-                </a>
-              </>
-            )}
-          </p>
-        </div>
-      </div>
-
-      <div style={styles.statsRow}>
-        {[
-          { label: 'Status', value: latestStatus, color: latestStatus === 'live' || latestStatus === 'running' ? 'var(--success)' : 'var(--text-primary)' },
-          { label: 'Deploys', value: String(deployments.length), color: 'var(--text-primary)' },
-          { label: 'Canisters', value: String(project.canisters?.length ?? 0), color: 'var(--text-primary)' },
-          { label: 'Created', value: new Date(project.created_at + 'Z').toLocaleDateString(), color: 'var(--text-primary)' },
-        ].map((s) => (
-          <div key={s.label} style={styles.statCard}>
-            <div style={styles.statLabel}>{s.label}</div>
-            <div style={{ ...styles.statValue, color: s.color }}>{s.value}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* Canisters */}
-      {project.canisters?.length > 0 && (
-        <>
-          <h2 style={styles.sectionTitle}>Canisters</h2>
-          <div style={{ ...styles.tableWrapper, marginBottom: '2rem' }}>
-            <table>
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Type</th>
-                  <th>Canister ID</th>
-                  <th>Status</th>
-                  <th style={{ width: 40 }}></th>
-                </tr>
-              </thead>
-              <tbody>
-                {project.canisters.map((c) => (
-                  <CanisterRow key={c.id} canister={c} />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
+    <div
+      className="flex items-center gap-3 px-4 py-2.5 hover:bg-muted/40 transition-colors cursor-pointer"
+      onClick={() => navigate(`/projects/${projectId}/deploys/${deploy.id}`)}
+    >
+      <StatusDot status={deploy.status} pulse={inProgress} />
+      <span className="text-sm truncate flex-1">
+        {deploy.commit_message || "No message"}
+      </span>
+      {deploy.commit_sha && (
+        <span className="font-mono text-xs text-muted-foreground">
+          {deploy.commit_sha.slice(0, 7)}
+        </span>
       )}
-
-      {/* Deploy History */}
-      <h2 style={styles.sectionTitle}>Deploy History</h2>
-      {deployments.length === 0 ? (
-        <div style={styles.emptyDeploys}>
-          <p style={{ color: 'var(--text-secondary)' }}>No deployments yet</p>
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '0.5rem' }}>
-            Run <code>icforge deploy</code> to create your first deployment.
-          </p>
-        </div>
-      ) : (
-        <div style={styles.tableWrapper}>
-          <table>
-            <thead>
-              <tr>
-                <th>Commit</th>
-                <th>Message</th>
-                <th>Canister</th>
-                <th>Status</th>
-                <th>Time</th>
-              </tr>
-            </thead>
-            <tbody>
-              {deployments.map((d) => (
-                <tr
-                  key={d.id}
-                  onClick={() => navigate(`/projects/${id}/deploys/${d.id}`)}
-                  style={{ cursor: 'pointer' }}
-                >
-                  <td>
-                    {d.commit_sha ? (
-                      <code>{d.commit_sha.slice(0, 7)}</code>
-                    ) : (
-                      <span style={{ color: 'var(--text-muted)' }}>—</span>
-                    )}
-                  </td>
-                  <td>{d.commit_message ?? '—'}</td>
-                  <td style={{ color: 'var(--text-secondary)' }}>{d.canister_name}</td>
-                  <td>
-                    <span className={`badge ${statusBadge[d.status] ?? 'badge-warning'}`}>
-                      {d.status}
-                    </span>
-                    {IN_PROGRESS_STATUSES.includes(d.status) && (
-                      <span style={styles.inProgressDot} />
-                    )}
-                  </td>
-                  <td style={{ color: 'var(--text-secondary)' }}>{timeAgo(d.started_at)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <span className="text-xs text-muted-foreground whitespace-nowrap">
+        {timeAgo(deploy.started_at)}
+      </span>
     </div>
   );
 }
 
-const styles: Record<string, React.CSSProperties> = {
-  breadcrumb: {
-    fontSize: '0.85rem',
-    marginBottom: '1.5rem',
-    color: 'var(--text-secondary)',
-  },
-  header: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: '2rem',
-  },
-  title: {
-    fontSize: '1.5rem',
-    fontWeight: 700,
-    marginBottom: '0.35rem',
-  },
-  meta: {
-    fontSize: '0.85rem',
-    color: 'var(--text-secondary)',
-  },
-  separator: {
-    margin: '0 0.5rem',
-  },
-  deployingIndicator: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '0.35rem',
-    fontSize: '0.75rem',
-    fontWeight: 500,
-    color: '#f59e0b',
-    background: 'rgba(245,158,11,0.1)',
-    borderRadius: 9999,
-    padding: '0.2rem 0.6rem',
-  },
-  deployingDot: {
-    display: 'inline-block',
-    width: 8,
-    height: 8,
-    borderRadius: '50%',
-    background: '#f59e0b',
-  },
-  statsRow: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(4, 1fr)',
-    gap: '1rem',
-    marginBottom: '2.5rem',
-  },
-  statCard: {
-    background: 'var(--bg-secondary)',
-    border: '1px solid var(--border-color)',
-    borderRadius: 8,
-    padding: '1rem 1.25rem',
-  },
-  statLabel: {
-    fontSize: '0.75rem',
-    color: 'var(--text-muted)',
-    textTransform: 'uppercase' as const,
-    letterSpacing: '0.05em',
-    marginBottom: '0.25rem',
-  },
-  statValue: {
-    fontSize: '1.25rem',
-    fontWeight: 600,
-  },
-  sectionTitle: {
-    fontSize: '1rem',
-    fontWeight: 600,
-    marginBottom: '1rem',
-  },
-  tableWrapper: {
-    background: 'var(--bg-secondary)',
-    border: '1px solid var(--border-color)',
-    borderRadius: 8,
-    overflow: 'hidden',
-  },
-  emptyDeploys: {
-    textAlign: 'center' as const,
-    padding: '2rem',
-    background: 'var(--bg-secondary)',
-    border: '1px solid var(--border-color)',
-    borderRadius: 8,
-  },
-  inProgressDot: {
-    display: 'inline-block',
-    width: 6,
-    height: 6,
-    borderRadius: '50%',
-    background: '#f59e0b',
-    marginLeft: '0.4rem',
-    verticalAlign: 'middle',
-  },
-  envToggleBtn: {
-    background: 'none',
-    border: 'none',
-    color: 'var(--text-secondary)',
-    cursor: 'pointer',
-    fontSize: '0.9rem',
-    padding: '0.25rem 0.5rem',
-    borderRadius: 4,
-  },
-  envPanel: {
-    background: 'var(--bg-primary)',
-    borderTop: '1px solid var(--border-color)',
-    padding: '0.75rem 1.25rem',
-  },
-  envHeader: {
-    fontSize: '0.75rem',
-    fontWeight: 600,
-    color: 'var(--text-muted)',
-    textTransform: 'uppercase' as const,
-    letterSpacing: '0.05em',
-    marginBottom: '0.5rem',
-  },
-  envName: {
-    fontWeight: 500,
-    color: 'var(--text-primary)',
-    padding: '0.25rem 1rem 0.25rem 0',
-    whiteSpace: 'nowrap' as const,
-  },
-  envValue: {
-    color: 'var(--text-secondary)',
-    padding: '0.25rem 0',
-    wordBreak: 'break-all' as const,
-  },
-};
+function ProductionDeployCard({
+  deploy,
+  projectId,
+}: {
+  deploy: Deployment;
+  projectId: string;
+}) {
+  const isBuilding = IN_PROGRESS_STATUSES.includes(deploy.status);
+
+  return (
+    <Link to={`/projects/${projectId}/deploys/${deploy.id}`}>
+      <Card className="p-5 hover:border-border hover:bg-card/80 border-border/50 transition-all duration-150 cursor-pointer">
+        <div className="flex items-center gap-2 mb-3">
+          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Production Deployment
+          </span>
+          {isBuilding && <Spinner className="h-3 w-3" />}
+        </div>
+        <p className="font-medium truncate">
+          {deploy.commit_message || "No commit message"}
+        </p>
+        <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
+          <GitCommit className="h-3 w-3" />
+          <span className="font-mono">
+            {deploy.commit_sha?.slice(0, 7) ?? "—"}
+          </span>
+          <span className="text-muted-foreground/60">on</span>
+          <span className="font-mono">{deploy.branch || "main"}</span>
+          <span className="text-muted-foreground/40">&middot;</span>
+          <Clock className="h-3 w-3" />
+          <span>{timeAgo(deploy.started_at)}</span>
+        </div>
+      </Card>
+    </Link>
+  );
+}
+
+/* -- Skeletons -- */
+
+function ProjectDetailSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div>
+        <Skeleton className="h-7 w-48 mb-2" />
+        <Skeleton className="h-4 w-64" />
+      </div>
+      <Skeleton className="h-24 w-full rounded-lg" />
+      <Skeleton className="h-64 w-full rounded-lg" />
+    </div>
+  );
+}
+
+/* -- Main Page -- */
+
+export default function ProjectDetail() {
+  const { id } = useParams();
+  const { data, isLoading, error } = useProject(id ?? "");
+
+  if (isLoading) return <ProjectDetailSkeleton />;
+
+  if (error || !data?.project) {
+    return (
+      <div className="text-center py-12">
+        <p className="text-sm text-destructive mb-3">
+          {error?.message ?? "Project not found"}
+        </p>
+        <Button variant="outline" size="sm" asChild>
+          <Link to="/projects">&larr; Back to Projects</Link>
+        </Button>
+      </div>
+    );
+  }
+
+  const { project, deployments = [] } = data;
+  const latestDeploy = deployments[0];
+  const latestStatus =
+    latestDeploy?.status ?? project.canisters?.[0]?.status ?? "pending";
+  const canisters = project.canisters ?? [];
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            {project.name}
+          </h1>
+          <span className="text-sm font-mono text-muted-foreground">
+            {project.slug}
+          </span>
+        </div>
+        <StatusBadge status={latestStatus} />
+      </div>
+
+      {/* Production Deploy Card */}
+      {latestDeploy && (
+        <ProductionDeployCard deploy={latestDeploy} projectId={project.id} />
+      )}
+
+      {/* Tabs */}
+      <Tabs defaultValue="deploys" className="pt-6">
+        <TabsList>
+          <TabsTrigger value="deploys">
+            Deployments ({deployments.length})
+          </TabsTrigger>
+          <TabsTrigger value="canisters">
+            Canisters ({canisters.length})
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="deploys">
+          {deployments.length === 0 ? (
+            <Card className="p-8 text-center border-border/50">
+              <p className="text-sm text-muted-foreground">
+                No deployments yet. Run{" "}
+                <code className="font-mono bg-popover px-1.5 py-0.5 rounded text-xs">icforge deploy</code> to create
+                your first deployment.
+              </p>
+            </Card>
+          ) : (
+            <Card className="divide-y divide-border/50 border-border/50 overflow-hidden">
+              {deployments.map((d) => (
+                <DeployRow key={d.id} deploy={d} projectId={project.id} />
+              ))}
+            </Card>
+          )}
+        </TabsContent>
+
+        <TabsContent value="canisters" className="space-y-3">
+          {canisters.length === 0 ? (
+            <Card className="p-8 text-center border-border/50">
+              <p className="text-sm text-muted-foreground">
+                No canisters created yet.
+              </p>
+            </Card>
+          ) : (
+            canisters.map((c) => <CanisterCard key={c.id} canister={c} projectSlug={project.slug} />)
+          )}
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}

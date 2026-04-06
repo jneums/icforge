@@ -55,6 +55,7 @@ pub struct DeploymentRecord {
     pub commit_sha: Option<String>,
     pub commit_message: Option<String>,
     pub branch: Option<String>,
+    pub repo_full_name: Option<String>,
     pub error_message: Option<String>,
     pub started_at: String,
     pub completed_at: Option<String>,

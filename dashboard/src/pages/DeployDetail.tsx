@@ -1,64 +1,176 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useParams, Link } from "react-router-dom";
+import {
+  GitCommit,
+  GitBranch,
+  Copy,
+  AlertCircle,
+  ExternalLink,
+} from "lucide-react";
 import {
   fetchDeployLogs,
   fetchDeployStatus,
   getAuthHeaders,
   API_URL,
-} from '../api';
-import type { LogEntry } from '../api';
-import { useAuth } from '../contexts/AuthContext';
+} from "@/api";
+import type { LogEntry } from "@/api/types";
+import { useAuth } from "@/hooks/use-auth";
+import { cn } from "@/lib/utils";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Spinner } from "@/components/ui/spinner";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { StatusBadge } from "@/components/status-badge";
+import { CopyButton } from "@/components/copy-button";
+import { toast } from "sonner";
 
-const IN_PROGRESS_STATUSES = ['pending', 'building', 'deploying', 'created'];
+const IN_PROGRESS_STATUSES = ["pending", "building", "deploying", "created"];
 
-const levelColor: Record<string, string> = {
-  error: '#ef4444',
-  warn: '#f59e0b',
-  warning: '#f59e0b',
-  info: '#9ca3af',
-  debug: '#6b7280',
+const LEVEL_COLORS: Record<string, string> = {
+  error: "text-destructive",
+  warn: "text-warning",
+  warning: "text-warning",
+  info: "text-muted-foreground",
+  debug: "text-muted-foreground/60",
 };
 
-function formatTimestamp(ts: string): string {
+function formatTimestamp(ts: string): string | null {
+  if (!ts) return null;
   try {
-    const d = new Date(ts.endsWith('Z') ? ts : ts + 'Z');
-    return d.toLocaleTimeString(undefined, { hour12: false, fractionalSecondDigits: 3 });
+    // Backend sends "YYYY-MM-DD HH:MM:SS" (UTC, no T/Z)
+    const normalized = ts.includes("T") ? ts : ts.replace(" ", "T");
+    const d = new Date(normalized.endsWith("Z") ? normalized : normalized + "Z");
+    if (isNaN(d.getTime())) return null;
+    const h = String(d.getUTCHours()).padStart(2, "0");
+    const m = String(d.getUTCMinutes()).padStart(2, "0");
+    const s = String(d.getUTCSeconds()).padStart(2, "0");
+    return `${h}:${m}:${s}`;
   } catch {
-    return ts;
+    return null;
   }
 }
 
-const statusColors: Record<string, string> = {
-  live: 'var(--success, #22c55e)',
-  deployed: 'var(--success, #22c55e)',
-  running: 'var(--success, #22c55e)',
-  failed: 'var(--error, #ef4444)',
-  building: '#f59e0b',
-  deploying: '#f59e0b',
-  pending: '#f59e0b',
-  created: '#f59e0b',
-};
+function timeAgo(dateStr: string): string {
+  const date = new Date(dateStr + "Z");
+  const now = new Date();
+  const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+  if (seconds < 60) return "just now";
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`;
+  return date.toLocaleDateString();
+}
+
+/* -- Linkify URLs in log messages -- */
+
+const URL_RE = /(https?:\/\/[^\s)>]+)/g;
+
+function LinkifiedMessage({ text }: { text: string }) {
+  const parts = text.split(URL_RE);
+  if (parts.length === 1) return <>{text}</>;
+  return (
+    <>
+      {parts.map((part, i) =>
+        URL_RE.test(part) ? (
+          <a
+            key={i}
+            href={part}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary hover:underline"
+          >
+            {part}
+          </a>
+        ) : (
+          <span key={i}>{part}</span>
+        )
+      )}
+    </>
+  );
+}
+
+/* -- Log Line -- */
+
+function LogLine({
+  entry,
+  lineNumber,
+  highlighted,
+  onClickLine,
+}: {
+  entry: LogEntry;
+  lineNumber: number;
+  highlighted: boolean;
+  onClickLine: (n: number) => void;
+}) {
+  const ts = formatTimestamp(entry.timestamp);
+  return (
+    <div
+      id={`L${lineNumber}`}
+      className={cn(
+        "flex gap-2 pl-2 pr-3 py-px hover:bg-muted/30 border-l-2 border-transparent",
+        highlighted && "bg-primary/5 border-l-primary"
+      )}
+    >
+      <span
+        className="text-muted-foreground/50 select-none cursor-pointer min-w-[2.5ch] text-right hover:text-primary"
+        onClick={() => onClickLine(lineNumber)}
+      >
+        {lineNumber}
+      </span>
+      {ts && (
+        <span className="text-muted-foreground/70 whitespace-nowrap">
+          {ts}
+        </span>
+      )}
+      <span className={cn("whitespace-nowrap", LEVEL_COLORS[entry.level])}>
+        [{entry.level}]
+      </span>
+      <span className="text-foreground whitespace-pre-wrap break-all flex-1">
+        <LinkifiedMessage text={entry.message} />
+      </span>
+    </div>
+  );
+}
+
+/* -- Main Page -- */
 
 export default function DeployDetail() {
   const { id: projectId, deployId } = useParams();
   const { user, loading: authLoading } = useAuth();
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [status, setStatus] = useState<string>('pending');
+  const [status, setStatus] = useState<string>("pending");
   const [deployMeta, setDeployMeta] = useState<{
     canister_id?: string;
     url?: string;
     error?: string;
+    commit_sha?: string;
+    commit_message?: string;
+    branch?: string;
+    repo_full_name?: string;
+    started_at?: string;
   }>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [streaming, setStreaming] = useState(false);
-  const logEndRef = useRef<HTMLDivElement>(null);
+  const [autoScroll, setAutoScroll] = useState(true);
+  const [highlightedLine, setHighlightedLine] = useState<number | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  // Auto-scroll to bottom when logs change
+  // Read line from URL hash
   useEffect(() => {
-    logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [logs]);
+    const hash = window.location.hash;
+    if (hash.startsWith("#L")) setHighlightedLine(parseInt(hash.slice(2)));
+  }, []);
+
+  // Auto-scroll on new logs
+  useEffect(() => {
+    if (autoScroll && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [logs, autoScroll]);
 
   // Fetch initial status and logs
   useEffect(() => {
@@ -78,6 +190,11 @@ export default function DeployDetail() {
           canister_id: statusData.canister_id,
           url: statusData.url,
           error: statusData.error,
+          commit_sha: statusData.commit_sha,
+          commit_message: statusData.commit_message,
+          branch: statusData.branch,
+          repo_full_name: statusData.repo_full_name,
+          started_at: statusData.started_at,
         });
         setLogs(logData);
       } catch (e: unknown) {
@@ -88,78 +205,80 @@ export default function DeployDetail() {
     }
 
     load();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [deployId, user, authLoading]);
 
   // SSE streaming for in-progress deploys
-  const connectSSE = useCallback(async (signal: AbortSignal) => {
-    if (!deployId) return;
+  const connectSSE = useCallback(
+    async (signal: AbortSignal) => {
+      if (!deployId) return;
 
-    const headers = getAuthHeaders();
-    try {
-      const response = await fetch(`${API_URL}/api/v1/deploy/${deployId}/logs/stream`, {
-        headers,
-        signal,
-      });
+      const headers = getAuthHeaders();
+      try {
+        const response = await fetch(
+          `${API_URL}/api/v1/deploy/${deployId}/logs/stream`,
+          { headers, signal }
+        );
 
-      if (!response.ok || !response.body) {
-        return;
-      }
+        if (!response.ok || !response.body) return;
 
-      setStreaming(true);
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
+        setStreaming(true);
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() ?? '';
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
 
-        let currentEvent = '';
-        for (const line of lines) {
-          if (line.startsWith('event:')) {
-            currentEvent = line.slice(6).trim();
-          } else if (line.startsWith('data:')) {
-            const data = line.slice(5).trim();
-            if (currentEvent === 'log') {
-              try {
-                const entry: LogEntry = JSON.parse(data);
-                setLogs((prev) => [...prev, entry]);
-              } catch {
-                // skip malformed
+          let currentEvent = "";
+          for (const line of lines) {
+            if (line.startsWith("event:")) {
+              currentEvent = line.slice(6).trim();
+            } else if (line.startsWith("data:")) {
+              const data = line.slice(5).trim();
+              if (currentEvent === "log") {
+                try {
+                  const entry: LogEntry = JSON.parse(data);
+                  setLogs((prev) => [...prev, entry]);
+                } catch {
+                  // skip malformed
+                }
+              } else if (currentEvent === "status") {
+                setStatus(data);
+              } else if (currentEvent === "done") {
+                setStreaming(false);
+                try {
+                  const finalStatus = await fetchDeployStatus(deployId);
+                  setStatus(finalStatus.status);
+                  setDeployMeta((prev) => ({
+                    ...prev,
+                    canister_id: finalStatus.canister_id,
+                    url: finalStatus.url,
+                    error: finalStatus.error,
+                  }));
+                } catch {
+                  // ignore
+                }
+                return;
               }
-            } else if (currentEvent === 'status') {
-              setStatus(data);
-            } else if (currentEvent === 'done') {
-              setStreaming(false);
-              // Refresh final status
-              try {
-                const finalStatus = await fetchDeployStatus(deployId);
-                setStatus(finalStatus.status);
-                setDeployMeta({
-                  canister_id: finalStatus.canister_id,
-                  url: finalStatus.url,
-                  error: finalStatus.error,
-                });
-              } catch {
-                // ignore
-              }
-              return;
             }
           }
         }
+      } catch (e: unknown) {
+        if (e instanceof DOMException && e.name === "AbortError") return;
+      } finally {
+        setStreaming(false);
       }
-    } catch (e: unknown) {
-      if (e instanceof DOMException && e.name === 'AbortError') return;
-      // Connection lost - not critical
-    } finally {
-      setStreaming(false);
-    }
-  }, [deployId]);
+    },
+    [deployId]
+  );
 
   useEffect(() => {
     if (authLoading || !user || loading) return;
@@ -175,246 +294,196 @@ export default function DeployDetail() {
     };
   }, [status, loading, authLoading, user, connectSSE]);
 
+  /* -- Render -- */
+
   if (authLoading || loading) {
     return (
-      <div className="container">
-        <p style={{ color: 'var(--text-secondary)', padding: '3rem 0', textAlign: 'center' }}>
-          Loading deploy details...
-        </p>
+      <div className="space-y-6">
+        <Skeleton className="h-7 w-48" />
+        <Skeleton className="h-24 w-full rounded-lg" />
+        <Skeleton className="h-64 w-full rounded-lg" />
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="container">
-        <p style={{ color: 'var(--error)', padding: '3rem 0', textAlign: 'center' }}>{error}</p>
-        <Link to={`/projects/${projectId}`} style={{ display: 'block', textAlign: 'center' }}>
-          ← Back to Project
-        </Link>
+      <div className="text-center py-12">
+        <p className="text-sm text-destructive mb-3">{error}</p>
+        <Button variant="outline" size="sm" asChild>
+          <Link to={`/projects/${projectId}`}>&larr; Back to Project</Link>
+        </Button>
       </div>
     );
   }
 
   return (
-    <div className="container">
-      {/* Breadcrumb */}
-      <div style={styles.breadcrumb}>
-        <Link to="/projects">Projects</Link>
-        <span style={{ color: 'var(--text-muted)', margin: '0 0.5rem' }}>/</span>
-        <Link to={`/projects/${projectId}`}>Project</Link>
-        <span style={{ color: 'var(--text-muted)', margin: '0 0.5rem' }}>/</span>
-        <span>Deploy {deployId?.slice(0, 8)}</span>
-      </div>
-
-      {/* Deploy Metadata Header */}
-      <div style={styles.header}>
-        <div style={{ flex: 1 }}>
-          <h1 style={styles.title}>
-            Deploy {deployId?.slice(0, 8)}
-            {streaming && (
-              <span style={styles.streamingBadge}>
-                <span style={styles.streamingDot} /> Streaming
-              </span>
-            )}
-          </h1>
-        </div>
-      </div>
-
-      <div style={styles.metaGrid}>
-        <div style={styles.metaItem}>
-          <div style={styles.metaLabel}>Status</div>
-          <div style={{ ...styles.metaValue, color: statusColors[status] ?? 'var(--text-primary)' }}>
-            {status}
-          </div>
-        </div>
-        <div style={styles.metaItem}>
-          <div style={styles.metaLabel}>Deploy ID</div>
-          <div style={styles.metaValue}>
-            <code style={{ fontSize: '0.85rem' }}>{deployId}</code>
-          </div>
-        </div>
-        {deployMeta.canister_id && (
-          <div style={styles.metaItem}>
-            <div style={styles.metaLabel}>Canister</div>
-            <div style={styles.metaValue}>
-              <a
-                href={`https://${deployMeta.canister_id}.icp0.io`}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{ color: 'var(--accent)' }}
-              >
-                <code>{deployMeta.canister_id}</code>
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold tracking-tight">
+          Deploy <span className="font-mono text-muted-foreground">#{deployId?.slice(0, 8)}</span>
+        </h1>
+        <div className="flex items-center gap-3">
+          <StatusBadge status={status} />
+          {streaming && (
+            <Badge
+              variant="outline"
+              className="text-xs bg-success/10 text-success border-success/20"
+            >
+              <span className="mr-1.5 h-1.5 w-1.5 rounded-full bg-success animate-pulse inline-block" />
+              Streaming
+            </Badge>
+          )}
+          {deployMeta.url && (
+            <Button asChild size="sm">
+              <a href={deployMeta.url} target="_blank" rel="noopener noreferrer">
+                Visit <ExternalLink className="h-3.5 w-3.5 ml-1" />
               </a>
-            </div>
-          </div>
-        )}
-        {deployMeta.url && (
-          <div style={styles.metaItem}>
-            <div style={styles.metaLabel}>URL</div>
-            <div style={styles.metaValue}>
-              <a
-                href={deployMeta.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{ color: 'var(--accent)' }}
-              >
-                {deployMeta.url}
-              </a>
-            </div>
-          </div>
-        )}
-        {deployMeta.error && (
-          <div style={styles.metaItem}>
-            <div style={styles.metaLabel}>Error</div>
-            <div style={{ ...styles.metaValue, color: 'var(--error, #ef4444)' }}>
-              {deployMeta.error}
-            </div>
-          </div>
-        )}
+            </Button>
+          )}
+        </div>
       </div>
 
-      {/* Log Output */}
-      <h2 style={styles.sectionTitle}>Logs</h2>
-      <div style={styles.logContainer}>
-        {logs.length === 0 ? (
-          <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>
-            {streaming ? 'Waiting for logs...' : 'No logs available'}
-          </div>
-        ) : (
-          <div style={styles.logScroll}>
-            {logs.map((entry, i) => (
-              <div key={i} style={styles.logLine}>
-                <span style={styles.logTimestamp}>{formatTimestamp(entry.timestamp)}</span>
-                <span
-                  style={{
-                    ...styles.logLevel,
-                    color: levelColor[entry.level] ?? '#9ca3af',
-                  }}
-                >
-                  [{entry.level.toUpperCase().padEnd(5)}]
-                </span>
-                <span style={styles.logMessage}>{entry.message}</span>
+      {/* Summary Card */}
+      <Card className="p-5 border-border/50">
+        <div className="grid grid-cols-2 gap-y-4 gap-x-12 text-sm">
+          {deployMeta.commit_sha && (
+            <div>
+              <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground/70">Commit</span>
+              <div className="flex items-center gap-2 mt-1">
+                <GitCommit className="h-3.5 w-3.5 text-muted-foreground" />
+                {deployMeta.repo_full_name ? (
+                  <a
+                    href={`https://github.com/${deployMeta.repo_full_name}/commit/${deployMeta.commit_sha}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-mono text-xs text-primary hover:underline"
+                  >
+                    {deployMeta.commit_sha.slice(0, 7)}
+                  </a>
+                ) : (
+                  <span className="font-mono text-xs">
+                    {deployMeta.commit_sha.slice(0, 7)}
+                  </span>
+                )}
+                {deployMeta.commit_message && (
+                  <span className="text-muted-foreground truncate">
+                    {deployMeta.commit_message}
+                  </span>
+                )}
               </div>
-            ))}
-            <div ref={logEndRef} />
+            </div>
+          )}
+          {deployMeta.branch && (
+            <div>
+              <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground/70">Branch</span>
+              <div className="flex items-center gap-2 mt-1">
+                <GitBranch className="h-3.5 w-3.5 text-muted-foreground" />
+                {deployMeta.repo_full_name ? (
+                  <a
+                    href={`https://github.com/${deployMeta.repo_full_name}/tree/${deployMeta.branch}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-mono text-primary hover:underline"
+                  >
+                    {deployMeta.branch}
+                  </a>
+                ) : (
+                  <span className="font-mono">{deployMeta.branch}</span>
+                )}
+              </div>
+            </div>
+          )}
+          {deployMeta.started_at && (
+            <div>
+              <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground/70">Started</span>
+              <div className="mt-1">{timeAgo(deployMeta.started_at)}</div>
+            </div>
+          )}
+          {deployMeta.canister_id && (
+            <div>
+              <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground/70">Canister</span>
+              <div className="flex items-center gap-2 mt-1">
+                <span className="font-mono text-xs">
+                  {deployMeta.canister_id}
+                </span>
+                <CopyButton text={deployMeta.canister_id} />
+              </div>
+            </div>
+          )}
+          {deployMeta.error && (
+            <div className="col-span-2">
+              <Alert variant="destructive" className="mt-2">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{deployMeta.error}</AlertDescription>
+              </Alert>
+            </div>
+          )}
+        </div>
+      </Card>
+
+      {/* Log Viewer */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-semibold">Build Logs</h2>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-xs"
+              onClick={() => {
+                navigator.clipboard.writeText(
+                  logs.map((l) => l.message).join("\n")
+                );
+                toast.success("Logs copied to clipboard");
+              }}
+            >
+              <Copy className="h-3 w-3 mr-1.5" /> Copy
+            </Button>
+            <Button
+              variant={autoScroll ? "secondary" : "ghost"}
+              size="sm"
+              className="text-xs"
+              onClick={() => setAutoScroll(!autoScroll)}
+            >
+              Auto-scroll {autoScroll ? "on" : "off"}
+            </Button>
           </div>
-        )}
-        {streaming && (
-          <div style={styles.streamingFooter}>
-            <span style={styles.streamingDot} />
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-              Live streaming...
-            </span>
-          </div>
-        )}
+        </div>
+
+        <div
+          ref={scrollRef}
+          className="bg-background rounded-lg border border-border/50 font-mono text-[13px] leading-relaxed overflow-y-auto min-h-[300px] py-2"
+          style={{ maxHeight: "calc(100vh - 340px)" }}
+        >
+          {logs.length === 0 ? (
+            <div className="flex items-center justify-center py-8 text-muted-foreground">
+              {streaming ? (
+                <>
+                  <Spinner className="h-4 w-4 mr-2" />
+                  Waiting for logs...
+                </>
+              ) : (
+                "No logs available"
+              )}
+            </div>
+          ) : (
+            logs.map((entry, i) => (
+              <LogLine
+                key={i}
+                entry={entry}
+                lineNumber={i + 1}
+                highlighted={highlightedLine === i + 1}
+                onClickLine={(n) => {
+                  window.location.hash = `#L${n}`;
+                  setHighlightedLine(n);
+                }}
+              />
+            ))
+          )}
+        </div>
       </div>
     </div>
   );
 }
-
-const styles: Record<string, React.CSSProperties> = {
-  breadcrumb: {
-    fontSize: '0.85rem',
-    marginBottom: '1.5rem',
-    color: 'var(--text-secondary)',
-  },
-  header: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: '1.5rem',
-  },
-  title: {
-    fontSize: '1.5rem',
-    fontWeight: 700,
-    display: 'flex',
-    alignItems: 'center',
-    gap: '0.75rem',
-  },
-  streamingBadge: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '0.4rem',
-    fontSize: '0.75rem',
-    fontWeight: 500,
-    color: '#22c55e',
-    background: 'rgba(34,197,94,0.1)',
-    borderRadius: 9999,
-    padding: '0.2rem 0.6rem',
-  },
-  streamingDot: {
-    display: 'inline-block',
-    width: 8,
-    height: 8,
-    borderRadius: '50%',
-    background: '#22c55e',
-    animation: 'pulse 1.5s infinite',
-  },
-  metaGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
-    gap: '1rem',
-    marginBottom: '2rem',
-    background: 'var(--bg-secondary)',
-    border: '1px solid var(--border-color)',
-    borderRadius: 8,
-    padding: '1.25rem',
-  },
-  metaItem: {},
-  metaLabel: {
-    fontSize: '0.7rem',
-    color: 'var(--text-muted)',
-    textTransform: 'uppercase' as const,
-    letterSpacing: '0.05em',
-    marginBottom: '0.25rem',
-  },
-  metaValue: {
-    fontSize: '0.9rem',
-    fontWeight: 500,
-  },
-  sectionTitle: {
-    fontSize: '1rem',
-    fontWeight: 600,
-    marginBottom: '0.75rem',
-  },
-  logContainer: {
-    background: '#0d1117',
-    border: '1px solid var(--border-color)',
-    borderRadius: 8,
-    overflow: 'hidden',
-  },
-  logScroll: {
-    maxHeight: 500,
-    overflowY: 'auto' as const,
-    padding: '1rem',
-    fontFamily: 'ui-monospace, "Cascadia Code", "Source Code Pro", Menlo, Consolas, monospace',
-    fontSize: '0.8rem',
-    lineHeight: 1.6,
-  },
-  logLine: {
-    display: 'flex',
-    gap: '0.75rem',
-    whiteSpace: 'pre-wrap' as const,
-    wordBreak: 'break-all' as const,
-  },
-  logTimestamp: {
-    color: '#4b5563',
-    flexShrink: 0,
-  },
-  logLevel: {
-    flexShrink: 0,
-    fontWeight: 600,
-  },
-  logMessage: {
-    color: '#d1d5db',
-  },
-  streamingFooter: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '0.5rem',
-    padding: '0.5rem 1rem',
-    borderTop: '1px solid var(--border-color)',
-    background: 'rgba(34,197,94,0.05)',
-  },
-};

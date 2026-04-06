@@ -1,85 +1,137 @@
 # 07 — Landing Page
 
-**Scope:** Refresh the marketing landing page at `/`
+**Scope:** Refresh the `/` landing page with the new design system
 **Priority:** P2
-**Depends on:** 01-design-system
+**Depends on:** 00-setup, 01-design-system
 **Estimated effort:** Small
 
 ---
 
-## 1. Problem
+## 1. Current State
 
-The current landing page is functional (hero + code snippet + 3 feature cards + CTA) but feels like a prototype:
-- Feature cards are in a 3-column grid that doesn't explain what ICForge actually does
-- No social proof or ecosystem context
-- No visual demo/screenshot
-- Code snippet is good but could be more prominent
+The Landing page is a simple marketing page with:
+- Hero section (title + description + CTA)
+- Feature grid (3 features)
+- Getting started code snippet
+- Footer
+
+It works fine but uses inline styles and doesn't match the polished aesthetic of the rest of the new dashboard.
 
 ## 2. Target Layout
 
-Keep it simple — one page, no scrolljacking, fast to scan.
+Keep the same structure, just migrate to Tailwind + polish:
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                                                              │
-│                   ⬡ ICForge                                  │
-│                                                              │
-│            Deploy to the Internet Computer                   │
-│              in one command.                                 │
-│                                                              │
-│     ┌──────────────────────────────────────────────┐         │
-│     │  $ npx icforge init                          │         │
-│     │  $ git push origin main                      │         │
-│     │  ✓ Deployed → my-dapp.icforge.dev            │         │
-│     └──────────────────────────────────────────────┘         │
-│                                                              │
-│            [ Get Started ]    [ View on GitHub ]             │
-│                                                              │
+│  ⬡ ICForge                              Login with GitHub   │
 │──────────────────────────────────────────────────────────────│
 │                                                              │
-│  Git Push to Deploy          Multi-Canister Projects         │
-│  Push to main and ICForge    Frontend + backend canisters,   │
-│  builds and deploys           linked with environment        │
-│  automatically via            variables, deployed together.  │
-│  GitHub webhooks.                                            │
+│              Deploy to the Internet Computer                 │
+│              in one git push.                                │
 │                                                              │
-│  Instant Preview URLs        Canister Eject                  │
-│  Every project gets a        Your canisters, your keys.      │
-│  {name}.icforge.dev URL      Transfer ownership anytime      │
-│  immediately.                with one command.               │
+│              Push your code. We build, deploy, and           │
+│              manage your canisters automatically.            │
+│                                                              │
+│              [ Get Started ]    [ View Docs ↗ ]              │
+│                                                              │
+│  ┌──────────────────┬──────────────────┬────────────────────┐│
+│  │ ⚡ Auto Deploy   │ 📦 Zero Config   │ 🔒 You Own It     ││
+│  │ Push to main     │ Detects your     │ Eject canisters   ││
+│  │ and your app     │ framework and    │ anytime. We never ││
+│  │ deploys.         │ builds it.       │ lock you in.      ││
+│  └──────────────────┴──────────────────┴────────────────────┘│
+│                                                              │
+│  $ npx icforge init                                          │
+│  $ git push origin main                                      │
+│  ✓ Deployed to https://my-app.icforge.dev                    │
 │                                                              │
 │──────────────────────────────────────────────────────────────│
-│                                                              │
-│     Deploy your first canister in under a minute.            │
-│                 [ Get Started ]                              │
-│                                                              │
+│  © 2025 ICForge · Built on the Internet Computer             │
 └──────────────────────────────────────────────────────────────┘
 ```
 
-## 3. Changes from Current
+## 3. Key Changes
 
-| Current | New |
-|---------|-----|
-| "⬡ ICForge" + subtitle | Same, keep it |
-| 3-step code block (npm install, icforge init, icforge deploy) | Simplify to 2 lines: init + git push (emphasize GitHub flow) |
-| 3 feature cards (Git-Driven, Reproducible, Canister Mgmt) | 4 feature cards with clearer copy (Push to Deploy, Multi-Canister, Preview URLs, Eject) |
-| 1 CTA button | 2 buttons: Get Started (primary) + GitHub (secondary) |
-| No footer CTA | Add a bottom CTA section |
+### Header (Landing-only, no sidebar)
 
-## 4. Design Notes
+The landing page uses its own simple header — NOT the sidebar:
 
-- Hero section: full viewport height (100vh), centered vertically
-- Code snippet: terminal-style block (existing `--surface-inset` bg, monospace)
-- Feature cards: 2x2 grid on desktop, 1 column on mobile
-- No sidebar on this page (handled by AppShell — unauthenticated routes skip sidebar)
-- "Get Started" routes to `/projects` if logged in, `/login` if not
+```tsx
+<header className="flex items-center justify-between px-6 py-4 border-b">
+  <Link to="/" className="flex items-center gap-2">
+    <span className="text-lg">⬡</span>
+    <span className="font-semibold">ICForge</span>
+  </Link>
+  <Button asChild>
+    <a href="/api/auth/github">Login with GitHub</a>
+  </Button>
+</header>
+```
 
-## 5. Checklist
+### Hero Section
 
-- [ ] Update hero copy (2-line code snippet: init + git push)
-- [ ] Add "View on GitHub" secondary button linking to github.com/jneums/icforge
-- [ ] Update feature cards (4 cards: Push to Deploy, Multi-Canister, Preview URLs, Eject)
-- [ ] Add bottom CTA section
-- [ ] Switch feature grid to 2x2 on desktop, 1-col on mobile
-- [ ] Migrate from inline styles to CSS classes
-- [ ] Verify landing page renders without sidebar
+```tsx
+<section className="flex flex-col items-center text-center py-24 px-4">
+  <h1 className="text-4xl sm:text-5xl font-bold tracking-tight max-w-2xl">
+    Deploy to the Internet Computer in one git push.
+  </h1>
+  <p className="text-lg text-muted-foreground mt-4 max-w-xl">
+    Push your code. We build, deploy, and manage your canisters automatically.
+  </p>
+  <div className="flex gap-3 mt-8">
+    <Button size="lg" asChild>
+      <a href="/api/auth/github">Get Started</a>
+    </Button>
+    <Button variant="outline" size="lg" asChild>
+      <a href="https://github.com/jneums/icforge" target="_blank">
+        View Docs <ExternalLink className="h-4 w-4 ml-1" />
+      </a>
+    </Button>
+  </div>
+</section>
+```
+
+### Feature Grid
+
+```tsx
+<section className="grid grid-cols-1 sm:grid-cols-3 gap-6 max-w-4xl mx-auto px-4">
+  {features.map(f => (
+    <Card key={f.title} className="p-6">
+      <span className="text-2xl mb-3 block">{f.emoji}</span>
+      <h3 className="text-sm font-semibold">{f.title}</h3>
+      <p className="text-sm text-muted-foreground mt-1">{f.description}</p>
+    </Card>
+  ))}
+</section>
+```
+
+### Code Snippet
+
+```tsx
+<section className="max-w-xl mx-auto mt-16 px-4">
+  <Card className="bg-popover p-6 font-mono text-sm">
+    <div className="text-muted-foreground">$ npx icforge init</div>
+    <div className="text-muted-foreground">$ git push origin main</div>
+    <div className="text-success mt-2">✓ Deployed to https://my-app.icforge.dev</div>
+  </Card>
+</section>
+```
+
+### Footer
+
+```tsx
+<footer className="border-t py-8 text-center text-sm text-muted-foreground mt-24">
+  © {new Date().getFullYear()} ICForge · Built on the Internet Computer
+</footer>
+```
+
+## 4. Checklist
+
+- [ ] Rewrite Landing header (logo + login button) with Tailwind
+- [ ] Rewrite hero section with shadcn `<Button>`
+- [ ] Rewrite feature grid with shadcn `<Card>`
+- [ ] Rewrite code snippet with styled card
+- [ ] Rewrite footer with Tailwind
+- [ ] Remove all inline style objects
+- [ ] Responsive: stack features on mobile (already handled by grid-cols-1 sm:grid-cols-3)
+- [ ] Verify landing page does NOT show the sidebar

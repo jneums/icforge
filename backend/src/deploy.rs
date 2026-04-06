@@ -29,6 +29,16 @@ pub struct DeployStatusResponse {
     pub canister_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commit_sha: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commit_message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repo_full_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -75,7 +85,12 @@ async fn insert_log(
     }
 }
 
-async fn update_deployment_status(db: &DbPool, deployment_id: &str, status: &str, error_msg: Option<&str>) {
+async fn update_deployment_status(
+    db: &DbPool,
+    deployment_id: &str,
+    status: &str,
+    error_msg: Option<&str>,
+) {
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
     if let Some(err) = error_msg {
         let _ = sqlx::query(
@@ -88,14 +103,12 @@ async fn update_deployment_status(db: &DbPool, deployment_id: &str, status: &str
         .execute(db)
         .await;
     } else {
-        let _ = sqlx::query(
-            "UPDATE deployments SET status = $1, completed_at = $2 WHERE id = $3",
-        )
-        .bind(status)
-        .bind(&now)
-        .bind(deployment_id)
-        .execute(db)
-        .await;
+        let _ = sqlx::query("UPDATE deployments SET status = $1, completed_at = $2 WHERE id = $3")
+            .bind(status)
+            .bind(&now)
+            .bind(deployment_id)
+            .execute(db)
+            .await;
     }
 }
 
@@ -124,27 +137,23 @@ pub async fn deploy(
         let name = field.name().unwrap_or("").to_string();
         match name.as_str() {
             "project_id" => {
-                project_id = Some(
-                    field
-                        .text()
-                        .await
-                        .map_err(|e| AppError::BadRequest(format!("Failed to read project_id: {e}")))?,
-                );
+                project_id = Some(field.text().await.map_err(|e| {
+                    AppError::BadRequest(format!("Failed to read project_id: {e}"))
+                })?);
             }
             "canister_name" => {
-                canister_name = Some(
-                    field
-                        .text()
-                        .await
-                        .map_err(|e| AppError::BadRequest(format!("Failed to read canister_name: {e}")))?,
-                );
+                canister_name = Some(field.text().await.map_err(|e| {
+                    AppError::BadRequest(format!("Failed to read canister_name: {e}"))
+                })?);
             }
             "wasm" => {
                 wasm_bytes = Some(
                     field
                         .bytes()
                         .await
-                        .map_err(|e| AppError::BadRequest(format!("Failed to read wasm file: {e}")))?
+                        .map_err(|e| {
+                            AppError::BadRequest(format!("Failed to read wasm file: {e}"))
+                        })?
                         .to_vec(),
                 );
             }
@@ -153,41 +162,33 @@ pub async fn deploy(
                     field
                         .bytes()
                         .await
-                        .map_err(|e| AppError::BadRequest(format!("Failed to read assets tarball: {e}")))?
+                        .map_err(|e| {
+                            AppError::BadRequest(format!("Failed to read assets tarball: {e}"))
+                        })?
                         .to_vec(),
                 );
             }
             "commit_sha" => {
-                commit_sha = Some(
-                    field
-                        .text()
-                        .await
-                        .map_err(|e| AppError::BadRequest(format!("Failed to read commit_sha: {e}")))?,
-                );
+                commit_sha = Some(field.text().await.map_err(|e| {
+                    AppError::BadRequest(format!("Failed to read commit_sha: {e}"))
+                })?);
             }
             "commit_message" => {
-                commit_message = Some(
-                    field
-                        .text()
-                        .await
-                        .map_err(|e| AppError::BadRequest(format!("Failed to read commit_message: {e}")))?,
-                );
+                commit_message = Some(field.text().await.map_err(|e| {
+                    AppError::BadRequest(format!("Failed to read commit_message: {e}"))
+                })?);
             }
             "init_arg" => {
-                init_arg_hex = Some(
-                    field
-                        .text()
-                        .await
-                        .map_err(|e| AppError::BadRequest(format!("Failed to read init_arg: {e}")))?,
-                );
+                init_arg_hex =
+                    Some(field.text().await.map_err(|e| {
+                        AppError::BadRequest(format!("Failed to read init_arg: {e}"))
+                    })?);
             }
             "candid" => {
-                candid_text = Some(
-                    field
-                        .text()
-                        .await
-                        .map_err(|e| AppError::BadRequest(format!("Failed to read candid: {e}")))?,
-                );
+                candid_text =
+                    Some(field.text().await.map_err(|e| {
+                        AppError::BadRequest(format!("Failed to read candid: {e}"))
+                    })?);
             }
             _ => {
                 // Skip unknown fields
@@ -215,23 +216,23 @@ pub async fn deploy(
             .await
             .map_err(AppError::Database)?;
 
-    let project =
-        project_row.ok_or_else(|| AppError::NotFound("Project not found or not owned by user".into()))?;
+    let project = project_row
+        .ok_or_else(|| AppError::NotFound("Project not found or not owned by user".into()))?;
     let project_slug = project.slug.clone();
     let project_id_for_kv = project.id.clone();
 
     // Find canister record
-    let canister_row: Option<crate::models::CanisterRecord> = sqlx::query_as(
-        "SELECT * FROM canisters WHERE project_id = $1 AND name = $2",
-    )
-    .bind(&project_id)
-    .bind(&canister_name)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(AppError::Database)?;
+    let canister_row: Option<crate::models::CanisterRecord> =
+        sqlx::query_as("SELECT * FROM canisters WHERE project_id = $1 AND name = $2")
+            .bind(&project_id)
+            .bind(&canister_name)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(AppError::Database)?;
 
-    let canister = canister_row
-        .ok_or_else(|| AppError::NotFound(format!("Canister '{}' not found in project", canister_name)))?;
+    let canister = canister_row.ok_or_else(|| {
+        AppError::NotFound(format!("Canister '{}' not found in project", canister_name))
+    })?;
 
     // Save wasm bytes to /tmp for the background task
     let deployment_id = uuid::Uuid::new_v4().to_string();
@@ -271,7 +272,9 @@ pub async fn deploy(
     .map_err(AppError::Database)?;
 
     // Use platform IC identity for canister creation (cycles pool model)
-    let ic_pem = state.config.ic_identity_pem
+    let ic_pem = state
+        .config
+        .ic_identity_pem
         .clone()
         .ok_or_else(|| AppError::Internal("Platform IC_IDENTITY_PEM not configured".into()))?;
 
@@ -300,6 +303,8 @@ pub async fn deploy(
     let log_channels = state.log_channels.clone();
     let config = state.config.clone();
 
+    let canister_name_clone = canister_name.clone();
+
     // Spawn background deploy pipeline
     tokio::spawn(async move {
         run_deploy_pipeline(
@@ -313,6 +318,7 @@ pub async fn deploy(
             canister_db_id,
             init_arg_bytes,
             candid_text,
+            canister_name_clone,
             canister_type,
             log_channels,
             config,
@@ -342,6 +348,7 @@ async fn run_deploy_pipeline(
     canister_db_id: String,
     init_arg: Option<Vec<u8>>,
     candid: Option<String>,
+    canister_name: String,
     canister_type: String,
     log_channels: std::sync::Arc<dashmap::DashMap<String, broadcast::Sender<LogEvent>>>,
     config: crate::config::AppConfig,
@@ -442,7 +449,14 @@ async fn run_deploy_pipeline(
         .await
     {
         Ok(()) => {
-            insert_log(&db, &deployment_id, "info", "Code installed successfully", lc).await;
+            insert_log(
+                &db,
+                &deployment_id,
+                "info",
+                "Code installed successfully",
+                lc,
+            )
+            .await;
         }
         Err(e) => {
             let msg = format!("install_code failed: {e}");
@@ -454,91 +468,102 @@ async fn run_deploy_pipeline(
 
     // Step 4.5: Sync static assets if a tarball was provided (frontend canisters only)
     if canister_type == "frontend" {
-    if let Some(tarball_path) = assets_path {
-        insert_log(&db, &deployment_id, "info", "Syncing static assets...", lc).await;
+        if let Some(tarball_path) = assets_path {
+            insert_log(&db, &deployment_id, "info", "Syncing static assets...", lc).await;
 
-        // Extract tarball to a temp directory
-        let assets_dir = format!("/tmp/icforge_assets_extracted_{}", deployment_id);
-        match extract_assets_tarball(&tarball_path, &assets_dir).await {
-            Ok(()) => {}
-            Err(e) => {
-                let msg = format!("Failed to extract assets tarball: {e}");
-                insert_log(&db, &deployment_id, "error", &msg, lc).await;
-                update_deployment_status(&db, &deployment_id, "failed", Some(&msg)).await;
-                let _ = tokio::fs::remove_file(&tarball_path).await;
-                let _ = tokio::fs::remove_dir_all(&assets_dir).await;
-                return;
+            // Extract tarball to a temp directory
+            let assets_dir = format!("/tmp/icforge_assets_extracted_{}", deployment_id);
+            match extract_assets_tarball(&tarball_path, &assets_dir).await {
+                Ok(()) => {}
+                Err(e) => {
+                    let msg = format!("Failed to extract assets tarball: {e}");
+                    insert_log(&db, &deployment_id, "error", &msg, lc).await;
+                    update_deployment_status(&db, &deployment_id, "failed", Some(&msg)).await;
+                    let _ = tokio::fs::remove_file(&tarball_path).await;
+                    let _ = tokio::fs::remove_dir_all(&assets_dir).await;
+                    return;
+                }
             }
+
+            // Clean up tarball
+            let _ = tokio::fs::remove_file(&tarball_path).await;
+
+            // Build Canister object and sync assets
+            let canister_principal = match Principal::from_text(&canister_id) {
+                Ok(p) => p,
+                Err(e) => {
+                    let msg = format!("Invalid canister principal for asset sync: {e}");
+                    insert_log(&db, &deployment_id, "error", &msg, lc).await;
+                    update_deployment_status(&db, &deployment_id, "failed", Some(&msg)).await;
+                    let _ = tokio::fs::remove_dir_all(&assets_dir).await;
+                    return;
+                }
+            };
+
+            let canister = match ic_utils::Canister::builder()
+                .with_canister_id(canister_principal)
+                .with_agent(client.agent())
+                .build()
+            {
+                Ok(c) => c,
+                Err(e) => {
+                    let msg = format!("Failed to build Canister object for asset sync: {e}");
+                    insert_log(&db, &deployment_id, "error", &msg, lc).await;
+                    update_deployment_status(&db, &deployment_id, "failed", Some(&msg)).await;
+                    let _ = tokio::fs::remove_dir_all(&assets_dir).await;
+                    return;
+                }
+            };
+
+            let logger = slog::Logger::root(slog::Discard, slog::o!());
+            let assets_path_buf = std::path::PathBuf::from(&assets_dir);
+            match ic_asset::sync(
+                &canister,
+                &[assets_path_buf.as_path()],
+                false,
+                &logger,
+                None,
+            )
+            .await
+            {
+                Ok(()) => {
+                    insert_log(
+                        &db,
+                        &deployment_id,
+                        "info",
+                        "Assets synced successfully",
+                        lc,
+                    )
+                    .await;
+                }
+                Err(e) => {
+                    let msg = format!("Asset sync failed: {e}");
+                    insert_log(&db, &deployment_id, "error", &msg, lc).await;
+                    update_deployment_status(&db, &deployment_id, "failed", Some(&msg)).await;
+                    let _ = tokio::fs::remove_dir_all(&assets_dir).await;
+                    return;
+                }
+            }
+
+            // Clean up extracted assets
+            let _ = tokio::fs::remove_dir_all(&assets_dir).await;
         }
-
-        // Clean up tarball
-        let _ = tokio::fs::remove_file(&tarball_path).await;
-
-        // Build Canister object and sync assets
-        let canister_principal = match Principal::from_text(&canister_id) {
-            Ok(p) => p,
-            Err(e) => {
-                let msg = format!("Invalid canister principal for asset sync: {e}");
-                insert_log(&db, &deployment_id, "error", &msg, lc).await;
-                update_deployment_status(&db, &deployment_id, "failed", Some(&msg)).await;
-                let _ = tokio::fs::remove_dir_all(&assets_dir).await;
-                return;
-            }
-        };
-
-        let canister = match ic_utils::Canister::builder()
-            .with_canister_id(canister_principal)
-            .with_agent(client.agent())
-            .build()
-        {
-            Ok(c) => c,
-            Err(e) => {
-                let msg = format!("Failed to build Canister object for asset sync: {e}");
-                insert_log(&db, &deployment_id, "error", &msg, lc).await;
-                update_deployment_status(&db, &deployment_id, "failed", Some(&msg)).await;
-                let _ = tokio::fs::remove_dir_all(&assets_dir).await;
-                return;
-            }
-        };
-
-        let logger = slog::Logger::root(slog::Discard, slog::o!());
-        let assets_path_buf = std::path::PathBuf::from(&assets_dir);
-        match ic_asset::sync(&canister, &[assets_path_buf.as_path()], false, &logger, None).await {
-            Ok(()) => {
-                insert_log(&db, &deployment_id, "info", "Assets synced successfully", lc).await;
-            }
-            Err(e) => {
-                let msg = format!("Asset sync failed: {e}");
-                insert_log(&db, &deployment_id, "error", &msg, lc).await;
-                update_deployment_status(&db, &deployment_id, "failed", Some(&msg)).await;
-                let _ = tokio::fs::remove_dir_all(&assets_dir).await;
-                return;
-            }
-        }
-
-        // Clean up extracted assets
-        let _ = tokio::fs::remove_dir_all(&assets_dir).await;
-    }
     } // end if canister_type == "frontend"
 
     // Step 5: Update canister status
-    let _ = sqlx::query(
-        "UPDATE canisters SET status = 'running', updated_at = $1 WHERE id = $2",
-    )
-    .bind(chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string())
-    .bind(&canister_db_id)
-    .execute(&db)
-    .await;
-
-    // Step 5.5: Store candid interface if provided
-    if let Some(candid_text) = candid {
-        let _ = sqlx::query(
-            "UPDATE canisters SET candid_interface = $1 WHERE id = $2",
-        )
-        .bind(&candid_text)
+    let _ = sqlx::query("UPDATE canisters SET status = 'running', updated_at = $1 WHERE id = $2")
+        .bind(chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string())
         .bind(&canister_db_id)
         .execute(&db)
         .await;
+
+    // Step 5.5: Store candid interface if provided
+    if let Some(candid_text) = candid {
+        let _ = sqlx::query("UPDATE canisters SET candid_interface = $1 WHERE id = $2")
+            .bind(&candid_text)
+            .bind(&canister_db_id)
+            .execute(&db)
+            .await;
         insert_log(&db, &deployment_id, "info", "Candid interface stored", lc).await;
     }
 
@@ -554,11 +579,16 @@ async fn run_deploy_pipeline(
     .await;
     update_deployment_status(&db, &deployment_id, "live", None).await;
 
-    // Write subdomain mapping to Cloudflare KV (best-effort)
-    if let Err(e) = crate::cloudflare::kv_write(&config, &project_slug, &canister_id, &project_id).await {
+    // Write per-canister subdomain mapping to Cloudflare KV (best-effort)
+    // Key format: <canister-name>.<project-slug> -> canister_id
+    // This enables <canister-name>.<project-slug>.icforge.dev routing
+    let canister_slug = format!("{canister_name}.{project_slug}");
+    if let Err(e) =
+        crate::cloudflare::kv_write(&config, &canister_slug, &canister_id, &project_id).await
+    {
         tracing::warn!(
             deployment_id = %deployment_id,
-            slug = %project_slug,
+            slug = %canister_slug,
             error = %e,
             "Failed to write Cloudflare KV subdomain mapping (non-fatal)"
         );
@@ -588,14 +618,12 @@ pub async fn deploy_status(
     Path(deploy_id): Path<String>,
 ) -> Result<Json<Value>, AppError> {
     // Fetch deployment record
-    let deployment: DeploymentRecord = sqlx::query_as(
-        "SELECT * FROM deployments WHERE id = $1",
-    )
-    .bind(&deploy_id)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(AppError::Database)?
-    .ok_or_else(|| AppError::NotFound("Deployment not found".into()))?;
+    let deployment: DeploymentRecord = sqlx::query_as("SELECT * FROM deployments WHERE id = $1")
+        .bind(&deploy_id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(AppError::Database)?
+        .ok_or_else(|| AppError::NotFound("Deployment not found".into()))?;
 
     // Verify project belongs to user
     let _project: crate::models::Project =
@@ -608,14 +636,13 @@ pub async fn deploy_status(
             .ok_or_else(|| AppError::NotFound("Project not found or not owned by user".into()))?;
 
     // Find canister_id for this deployment's canister
-    let canister: Option<crate::models::CanisterRecord> = sqlx::query_as(
-        "SELECT * FROM canisters WHERE project_id = $1 AND name = $2",
-    )
-    .bind(&deployment.project_id)
-    .bind(&deployment.canister_name)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(AppError::Database)?;
+    let canister: Option<crate::models::CanisterRecord> =
+        sqlx::query_as("SELECT * FROM canisters WHERE project_id = $1 AND name = $2")
+            .bind(&deployment.project_id)
+            .bind(&deployment.canister_name)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(AppError::Database)?;
 
     let canister_id = canister.and_then(|c| c.canister_id);
 
@@ -633,6 +660,11 @@ pub async fn deploy_status(
         url,
         canister_id,
         error: deployment.error_message,
+        commit_sha: deployment.commit_sha,
+        commit_message: deployment.commit_message,
+        branch: deployment.branch,
+        repo_full_name: deployment.repo_full_name,
+        started_at: Some(deployment.started_at),
     };
 
     Ok(Json(json!(response)))
@@ -646,14 +678,12 @@ pub async fn deploy_logs(
     Path(deploy_id): Path<String>,
 ) -> Result<Json<Value>, AppError> {
     // Fetch deployment to verify ownership
-    let deployment: DeploymentRecord = sqlx::query_as(
-        "SELECT * FROM deployments WHERE id = $1",
-    )
-    .bind(&deploy_id)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(AppError::Database)?
-    .ok_or_else(|| AppError::NotFound("Deployment not found".into()))?;
+    let deployment: DeploymentRecord = sqlx::query_as("SELECT * FROM deployments WHERE id = $1")
+        .bind(&deploy_id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(AppError::Database)?
+        .ok_or_else(|| AppError::NotFound("Deployment not found".into()))?;
 
     // Verify project belongs to user
     let _project: crate::models::Project =
@@ -696,14 +726,12 @@ pub async fn deploy_logs_stream(
     Path(deploy_id): Path<String>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, AppError> {
     // Fetch deployment to verify ownership
-    let deployment: DeploymentRecord = sqlx::query_as(
-        "SELECT * FROM deployments WHERE id = $1",
-    )
-    .bind(&deploy_id)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(AppError::Database)?
-    .ok_or_else(|| AppError::NotFound("Deployment not found".into()))?;
+    let deployment: DeploymentRecord = sqlx::query_as("SELECT * FROM deployments WHERE id = $1")
+        .bind(&deploy_id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(AppError::Database)?
+        .ok_or_else(|| AppError::NotFound("Deployment not found".into()))?;
 
     // Verify project belongs to user
     let _project: crate::models::Project =

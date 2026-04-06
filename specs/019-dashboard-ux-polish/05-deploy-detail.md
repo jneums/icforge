@@ -2,176 +2,242 @@
 
 **Scope:** Improve the `/projects/:id/deploys/:deployId` page
 **Priority:** P1
-**Depends on:** 01-design-system, 02-navigation
+**Depends on:** 00-setup, 01-design-system, 02-navigation
 **Estimated effort:** Small-Medium
 
 ---
 
 ## 1. Problem
 
-The current DeployDetail page is actually the most polished page — it has SSE streaming, color-coded log levels, auto-scroll, and a streaming indicator. But it still needs alignment with the new design system and a few UX improvements.
+The current DeployDetail page is the most polished page — SSE streaming, color-coded log levels, auto-scroll, streaming indicator all work. But it needs alignment with the new design system:
 
-Issues:
-- Metadata is a flat grid — no clear hierarchy
+- Metadata is a flat grid with no clear hierarchy
 - No way to link to a specific log line
-- No build duration shown
-- Status styling is inconsistent with other pages
-- Log viewer max-height 500px is too short — should expand to fill available space
+- No build duration
+- Log viewer max-height 500px is too short — should fill the viewport
+- Inline styles instead of Tailwind
 
 ## 2. Target Layout
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  ← Projects / my-dapp / Deploy #42                           │ breadcrumb
-│──────────────────────────────────────────────────────────────│
+│  Deploy #{shortId}                       ● Building  ⦿ Live  │
 │                                                              │
-│  Deploy #42                              ● Building  ⦿ Live  │
-│                                                              │
-│  ┌─ Summary ─────────────────────────────────────────────── ┐│
+│  ┌─ Summary ────────────────────────────────────────────────┐│
 │  │  Commit    abc1234  "Updated controllers"                ││
 │  │  Branch    main                                          ││
-│  │  Started   2 minutes ago                      Duration   ││
-│  │  Canister  rrkah-fqaaa-aaaa...  📋            45s        ││
+│  │  Started   2 minutes ago                     Duration    ││
+│  │  Canister  rrkah-fqaaa-aaaa...  📋           45s         ││
 │  └──────────────────────────────────────────────────────────┘│
 │                                                              │
-│  ┌─ Build Logs ──────────────────────── Streaming ⦿ ────── ┐│
-│  │  12:34:01  [info]  Cloning repository...                 ││
-│  │  12:34:02  [info]  Running build command: npm run build  ││
-│  │  12:34:05  [info]  Build output: 2.3MB                   ││
-│  │  12:34:06  [info]  Uploading to asset canister...        ││
-│  │  12:34:08  [info]  Committing batch...                   ││
-│  │  12:34:09  [info]  ✓ Deploy complete                     ││
-│  │                                                          ││
-│  │                                                          ││
-│  │                                                          ││
+│  ┌─ Build Logs ──────────────────────── Streaming ⦿ ───────┐│
+│  │  1  12:34:01  [info]   Cloning repository...             ││
+│  │  2  12:34:02  [info]   Running build: npm run build      ││
+│  │  3  12:34:05  [warn]   Deprecation warning...            ││
+│  │  4  12:34:06  [info]   Uploading to asset canister...    ││
+│  │  5  12:34:08  [info]   ✓ Deploy complete                 ││
 │  └──────────────────────────────────────────────────────────┘│
 └──────────────────────────────────────────────────────────────┘
 ```
 
-## 3. Changes from Current
-
-### 3.1 Status Header
-- Move status to the page header line, next to deploy ID
-- Use status dot + text (same component as everywhere else)
-- Show "Live" streaming badge only when SSE is active
-
-### 3.2 Summary Card
-Replace the flat metadata grid with a proper summary card:
-- Two-column key-value layout (Render-style)
-- Commit SHA linked to GitHub (if repo info available)
-- Branch name
-- Start time (relative)
-- Duration (calculated: end time - start time, or "in progress")
-- Canister ID (monospace, with copy button)
-- Error message (red, only shown if status is failed)
-
-### 3.3 Log Viewer Improvements
-- **Expand to fill viewport**: use `calc(100vh - header - summary - padding)` instead of fixed 500px
-- **Line numbers**: show line numbers in gutter (muted, monospace)
-- **Clickable timestamps**: clicking a timestamp updates URL hash (`#L42`), scrolls to that line, highlights it
-- **Level filtering**: optional toggle buttons (info/warn/error) to filter log lines
-- **Copy button**: copy all logs to clipboard
-- **Auto-scroll toggle**: button to enable/disable auto-scroll to bottom (currently always on)
-
-### 3.4 Error State
-If deploy failed, show a prominent error banner above the logs:
-```
-┌─ Error ─────────────────────────────────────────────────────┐
-│  ✕ Build failed: exit code 1                                │
-│  Check the build logs below for details.                    │
-└─────────────────────────────────────────────────────────────┘
-```
-
-## 4. Log Line Component
+## 3. Page Header
 
 ```tsx
-function LogLine({ entry, lineNumber, highlighted }) {
-  const levelColor = {
-    error: 'var(--error)',
-    warn: 'var(--warning)',
-    info: 'var(--text-secondary)',
-    debug: 'var(--text-muted)',
-  };
+<div className="flex items-center justify-between">
+  <h1 className="text-2xl font-semibold tracking-tight">
+    Deploy #{deploy.id.slice(0, 8)}
+  </h1>
+  <div className="flex items-center gap-3">
+    <StatusBadge status={deploy.status} />
+    {isStreaming && (
+      <Badge variant="outline" className="text-xs bg-success/10 text-success border-success/20">
+        <span className="mr-1.5 h-1.5 w-1.5 rounded-full bg-success animate-pulse inline-block" />
+        Streaming
+      </Badge>
+    )}
+  </div>
+</div>
+```
+
+## 4. Summary Card
+
+Using shadcn `<Card>` with a two-column key-value layout:
+
+```tsx
+<Card className="p-4 mt-4">
+  <div className="grid grid-cols-2 gap-y-3 gap-x-8 text-sm">
+    <div>
+      <span className="text-xs text-muted-foreground">Commit</span>
+      <div className="flex items-center gap-2 mt-0.5">
+        <GitCommit className="h-3 w-3 text-muted-foreground" />
+        <span className="font-mono text-xs">{deploy.commit_sha?.slice(0, 7)}</span>
+        <span className="text-muted-foreground truncate">{deploy.commit_message}</span>
+      </div>
+    </div>
+    <div>
+      <span className="text-xs text-muted-foreground">Branch</span>
+      <div className="flex items-center gap-2 mt-0.5">
+        <GitBranch className="h-3 w-3 text-muted-foreground" />
+        <span>{deploy.branch || 'main'}</span>
+      </div>
+    </div>
+    <div>
+      <span className="text-xs text-muted-foreground">Started</span>
+      <div className="mt-0.5">{timeAgo(deploy.created_at)}</div>
+    </div>
+    <div>
+      <span className="text-xs text-muted-foreground">Duration</span>
+      <div className="mt-0.5">{deploy.duration ? formatDuration(deploy.duration) : 'In progress...'}</div>
+    </div>
+    <div className="col-span-2">
+      <span className="text-xs text-muted-foreground">Canister</span>
+      <div className="flex items-center gap-2 mt-0.5">
+        <span className="font-mono text-xs">{deploy.canister_id}</span>
+        <CopyButton text={deploy.canister_id} />
+      </div>
+    </div>
+    {deploy.error && (
+      <div className="col-span-2">
+        <Alert variant="destructive" className="mt-2">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{deploy.error}</AlertDescription>
+        </Alert>
+      </div>
+    )}
+  </div>
+</Card>
+```
+
+## 5. Log Viewer
+
+Using shadcn `<ScrollArea>` for the container, Tailwind for everything else:
+
+```tsx
+import { ScrollArea } from "@/components/ui/scroll-area"
+
+function LogViewer({ logs, isStreaming }) {
+  const scrollRef = useRef(null);
+  const [autoScroll, setAutoScroll] = useState(true);
+  const [highlightedLine, setHighlightedLine] = useState(null);
+
+  // Auto-scroll on new logs
+  useEffect(() => {
+    if (autoScroll && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [logs, autoScroll]);
+
+  // Read line from URL hash
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (hash.startsWith('#L')) setHighlightedLine(parseInt(hash.slice(2)));
+  }, []);
 
   return (
-    <div
-      id={`L${lineNumber}`}
-      className={`log-line ${highlighted ? 'log-line--highlighted' : ''}`}
-    >
-      <span className="log-line-number">{lineNumber}</span>
-      <span className="log-line-time">{formatTime(entry.timestamp)}</span>
-      <span className="log-line-level" style={{ color: levelColor[entry.level] }}>
-        [{entry.level}]
-      </span>
-      <span className="log-line-message">{entry.message}</span>
+    <div className="mt-4">
+      <div className="flex items-center justify-between mb-2">
+        <h2 className="text-lg font-semibold">Build Logs</h2>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              navigator.clipboard.writeText(logs.map(l => l.message).join('\n'));
+              toast.success('Logs copied to clipboard');
+            }}
+          >
+            <Copy className="h-3 w-3 mr-1" /> Copy
+          </Button>
+          <Button
+            variant={autoScroll ? "secondary" : "ghost"}
+            size="sm"
+            onClick={() => setAutoScroll(!autoScroll)}
+          >
+            Auto-scroll {autoScroll ? 'on' : 'off'}
+          </Button>
+        </div>
+      </div>
+
+      <div
+        ref={scrollRef}
+        className="bg-popover rounded-lg border font-mono text-[13px] leading-relaxed overflow-y-auto min-h-[300px]"
+        style={{ maxHeight: 'calc(100vh - 360px)' }}
+      >
+        {logs.map((entry, i) => (
+          <LogLine
+            key={i}
+            entry={entry}
+            lineNumber={i + 1}
+            highlighted={highlightedLine === i + 1}
+            onClickLine={(n) => {
+              window.location.hash = `#L${n}`;
+              setHighlightedLine(n);
+            }}
+          />
+        ))}
+        {isStreaming && logs.length === 0 && (
+          <div className="flex items-center justify-center py-8 text-muted-foreground">
+            <Spinner className="h-4 w-4 mr-2" />
+            Waiting for logs...
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 ```
 
-## 5. CSS
+### Log Line Component
 
-```css
-.log-viewer {
-  background: var(--surface-inset);
-  border: 1px solid var(--border-default);
-  border-radius: 8px;
-  font-family: var(--font-mono);
-  font-size: 0.8125rem;
-  line-height: 1.6;
-  overflow-y: auto;
-  /* Fill remaining viewport height */
-  min-height: 300px;
-  max-height: calc(100vh - 320px);
-}
+```tsx
+const LEVEL_COLORS = {
+  error: 'text-destructive',
+  warn: 'text-warning',
+  info: 'text-muted-foreground',
+  debug: 'text-muted-foreground/60',
+};
 
-.log-line {
-  display: flex;
-  gap: var(--space-3);
-  padding: 1px var(--space-4);
-  border-left: 3px solid transparent;
-}
-
-.log-line:hover {
-  background: rgba(255, 255, 255, 0.02);
-}
-
-.log-line--highlighted {
-  background: rgba(59, 130, 246, 0.1);
-  border-left-color: var(--accent);
-}
-
-.log-line-number {
-  color: var(--text-muted);
-  min-width: 3ch;
-  text-align: right;
-  user-select: none;
-  cursor: pointer;
-}
-
-.log-line-time {
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-
-.log-line-message {
-  flex: 1;
-  white-space: pre-wrap;
-  word-break: break-all;
+function LogLine({ entry, lineNumber, highlighted, onClickLine }) {
+  return (
+    <div
+      id={`L${lineNumber}`}
+      className={cn(
+        "flex gap-3 px-4 py-px hover:bg-muted/30 border-l-2 border-transparent",
+        highlighted && "bg-primary/5 border-l-primary"
+      )}
+    >
+      <span
+        className="text-muted-foreground/50 select-none cursor-pointer min-w-[3ch] text-right hover:text-primary"
+        onClick={() => onClickLine(lineNumber)}
+      >
+        {lineNumber}
+      </span>
+      <span className="text-muted-foreground/70 whitespace-nowrap">
+        {formatTime(entry.timestamp)}
+      </span>
+      <span className={cn("whitespace-nowrap", LEVEL_COLORS[entry.level])}>
+        [{entry.level}]
+      </span>
+      <span className="text-foreground whitespace-pre-wrap break-all flex-1">
+        {entry.message}
+      </span>
+    </div>
+  );
 }
 ```
 
 ## 6. Checklist
 
-- [ ] Refactor status display to use shared status dot + label
-- [ ] Replace metadata grid with summary card (two-column key-value)
+- [ ] Rewrite page header with `<StatusBadge>` + streaming indicator
+- [ ] Replace metadata grid with `<Card>` summary (two-column key-value)
 - [ ] Add build duration calculation
-- [ ] Expand log viewer to fill viewport (dynamic height)
-- [ ] Add line numbers to log entries
-- [ ] Add clickable line numbers (URL hash + highlight)
+- [ ] Add error `<Alert>` for failed deploys
+- [ ] Replace log container with viewport-filling div (dynamic max-height)
+- [ ] Add line numbers with click-to-highlight (URL hash)
 - [ ] Add auto-scroll toggle button
-- [ ] Add copy-all-logs button
-- [ ] Add error banner for failed deploys
+- [ ] Add copy-all-logs button using Sonner toast
+- [ ] Add `<CopyButton>` for canister ID
+- [ ] Add `<Spinner>` for "waiting for logs" state
 - [ ] Link commit SHA to GitHub when repo info available
-- [ ] Add copy-to-clipboard for canister ID
-- [ ] Migrate from inline styles to CSS classes
+- [ ] Delete all inline style objects
+- [ ] Migrate SSE streaming logic (keep as-is, just restyle the output)

@@ -445,6 +445,16 @@ The progression is natural: start free on shared infra, graduate to your own Clo
 - [x] `icforge.dev` subdomain routing — see 002
 - [x] Dashboard production deploy (icforge.dev)
 
+### v0.2.1 — "UX Polish" 🔧 IN PROGRESS
+- [ ] Design system cleanup (CSS tokens, typography, component primitives) — see 019/01
+- [ ] Sidebar navigation + breadcrumbs — see 019/02
+- [ ] Project list redesign (card rows, loading/empty states) — see 019/03
+- [ ] Project detail redesign (production card, tabs) — see 019/04
+- [ ] Deploy detail improvements (viewport log viewer, line numbers) — see 019/05
+- [ ] Settings page polish — see 019/06
+- [ ] Landing page refresh — see 019/07
+- [ ] Technical debt (protected routes, error boundary, 404, skeletons) — see 019/08
+
 ### v0.3 — "Production Ready"
 - [ ] Stripe billing integration — see 007
 - [ ] GitHub commit statuses + check runs on PRs — see 008-status-feedback

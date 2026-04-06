@@ -265,7 +265,7 @@ pub async fn deploy(
     .bind(&project_id)
     .bind(&canister_name)
     .bind(&commit_sha)
-    .bind(&commit_message)
+    .bind(&commit_message.unwrap_or_else(|| "Manual deploy".to_string()))
     .bind(&now)
     .execute(&state.db)
     .await

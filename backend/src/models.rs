@@ -130,6 +130,7 @@ pub struct BuildJob {
     pub project_id: String,
     pub deployment_id: Option<String>,
     pub commit_sha: String,
+    pub commit_message: Option<String>,
     pub branch: String,
     pub repo_full_name: String,
     pub installation_id: i64,

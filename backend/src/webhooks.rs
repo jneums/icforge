@@ -78,6 +78,10 @@ async fn handle_push(state: AppState, payload: Value) -> Result<(), AppError> {
         .or_else(|| payload["after"].as_str())
         .ok_or_else(|| AppError::BadRequest("Missing commit SHA".into()))?;
 
+    let commit_message = payload["head_commit"]["message"]
+        .as_str()
+        .map(|s| s.lines().next().unwrap_or(s).to_string());
+
     let installation_id = payload["installation"]["id"]
         .as_i64()
         .ok_or_else(|| AppError::BadRequest("Missing installation.id".into()))?;
@@ -128,13 +132,14 @@ async fn handle_push(state: AppState, payload: Value) -> Result<(), AppError> {
     let job_id = uuid::Uuid::new_v4().to_string();
     sqlx::query(
         r#"
-        INSERT INTO build_jobs (id, project_id, commit_sha, branch, repo_full_name, installation_id, trigger, status)
-        VALUES ($1, $2, $3, $4, $5, $6, 'push', 'pending')
+        INSERT INTO build_jobs (id, project_id, commit_sha, commit_message, branch, repo_full_name, installation_id, trigger, status)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, 'push', 'pending')
         "#,
     )
     .bind(&job_id)
     .bind(&project.id)
     .bind(commit_sha)
+    .bind(&commit_message)
     .bind(branch)
     .bind(repo_full_name)
     .bind(installation_id)

@@ -783,7 +783,7 @@ async fn execute_build(
             // Create deployment record
             let deploy_id = uuid::Uuid::new_v4().to_string();
             let _ = sqlx::query(
-                "INSERT INTO deployments (id, project_id, canister_name, status, commit_sha, commit_message, branch, repo_full_name, started_at, completed_at) VALUES ($1, $2, $3, 'succeeded', $4, $5, $6, $7, to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'), to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'))"
+                "INSERT INTO deployments (id, project_id, canister_name, status, commit_sha, commit_message, branch, repo_full_name, build_job_id, started_at, completed_at) VALUES ($1, $2, $3, 'succeeded', $4, $5, $6, $7, $8, to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'), to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'))"
             )
             .bind(&deploy_id)
             .bind(&job.project_id)
@@ -792,6 +792,7 @@ async fn execute_build(
             .bind(&job.commit_message.as_deref().unwrap_or("Auto-deploy"))
             .bind(&job.branch)
             .bind(&job.repo_full_name)
+            .bind(&job.id)
             .execute(pool)
             .await;
 
@@ -1063,7 +1064,7 @@ async fn execute_build(
 
             let deploy_id = uuid::Uuid::new_v4().to_string();
             let _ = sqlx::query(
-                "INSERT INTO deployments (id, project_id, canister_name, status, commit_sha, commit_message, branch, repo_full_name, started_at, completed_at) VALUES ($1, $2, $3, 'succeeded', $4, $5, $6, $7, to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'), to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'))"
+                "INSERT INTO deployments (id, project_id, canister_name, status, commit_sha, commit_message, branch, repo_full_name, build_job_id, started_at, completed_at) VALUES ($1, $2, $3, 'succeeded', $4, $5, $6, $7, $8, to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'), to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'))"
             )
             .bind(&deploy_id)
             .bind(&job.project_id)
@@ -1072,6 +1073,7 @@ async fn execute_build(
             .bind(&job.commit_message.as_deref().unwrap_or("Auto-deploy"))
             .bind(&job.branch)
             .bind(&job.repo_full_name)
+            .bind(&job.id)
             .execute(pool)
             .await;
 

@@ -695,7 +695,7 @@ pub async fn deploy_logs(
             .map_err(AppError::Database)?
             .ok_or_else(|| AppError::NotFound("Project not found or not owned by user".into()))?;
 
-    // Fetch logs
+    // Fetch logs — prefer deploy_logs (CLI path), fall back to build_logs (git push path)
     let logs: Vec<DeployLog> = sqlx::query_as(
         "SELECT * FROM deploy_logs WHERE deployment_id = $1 ORDER BY timestamp ASC, id ASC",
     )
@@ -704,14 +704,35 @@ pub async fn deploy_logs(
     .await
     .map_err(AppError::Database)?;
 
-    let log_entries: Vec<DeployLogEntry> = logs
-        .into_iter()
-        .map(|l| DeployLogEntry {
-            level: l.level,
-            message: l.message,
-            timestamp: l.timestamp,
-        })
-        .collect();
+    let log_entries: Vec<DeployLogEntry> = if !logs.is_empty() {
+        logs.into_iter()
+            .map(|l| DeployLogEntry {
+                level: l.level,
+                message: l.message,
+                timestamp: l.timestamp,
+            })
+            .collect()
+    } else if let Some(ref build_job_id) = deployment.build_job_id {
+        // Fall back to build_logs for git-push deployments
+        let build_logs: Vec<crate::models::BuildLog> = sqlx::query_as(
+            "SELECT * FROM build_logs WHERE build_job_id = $1 ORDER BY id ASC",
+        )
+        .bind(build_job_id)
+        .fetch_all(&state.db)
+        .await
+        .map_err(AppError::Database)?;
+
+        build_logs
+            .into_iter()
+            .map(|l| DeployLogEntry {
+                level: l.level,
+                message: l.message,
+                timestamp: l.timestamp,
+            })
+            .collect()
+    } else {
+        vec![]
+    };
 
     Ok(Json(json!({
         "logs": log_entries,
@@ -743,7 +764,7 @@ pub async fn deploy_logs_stream(
             .map_err(AppError::Database)?
             .ok_or_else(|| AppError::NotFound("Project not found or not owned by user".into()))?;
 
-    // Replay existing logs from DB
+    // Replay existing logs from DB — prefer deploy_logs, fall back to build_logs
     let existing_logs: Vec<DeployLog> = sqlx::query_as(
         "SELECT * FROM deploy_logs WHERE deployment_id = $1 ORDER BY timestamp ASC, id ASC",
     )
@@ -751,6 +772,36 @@ pub async fn deploy_logs_stream(
     .fetch_all(&state.db)
     .await
     .map_err(AppError::Database)?;
+
+    let replay_entries: Vec<DeployLogEntry> = if !existing_logs.is_empty() {
+        existing_logs
+            .into_iter()
+            .map(|l| DeployLogEntry {
+                level: l.level,
+                message: l.message,
+                timestamp: l.timestamp,
+            })
+            .collect()
+    } else if let Some(ref build_job_id) = deployment.build_job_id {
+        let build_logs: Vec<crate::models::BuildLog> = sqlx::query_as(
+            "SELECT * FROM build_logs WHERE build_job_id = $1 ORDER BY id ASC",
+        )
+        .bind(build_job_id)
+        .fetch_all(&state.db)
+        .await
+        .map_err(AppError::Database)?;
+
+        build_logs
+            .into_iter()
+            .map(|l| DeployLogEntry {
+                level: l.level,
+                message: l.message,
+                timestamp: l.timestamp,
+            })
+            .collect()
+    } else {
+        vec![]
+    };
 
     let status = deployment.status.clone();
 
@@ -762,11 +813,11 @@ pub async fn deploy_logs_stream(
 
     let stream = async_stream::stream! {
         // Phase 1: replay existing logs
-        for log in existing_logs {
+        for entry in replay_entries {
             let evt = LogEvent {
-                level: log.level,
-                message: log.message,
-                timestamp: log.timestamp,
+                level: entry.level,
+                message: entry.message,
+                timestamp: entry.timestamp,
             };
             let data = serde_json::to_string(&evt).unwrap_or_default();
             yield Ok(Event::default().event("log").data(data));

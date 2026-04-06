@@ -59,6 +59,7 @@ pub struct DeploymentRecord {
     pub error_message: Option<String>,
     pub started_at: String,
     pub completed_at: Option<String>,
+    pub build_job_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]

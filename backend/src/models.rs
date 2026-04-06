@@ -91,6 +91,8 @@ pub struct ProjectWithCanisters {
     #[serde(flatten)]
     pub project: Project,
     pub canisters: Vec<CanisterRecord>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_deployment: Option<DeploymentRecord>,
 }
 
 // ============================================================

@@ -10,6 +10,7 @@ export interface Project {
   created_at: string;
   updated_at: string;
   canisters: Canister[];
+  latest_deployment?: Deployment;
 }
 
 export interface Canister {

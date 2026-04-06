@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusDot } from "@/components/status-dot";
 import { Folder, AlertCircle, ExternalLink, GitCommit, Clock } from "lucide-react";
-import type { Project, Deployment } from "@/api/types";
+import type { Project } from "@/api/types";
 
 function getProjectStatus(project: Project): string {
   if (!project.canisters?.length) return "pending";
@@ -26,9 +26,9 @@ function timeAgo(dateStr: string): string {
   return date.toLocaleDateString();
 }
 
-function ProjectRow({ project }: { project: Project & { deployments?: Deployment[] } }) {
+function ProjectRow({ project }: { project: Project }) {
   const status = getProjectStatus(project);
-  const latestDeploy = project.deployments?.[0];
+  const latestDeploy = project.latest_deployment;
   const vanityUrl = `${project.slug}.icforge.dev`;
 
   return (

@@ -10,7 +10,7 @@ use crate::auth::{self, AuthUser};
 use crate::error::AppError;
 use crate::models::{
     ApiToken, CanisterRecord, CreateProjectRequest, CreateTokenRequest, CreateTokenResponse,
-    Project, ProjectWithCanisters,
+    DeploymentRecord, Project, ProjectWithCanisters,
 };
 use crate::AppState;
 
@@ -177,7 +177,14 @@ pub async fn list_projects(
                 .await
                 .map_err(AppError::Database)?;
 
-        result.push(ProjectWithCanisters { project, canisters });
+        let latest_deployment: Option<DeploymentRecord> =
+            sqlx::query_as("SELECT * FROM deployments WHERE project_id = $1 ORDER BY started_at DESC LIMIT 1")
+                .bind(&project.id)
+                .fetch_optional(&state.db)
+                .await
+                .map_err(AppError::Database)?;
+
+        result.push(ProjectWithCanisters { project, canisters, latest_deployment });
     }
 
     Ok(Json(json!({ "projects": result })))
@@ -294,7 +301,7 @@ pub async fn create_project(
     };
 
     Ok(Json(json!({
-        "project": ProjectWithCanisters { project, canisters },
+        "project": ProjectWithCanisters { project, canisters, latest_deployment: None },
     })))
 }
 
@@ -328,7 +335,7 @@ pub async fn get_project(
     .map_err(AppError::Database)?;
 
     Ok(Json(json!({
-        "project": ProjectWithCanisters { project, canisters },
+        "project": ProjectWithCanisters { project, canisters, latest_deployment: None },
         "deployments": deployments,
     })))
 }

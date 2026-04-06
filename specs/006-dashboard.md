@@ -8,7 +8,7 @@
 
 ## 1. Goal
 
-Complete the web dashboard at `dashboard.icforge.dev` (or `app.icforge.dev`) so users can view projects, deployments, and canister status without the CLI.
+Complete the web dashboard at `icforge.dev` so users can view projects, deployments, and canister status without the CLI.
 
 ## 2. Current State
 
@@ -108,9 +108,9 @@ This works. The callback redirect URL needs to point to the dashboard's domain (
 ### Deployment
 - [x] Dashboard deployed on Render with CI/CD (existing setup)
 - [ ] ~~Deploy dashboard to IC as asset canister~~ (deferred — dogfood later if needed)
-- [ ] Set up `app.icforge.dev` DNS → Render static site (or IC canister later)
-- [ ] Configure `FRONTEND_URL` on backend to point to dashboard domain
-- [ ] Verify OAuth callback flow works end-to-end
+- [x] Dashboard live at `icforge.dev`
+- [x] Configure `FRONTEND_URL` on backend to point to dashboard domain
+- [x] Verify OAuth callback flow works end-to-end
 
 ### New pages
 - [x] Deploy Detail page (`/projects/:id/deploys/:deployId`) with SSE log streaming

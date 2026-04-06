@@ -435,15 +435,15 @@ The progression is natural: start free on shared infra, graduate to your own Clo
 - [x] Deploy a static HTML/JS site to IC mainnet via `icforge deploy`
 - [x] Return `<canister-id>.icp0.io` URL
 
-### v0.2 — "Real Projects" 🔧 IN PROGRESS
+### v0.2 — "Real Projects" ✅ COMPLETE
 - [x] Backend canister support (Rust + Motoko) — see 003
 - [x] Multi-canister projects — see 004
 - [x] GitHub App + managed build pipeline (server-side builds on push) — see 008-github-app, 008-build-pipeline
 - [x] Deploy status + log streaming — see 005
 - [x] Dashboard: project list, deploy history, deploy detail w/ SSE logs — see 006
 - [x] Environment variable binding (PUBLIC_CANISTER_ID:* via update_settings → ic_env cookie)
-- [ ] `icforge.dev` subdomain routing — see 002
-- [ ] Dashboard production deploy (app.icforge.dev DNS + OAuth flow)
+- [x] `icforge.dev` subdomain routing — see 002
+- [x] Dashboard production deploy (icforge.dev)
 
 ### v0.3 — "Production Ready"
 - [ ] Stripe billing integration — see 007

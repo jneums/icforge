@@ -1,6 +1,6 @@
 # ICForge — Subdomain Routing
 
-**Status:** Draft v0.1
+**Status:** Complete v0.2
 **Parent:** 001-architecture.md (Section 8: Custom Domains)
 **Milestone:** v0.2
 

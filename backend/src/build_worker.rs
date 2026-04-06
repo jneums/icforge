@@ -436,7 +436,10 @@ async fn execute_build(
     let use_config_deploy = !canister_configs.is_empty();
 
     if use_config_deploy {
-        // Deploy each canister from parsed config
+        // Phase 1: Install code on all canisters
+        // We track which canisters are asset canisters for Phase 3 (asset sync after env binding)
+        let mut asset_canisters: Vec<(String, String, String)> = Vec::new(); // (name, canister_id, canister_db_id)
+
         for cc in &canister_configs {
             let recipe = cc.recipe_type.as_deref().unwrap_or("unknown");
             let is_asset = recipe.contains("asset-canister") || recipe.contains("asset");
@@ -510,23 +513,9 @@ async fn execute_build(
             client.install_code(&canister_id, wasm_bytes, is_upgrade, None).await
                 .map_err(|e| format!("install_code failed for {canister_id}: {e}"))?;
 
-            // Sync assets if this is an asset canister
+            // Track asset canisters for Phase 3 (sync after env binding)
             if is_asset {
-                if let Some(ref asset_dir) = cc.asset_dir {
-                    let full_asset_dir = format!("{work_dir}/{}/{asset_dir}", cc.name);
-                    if tokio::fs::metadata(&full_asset_dir).await.is_ok() {
-                        log_build(pool, &job.id, "info", "deploy", &format!("Syncing assets from {asset_dir} to {canister_id}...")).await;
-
-                        sync_assets(&client, &canister_id, &full_asset_dir).await
-                            .map_err(|e| format!("Asset sync failed for {canister_id}: {e}"))?;
-
-                        log_build(pool, &job.id, "info", "deploy", &format!("Assets synced to {canister_id}")).await;
-                    } else {
-                        log_build(pool, &job.id, "warn", "deploy", &format!("Asset dir '{asset_dir}' not found — skipping sync")).await;
-                    }
-                } else {
-                    log_build(pool, &job.id, "warn", "deploy", &format!("No asset dir configured for {} — wasm installed but no assets synced", cc.name)).await;
-                }
+                asset_canisters.push((cc.name.clone(), canister_id.clone(), canister_db_id.clone()));
             }
 
             // Update canister status
@@ -551,7 +540,7 @@ async fn execute_build(
             log_build(pool, &job.id, "info", "deploy", &format!("✅ Canister {} deployed to {canister_id}", cc.name)).await;
         }
 
-        // Phase: bind environment variables (PUBLIC_CANISTER_ID:<name> on each canister)
+        // Phase 2: bind environment variables (PUBLIC_CANISTER_ID:<name> on each canister)
         // Re-query all canister IDs from DB to build the complete map
         let all_canisters = sqlx::query_as::<_, (String, Option<String>)>(
             "SELECT name, canister_id FROM canisters WHERE project_id = $1"
@@ -589,6 +578,30 @@ async fn execute_build(
             }
 
             log_build(pool, &job.id, "info", "deploy", "✅ Environment variables bound to all canisters").await;
+        }
+
+        // Phase 3: Sync assets AFTER env vars are bound
+        // The asset canister bakes env vars into the ic_env cookie during commit_batch,
+        // so env vars must be set before syncing assets.
+        for (asset_name, canister_id, _canister_db_id) in &asset_canisters {
+            // Find the matching canister config to get asset_dir
+            if let Some(cc) = canister_configs.iter().find(|c| &c.name == asset_name) {
+                if let Some(ref asset_dir) = cc.asset_dir {
+                    let full_asset_dir = format!("{work_dir}/{}/{asset_dir}", cc.name);
+                    if tokio::fs::metadata(&full_asset_dir).await.is_ok() {
+                        log_build(pool, &job.id, "info", "deploy", &format!("Syncing assets from {asset_dir} to {canister_id}...")).await;
+
+                        sync_assets(&client, canister_id, &full_asset_dir).await
+                            .map_err(|e| format!("Asset sync failed for {canister_id}: {e}"))?;
+
+                        log_build(pool, &job.id, "info", "deploy", &format!("Assets synced to {canister_id}")).await;
+                    } else {
+                        log_build(pool, &job.id, "warn", "deploy", &format!("Asset dir '{asset_dir}' not found — skipping sync")).await;
+                    }
+                } else {
+                    log_build(pool, &job.id, "warn", "deploy", &format!("No asset dir configured for {} — wasm installed but no assets synced", cc.name)).await;
+                }
+            }
         }
     } else {
         // Fallback: find all wasm files and deploy each one (non-icp.yaml projects)

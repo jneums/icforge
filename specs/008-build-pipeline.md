@@ -1,8 +1,8 @@
 # ICForge — Build Pipeline
 
-**Status:** Draft v0.1
+**Status:** Complete v0.2
 **Parent:** 001-architecture.md
-**Milestone:** v0.3
+**Milestone:** v0.2
 **Related:** 008-github-app.md, 008-status-feedback.md, 015-framework-auto-detection.md
 
 ---
@@ -356,24 +356,24 @@ This is a drop-in upgrade — the build steps are the same, just wrapped in a co
 ## 9. Implementation Checklist
 
 ### Backend
-- [ ] `build_jobs` table + migration
-- [ ] `build_logs` table + migration
-- [ ] Job enqueue function (called from webhook handlers)
-- [ ] Job claim query (`FOR UPDATE SKIP LOCKED`)
-- [ ] Build worker binary (`icforge-worker`)
-- [ ] Clone step (with installation token auth)
-- [ ] Framework detection (reuse spec 015 logic)
-- [ ] Build execution (npm/cargo/dfx)
-- [ ] Deploy step (reuse existing deploy pipeline)
-- [ ] Build timeout enforcement
-- [ ] Retry logic for transient failures
-- [ ] Log capture → DB + broadcast channel
+- [x] `build_jobs` table + migration
+- [x] `build_logs` table + migration
+- [x] Job enqueue function (called from webhook handlers)
+- [x] Job claim query (`FOR UPDATE SKIP LOCKED`)
+- [x] Build worker binary (`icforge-worker`)
+- [x] Clone step (with installation token auth)
+- [x] Framework detection (reuse spec 015 logic)
+- [x] Build execution (npm/cargo/dfx)
+- [x] Deploy step (reuse existing deploy pipeline)
+- [x] Build timeout enforcement
+- [x] Retry logic for transient failures
+- [x] Log capture → DB + broadcast channel
 - [ ] Deduplication: if a new push arrives while a build is pending, cancel the old one
 
 ### Infrastructure
-- [ ] Worker Dockerfile with IC SDK + Node + Rust
-- [ ] Render background worker service
-- [ ] Environment variables (shared with API server)
+- [x] Worker Dockerfile with IC SDK + Node + Rust
+- [x] Render background worker service
+- [x] Environment variables (shared with API server)
 
 ## 10. Open Questions
 

@@ -1,6 +1,6 @@
 # ICForge — Dashboard
 
-**Status:** Draft v0.1
+**Status:** Mostly Complete v0.2
 **Parent:** 001-architecture.md
 **Milestone:** v0.2
 

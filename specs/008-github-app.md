@@ -1,8 +1,8 @@
 # ICForge — GitHub App Integration
 
-**Status:** Draft v0.1
+**Status:** Mostly Complete v0.2
 **Parent:** 001-architecture.md
-**Milestone:** v0.3
+**Milestone:** v0.2
 **Related:** 008-build-pipeline.md, 008-status-feedback.md
 
 ---
@@ -273,28 +273,28 @@ GITHUB_WEBHOOK_SECRET=<random-secret>
 ## 9. Implementation Checklist
 
 ### Backend
-- [ ] Add `jsonwebtoken` + `hmac` + `sha2` crates
-- [ ] GitHub JWT generation utility
-- [ ] Installation token exchange utility (with 1hr cache)
-- [ ] Webhook endpoint with signature verification
-- [ ] Event routing (push, pull_request, installation, installation_repositories)
-- [ ] Push handler → enqueue build job
+- [x] Add `jsonwebtoken` + `hmac` + `sha2` crates
+- [x] GitHub JWT generation utility
+- [x] Installation token exchange utility (with 1hr cache)
+- [x] Webhook endpoint with signature verification
+- [x] Event routing (push, pull_request, installation, installation_repositories)
+- [x] Push handler → enqueue build job
 - [ ] Pull request handler → enqueue preview/cleanup job
-- [ ] Installation handler → store/remove installation
-- [ ] `github_installations` table + migration
-- [ ] `github_repos` table + migration
-- [ ] Add `github_repo_id` + `production_branch` to projects
+- [x] Installation handler → store/remove installation
+- [x] `github_installations` table + migration
+- [x] `github_repos` table + migration
+- [x] Add `github_repo_id` + `production_branch` to projects
 
 ### Dashboard
-- [ ] "Connect Repository" button → redirect to GitHub App install
-- [ ] Setup page (`/github/setup`) → repo picker → create project
+- [x] "Connect Repository" button → redirect to GitHub App install
+- [x] Setup page (`/github/setup`) → repo picker → create project
 - [ ] Show connected repo on project settings
 - [ ] "Disconnect" button (removes link, doesn't uninstall app)
 
 ### GitHub App
-- [ ] Register app on GitHub (dev + production)
-- [ ] Generate and store private key securely
-- [ ] Configure webhook URL and secret
+- [x] Register app on GitHub (dev + production)
+- [x] Generate and store private key securely
+- [x] Configure webhook URL and secret
 
 ## 10. Open Questions
 

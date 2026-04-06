@@ -1,6 +1,6 @@
 # ICForge — Backend Canister Support
 
-**Status:** Draft v0.1
+**Status:** Mostly Complete v0.2
 **Parent:** 001-architecture.md
 **Milestone:** v0.2
 
@@ -105,27 +105,27 @@ candid (optional) — .did file contents as text
 ## 4. Implementation Checklist
 
 ### CLI
-- [ ] Parse `build` and `wasm` fields from `icp.yaml`
-- [ ] Run build command for Rust canisters before deploy
+- [x] Parse `build` and `wasm` fields from `icp.yaml`
+- [x] Run build command for Rust canisters before deploy
 - [ ] Run build command for Motoko canisters before deploy
-- [ ] Detect wasm output path from conventional locations if `wasm` not specified
-- [ ] Support `--skip-build` to skip compilation (already exists, just verify)
+- [x] Detect wasm output path from conventional locations if `wasm` not specified
+- [x] Support `--skip-build` to skip compilation (already exists, just verify)
 - [ ] Upload `init_arg` if specified in icp.yaml
 - [ ] Upload `.did` file if found
 
 ### Backend
 - [ ] Accept `init_arg` in deploy multipart
 - [ ] Accept `candid` in deploy multipart
-- [ ] Pass init args to `install_code`
+- [x] Pass init args to `install_code`
 - [ ] Store `.did` file content in canisters table (new column: `candid_interface TEXT`)
-- [ ] Skip asset sync for non-asset canister types
+- [x] Skip asset sync for non-asset canister types
 - [ ] Migration: add `candid_interface` column to canisters table
 
 ### Validation
-- [ ] Deploy a Rust backend canister to local replica
-- [ ] Deploy a Rust backend canister to mainnet
+- [x] Deploy a Rust backend canister to local replica
+- [x] Deploy a Rust backend canister to mainnet
 - [ ] Deploy a Motoko canister (if moc available)
-- [ ] Verify upgrade flow works (install_code with mode=upgrade)
+- [x] Verify upgrade flow works (install_code with mode=upgrade)
 
 ## 5. Non-Goals (for now)
 

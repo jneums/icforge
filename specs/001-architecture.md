@@ -1,6 +1,6 @@
 # ICForge — Architecture & Design Spec
 
-**Status:** Draft v0.1
+**Status:** Active v0.2 (v0.1 complete, v0.2 in progress)
 **Authors:** Jesse Neumann
 **Date:** 2026-04-02
 
@@ -429,34 +429,38 @@ The progression is natural: start free on shared infra, graduate to your own Clo
 
 ## 12. Milestones
 
-### v0.1 — "Hello World Deploy" (MVP)
-- [ ] CLI: login, init, deploy commands working
-- [ ] Backend: OAuth, single platform identity deploy, single frontend canister deploy
-- [ ] Deploy a static HTML/JS site to IC mainnet via `icforge deploy`
-- [ ] Return `<canister-id>.icp0.io` URL
+### v0.1 — "Hello World Deploy" (MVP) ✅ COMPLETE
+- [x] CLI: login, init, deploy commands working
+- [x] Backend: OAuth, single platform identity deploy, single frontend canister deploy
+- [x] Deploy a static HTML/JS site to IC mainnet via `icforge deploy`
+- [x] Return `<canister-id>.icp0.io` URL
 
-### v0.2 — "Real Projects"
-- [ ] Backend canister support (Rust + Motoko)
-- [ ] Multi-canister projects
-- [ ] `icforge.dev` subdomain routing
-- [ ] Deploy status + log streaming
-- [ ] Dashboard: project list, deploy history
+### v0.2 — "Real Projects" 🔧 IN PROGRESS
+- [x] Backend canister support (Rust + Motoko) — see 003
+- [x] Multi-canister projects — see 004
+- [x] GitHub App + managed build pipeline (server-side builds on push) — see 008-github-app, 008-build-pipeline
+- [x] Deploy status + log streaming — see 005
+- [x] Dashboard: project list, deploy history, deploy detail w/ SSE logs — see 006
+- [x] Environment variable binding (PUBLIC_CANISTER_ID:* via update_settings → ic_env cookie)
+- [ ] `icforge.dev` subdomain routing — see 002
+- [ ] Dashboard production deploy (app.icforge.dev DNS + OAuth flow)
 
 ### v0.3 — "Production Ready"
-- [ ] Stripe billing integration
-- [ ] GitHub App + managed build pipeline (server-side builds on push)
-- [ ] Custom domain support
-- [ ] Cycles monitoring + auto top-up alerts
-- [ ] Canister eject flow (transfer control to user's principal)
-- [ ] Subnet selection (in .icforge or dashboard)
+- [ ] Stripe billing integration — see 007
+- [ ] GitHub commit statuses + check runs on PRs — see 008-status-feedback
+- [ ] API tokens for machine-to-machine auth — see 008-status-feedback
+- [ ] Custom domain support — see 009
+- [ ] Cycles monitoring + auto top-up alerts — see 010
+- [ ] Canister eject flow (transfer control to user's principal) — see 011
+- [ ] Subnet selection (in icp.yaml or dashboard) — see 012
 
 ### v0.4 — "Growth"
-- [ ] Preview deployments on PRs
-- [ ] Team/org accounts
-- [ ] Framework auto-detection and zero-config deploy
-- [ ] `icforge link` for existing canisters
-- [ ] Canister metrics dashboard (cycles burn rate, memory usage, call volume)
-- [ ] Log aggregation — collect and persist canister logs beyond IC's ~20 line window
+- [ ] Preview deployments on PRs — see 013
+- [ ] Team/org accounts — see 014
+- [ ] Framework auto-detection and zero-config deploy — see 015
+- [ ] `icforge link` for existing canisters — see 016
+- [ ] Canister metrics dashboard (cycles burn rate, memory usage, call volume) — see 017
+- [ ] Log aggregation — collect and persist canister logs beyond IC's ~20 line window — see 018
 
 ### v0.5 — "Cloud Engines"
 - [ ] Cloud Engine targeting — deploy to a specific engine via `.icforge` config or dashboard

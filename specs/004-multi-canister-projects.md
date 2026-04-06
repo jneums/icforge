@@ -1,6 +1,6 @@
 # ICForge — Multi-Canister Projects
 
-**Status:** Draft v0.1
+**Status:** Complete v0.2
 **Parent:** 001-architecture.md
 **Milestone:** v0.2
 

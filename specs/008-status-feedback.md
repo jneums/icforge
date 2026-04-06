@@ -1,6 +1,6 @@
 # ICForge — Build Status Feedback + API Tokens
 
-**Status:** Draft v0.1
+**Status:** Partial v0.2 (build logs done, GitHub statuses + API tokens pending)
 **Parent:** 001-architecture.md
 **Milestone:** v0.3
 **Related:** 008-github-app.md, 008-build-pipeline.md, 005-deploy-status-log-streaming.md
@@ -290,10 +290,10 @@ icforge deploy --token icf_tok_...
 - [ ] Idempotent PR comment updates (find existing comment, edit it)
 
 ### Backend — Build Log Streaming
-- [ ] `GET /api/v1/builds/:id/logs/stream` SSE endpoint
-- [ ] `GET /api/v1/projects/:id/builds` list endpoint
-- [ ] Publish build logs to broadcast channel from worker
-- [ ] Add `phase` field to log events
+- [x] `GET /api/v1/builds/:id/logs/stream` SSE endpoint
+- [x] `GET /api/v1/projects/:id/builds` list endpoint
+- [x] Publish build logs to broadcast channel from worker
+- [x] Add `phase` field to log events
 
 ### Backend — API Tokens
 - [ ] `api_tokens` table + migration
@@ -306,9 +306,9 @@ icforge deploy --token icf_tok_...
 - [ ] `--token` flag on `icforge deploy`
 
 ### Dashboard
-- [ ] Build detail page (`/builds/:id`) with SSE log streaming
-- [ ] Build history on project detail page
-- [ ] Progress stepper UI (clone → detect → build → deploy)
+- [x] Build detail page (`/builds/:id`) with SSE log streaming
+- [x] Build history on project detail page
+- [x] Progress stepper UI (clone → detect → build → deploy)
 - [ ] Token management on Settings page
 
 ## 6. Open Questions

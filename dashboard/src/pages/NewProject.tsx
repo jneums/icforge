@@ -16,6 +16,7 @@ import {
   Loader2,
   Check,
   AlertCircle,
+  Settings,
 } from "lucide-react";
 import type { GitHubRepo } from "@/api/types";
 
@@ -268,6 +269,18 @@ function RepoStep({
           ))}
         </div>
       )}
+
+      <div className="flex items-center justify-center gap-2 pt-1">
+        <a
+          href="https://github.com/apps/icforge/installations/select_target"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <Settings className="h-3 w-3" />
+          Add repositories or organizations
+        </a>
+      </div>
     </div>
   );
 }

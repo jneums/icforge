@@ -250,19 +250,21 @@ function RepoStep({
               }`}
               onClick={() => !repo.linked_project_id && onSelect(repo)}
             >
-              <div className="flex items-center gap-3 min-w-0">
+              <div className="flex items-center gap-3 min-w-0 overflow-hidden">
                 <GitBranch className="h-4 w-4 text-muted-foreground shrink-0" />
-                <span className="font-mono text-sm truncate">{repo.full_name}</span>
-                {repo.linked_project_id && (
-                  <span className="text-xs text-muted-foreground/60 shrink-0">
-                    → {repo.linked_project_name}
-                  </span>
-                )}
+                <span className="font-mono text-sm truncate">
+                  {repo.full_name}
+                  {repo.linked_project_id && (
+                    <span className="text-xs text-muted-foreground/60 ml-2 font-sans">
+                      → {repo.linked_project_name}
+                    </span>
+                  )}
+                </span>
               </div>
               {repo.linked_project_id ? (
-                <Check className="h-4 w-4 text-muted-foreground/40 shrink-0" />
+                <Check className="h-4 w-4 text-muted-foreground/40 shrink-0 ml-3" />
               ) : (
-                <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0 ml-3" />
               )}
             </Card>
           ))}

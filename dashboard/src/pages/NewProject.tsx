@@ -18,7 +18,7 @@ import {
   AlertCircle,
   Settings,
 } from "lucide-react";
-import type { GitHubRepo } from "@/api/types";
+import type { GitHubRepo, RepoConfig } from "@/api/types";
 
 type Step = "repo" | "configure" | "creating";
 
@@ -55,7 +55,7 @@ export default function NewProject() {
 
     try {
       // Extract canisters from icp.yaml config if available
-      const canisters = extractCanisters(repoConfig?.config);
+      const canisters = extractCanisters(repoConfig?.config, repoConfig?.canisters as Record<string, unknown>[] | undefined);
 
       const { project } = await createProject({
         name: projectName.trim(),
@@ -129,17 +129,26 @@ export default function NewProject() {
 /* ── helpers ── */
 
 function extractCanisters(
-  config: Record<string, unknown> | null | undefined
+  config: Record<string, unknown> | null | undefined,
+  enriched?: Record<string, unknown>[],
 ): { name: string; recipe?: string }[] {
+  // Prefer enriched canisters from the API (includes canister.yaml data)
+  if (enriched && enriched.length > 0) {
+    return enriched.map((obj) => {
+      const name = (obj.name as string) ?? "unnamed";
+      const recipeObj = obj.recipe as Record<string, unknown> | undefined;
+      const recipe = recipeObj?.type as string | undefined;
+      return { name, recipe };
+    });
+  }
+  // Fallback: parse from icp.yaml config directly
   if (!config) return [];
   const canisters = config.canisters;
   if (!canisters || !Array.isArray(canisters)) return [];
   return canisters.map((item) => {
-    // Bare string: "backend" — just a canister folder name
     if (typeof item === "string") {
       return { name: item };
     }
-    // Object: { name: "backend", recipe: { type: "@dfinity/motoko@v4.1.0", ... } }
     if (typeof item === "object" && item !== null) {
       const obj = item as Record<string, unknown>;
       const name = (obj.name as string) ?? "unnamed";
@@ -307,13 +316,13 @@ function ConfigureStep({
   repo: GitHubRepo;
   projectName: string;
   onProjectNameChange: (v: string) => void;
-  config: { found: boolean; config: Record<string, unknown> | null; raw: string | null } | undefined;
+  config: RepoConfig | undefined;
   configLoading: boolean;
   onBack: () => void;
   onCreate: () => void;
   onRecheck: () => void;
 }) {
-  const canisters = extractCanisters(config?.config);
+  const canisters = extractCanisters(config?.config, config?.canisters);
   const hasConfig = !!config?.found && canisters.length > 0;
   const missingConfig = config && !config.found;
 

@@ -99,5 +99,6 @@ export interface GitHubRepo {
 export interface RepoConfig {
   found: boolean;
   config: Record<string, unknown> | null;
+  canisters?: Record<string, unknown>[];
   raw: string | null;
 }

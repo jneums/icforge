@@ -953,9 +953,47 @@ pub async fn fetch_repo_config(
     let yaml_val: serde_json::Value = serde_yaml::from_str(&raw_yaml)
         .map_err(|e| AppError::BadRequest(format!("Invalid icp.yaml: {e}")))?;
 
+    // For bare-string canister refs, fetch their canister.yaml to get recipe info
+    let mut enriched_canisters: Vec<Value> = Vec::new();
+    if let Some(canisters) = yaml_val.get("canisters").and_then(|c| c.as_array()) {
+        for entry in canisters {
+            if let Some(name) = entry.as_str() {
+                // Bare string — try to fetch {name}/canister.yaml
+                let canister_url = format!(
+                    "https://api.github.com/repos/{}/contents/{}/canister.yaml?ref={}",
+                    repo.full_name, name, repo.default_branch
+                );
+                let canister_resp = client
+                    .get(&canister_url)
+                    .header("Authorization", format!("Bearer {token}"))
+                    .header("Accept", "application/vnd.github.raw+json")
+                    .header("User-Agent", "ICForge")
+                    .send()
+                    .await;
+
+                if let Ok(resp) = canister_resp {
+                    if resp.status().is_success() {
+                        if let Ok(body) = resp.text().await {
+                            if let Ok(val) = serde_yaml::from_str::<serde_json::Value>(&body) {
+                                enriched_canisters.push(val);
+                                continue;
+                            }
+                        }
+                    }
+                }
+                // Fallback: just the name
+                enriched_canisters.push(json!({ "name": name }));
+            } else {
+                // Already an inline object
+                enriched_canisters.push(entry.clone());
+            }
+        }
+    }
+
     Ok(Json(json!({
         "found": true,
         "config": yaml_val,
+        "canisters": enriched_canisters,
         "raw": raw_yaml,
     })))
 }

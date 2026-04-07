@@ -539,31 +539,51 @@ async fn execute_deploy(
 }
 
 /// Parse a canister ID (principal) from icp-cli command output.
-/// Looks for patterns like `canister_id: <principal>` or just a bare principal on a line.
+/// Handles patterns like:
+///   - `Created canister backend with ID 7ue4f-wyaaa-aaaad-aghwq-cai`
+///   - `canister_id: xxxxx-xxxxx-...`
+///   - `Canister ID: xxxxx-xxxxx-...`
+///   - A bare principal on its own line
 fn parse_canister_id_from_output(output: &str) -> Option<String> {
-    // Try "canister_id: xxxxx-xxxxx-..." or "Canister ID: ..."
+    // Principal regex: 5+ groups of alphanumeric separated by dashes (e.g. xxxxx-xxxxx-xxxxx-xxxxx-cai)
+    let is_principal = |s: &str| -> bool {
+        let parts: Vec<&str> = s.split('-').collect();
+        parts.len() >= 3
+            && s.len() >= 25
+            && s.len() <= 63
+            && s.chars().all(|c| c.is_alphanumeric() || c == '-')
+    };
+
     for line in output.lines() {
         let trimmed = line.trim();
+
+        // "Created canister <name> with ID <principal>"
+        if let Some(idx) = trimmed.find("with ID ") {
+            let candidate = trimmed[idx + 8..].trim().trim_matches('"');
+            if is_principal(candidate) {
+                return Some(candidate.to_string());
+            }
+        }
+
+        // "canister_id: <principal>" or "Canister ID: <principal>"
         if let Some(rest) = trimmed
             .strip_prefix("canister_id:")
             .or_else(|| trimmed.strip_prefix("Canister ID:"))
         {
             let id = rest.trim().trim_matches('"');
-            if !id.is_empty() {
+            if !id.is_empty() && is_principal(id) {
                 return Some(id.to_string());
             }
         }
     }
 
-    // Fallback: look for a principal-shaped string (xxxxx-xxxxx-xxxxx-xxxxx-xxx)
+    // Fallback: scan for any principal-shaped token on any line
     for line in output.lines() {
-        let trimmed = line.trim();
-        if trimmed.contains('-')
-            && trimmed.len() >= 25
-            && trimmed.len() <= 63
-            && trimmed.chars().all(|c| c.is_alphanumeric() || c == '-')
-        {
-            return Some(trimmed.to_string());
+        for word in line.split_whitespace() {
+            let candidate = word.trim_matches(|c: char| !c.is_alphanumeric() && c != '-');
+            if is_principal(candidate) {
+                return Some(candidate.to_string());
+            }
         }
     }
 

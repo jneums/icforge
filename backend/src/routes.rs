@@ -741,10 +741,13 @@ pub async fn list_github_repos(
     State(state): State<AppState>,
     auth_user: AuthUser,
 ) -> Result<Json<Value>, AppError> {
-    let repos: Vec<crate::models::GitHubRepo> = sqlx::query_as(
+    let rows = sqlx::query(
         r#"
-        SELECT gr.* FROM github_repos gr
+        SELECT gr.id, gr.installation_id, gr.github_repo_id, gr.full_name, gr.default_branch,
+               p.id as linked_project_id, p.name as linked_project_name
+        FROM github_repos gr
         JOIN github_installations gi ON gr.installation_id = gi.id
+        LEFT JOIN projects p ON p.github_repo_id = CAST(gr.id AS TEXT) AND p.user_id = $1
         WHERE gi.user_id = $1
         ORDER BY gr.full_name ASC
         "#,
@@ -753,6 +756,27 @@ pub async fn list_github_repos(
     .fetch_all(&state.db)
     .await
     .map_err(AppError::Database)?;
+
+    use sqlx::Row;
+    let repos: Vec<Value> = rows
+        .iter()
+        .map(|row| {
+            let mut v = json!({
+                "id": row.get::<i64, _>("id"),
+                "installation_id": row.get::<String, _>("installation_id"),
+                "github_repo_id": row.get::<i64, _>("github_repo_id"),
+                "full_name": row.get::<String, _>("full_name"),
+                "default_branch": row.get::<String, _>("default_branch"),
+            });
+            if let Ok(pid) = row.try_get::<String, _>("linked_project_id") {
+                v["linked_project_id"] = Value::String(pid);
+            }
+            if let Ok(pname) = row.try_get::<String, _>("linked_project_name") {
+                v["linked_project_name"] = Value::String(pname);
+            }
+            v
+        })
+        .collect();
 
     Ok(Json(json!({ "repos": repos })))
 }

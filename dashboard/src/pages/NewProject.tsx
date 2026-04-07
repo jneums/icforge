@@ -243,14 +243,27 @@ function RepoStep({
           {repos.map((repo) => (
             <Card
               key={repo.id}
-              className="flex items-center justify-between px-4 py-3 border-border/50 hover:border-border hover:bg-card/80 transition-all cursor-pointer"
-              onClick={() => onSelect(repo)}
+              className={`flex items-center justify-between px-4 py-3 border-border/50 transition-all ${
+                repo.linked_project_id
+                  ? "opacity-50 cursor-not-allowed"
+                  : "hover:border-border hover:bg-card/80 cursor-pointer"
+              }`}
+              onClick={() => !repo.linked_project_id && onSelect(repo)}
             >
               <div className="flex items-center gap-3 min-w-0">
                 <GitBranch className="h-4 w-4 text-muted-foreground shrink-0" />
                 <span className="font-mono text-sm truncate">{repo.full_name}</span>
+                {repo.linked_project_id && (
+                  <span className="text-xs text-muted-foreground/60 shrink-0">
+                    → {repo.linked_project_name}
+                  </span>
+                )}
               </div>
-              <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
+              {repo.linked_project_id ? (
+                <Check className="h-4 w-4 text-muted-foreground/40 shrink-0" />
+              ) : (
+                <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
+              )}
             </Card>
           ))}
         </div>

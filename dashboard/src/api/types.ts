@@ -91,7 +91,9 @@ export interface GitHubRepo {
   github_repo_id: number;
   full_name: string;
   default_branch: string;
-  created_at: string;
+  /** Set if this repo is already linked to a project */
+  linked_project_id?: string;
+  linked_project_name?: string;
 }
 
 export interface RepoConfig {

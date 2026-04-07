@@ -243,7 +243,7 @@ function RepoStep({
           {repos.map((repo) => (
             <Card
               key={repo.id}
-              className={`flex items-center gap-3 px-4 py-3 border-border/50 transition-all ${
+              className={`flex flex-row items-center gap-3 px-4 py-3 border-border/50 transition-all ${
                 repo.linked_project_id
                   ? "opacity-50 cursor-not-allowed"
                   : "hover:border-border hover:bg-card/80 cursor-pointer"

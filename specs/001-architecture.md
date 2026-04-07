@@ -1,6 +1,6 @@
 # ICForge — Architecture & Design Spec
 
-**Status:** Active v0.2 (v0.1 complete, v0.2 in progress)
+**Status:** Active v0.3 (v0.1–v0.2.1 complete, v0.3 in progress)
 **Authors:** Jesse Neumann
 **Date:** 2026-04-02
 
@@ -457,17 +457,17 @@ The progression is natural: start free on shared infra, graduate to your own Clo
 - [x] `icforge.dev` subdomain routing — see 002
 - [x] Dashboard production deploy (icforge.dev)
 
-### v0.2.1 — "UX Polish" 🔧 IN PROGRESS (~90%)
+### v0.2.1 — "UX Polish" ✅ COMPLETE
 - [x] Tailwind v4 + shadcn/ui setup — see 019/00 ✅
 - [x] Design system cleanup (CSS tokens, typography, component primitives) — see 019/01 ✅
 - [x] Sidebar navigation + breadcrumbs — see 019/02 ✅
 - [x] Project list redesign (card rows, loading/empty states) — see 019/03 ✅
-- [~] Project detail redesign (LatestPushCard, tabs) — see 019/04 (~85%: missing Visit button, vanity URL, build duration)
-- [~] Deploy detail improvements (viewport log viewer, line numbers) — see 019/05 (~95%: missing build duration field)
+- [x] Project detail redesign (LatestPushCard, tabs, Visit button, vanity URL, build duration) — see 019/04 ✅
+- [x] Deploy detail improvements (viewport log viewer, line numbers, build duration) — see 019/05 ✅
 - [~] Settings page polish — see 019/06 (~95%: minor — no GitHub @username link)
 - [x] Landing page refresh — see 019/07 ✅
 - [x] Technical debt (protected routes, error boundary, 404, skeletons) — see 019/08 ✅
-- [~] Data layer (api/ + hooks/ + TanStack Query) — see 019/09 (~80%: DeployDetail not migrated, direct api/ imports remain)
+- [x] Data layer (api/ → hooks/ → components, TanStack Query, SSE stream hook, mutation hooks) — see 019/09 ✅
 
 ### v0.3 — "Production Ready"
 - [ ] Stripe billing integration — see 007

@@ -189,8 +189,8 @@ function BuildRow({
 
   return (
     <div
-      className={`flex items-center gap-3 px-4 py-2.5 transition-colors${build.deployment_id ? " hover:bg-muted/40 cursor-pointer" : ""}`}
-      onClick={() => build.deployment_id && navigate(`/projects/${projectId}/deploys/${build.deployment_id}`)}
+      className="flex items-center gap-3 px-4 py-2.5 hover:bg-muted/40 transition-colors cursor-pointer"
+      onClick={() => navigate(`/projects/${projectId}/builds/${build.id}`)}
     >
       {succeeded ? (
         <CheckCircle2 className="h-4 w-4 shrink-0 text-success" />
@@ -202,7 +202,7 @@ function BuildRow({
         <StatusDot status={build.status} pulse={inProgress} />
       )}
       <Badge variant="outline" className="text-xs shrink-0">
-        {build.trigger}
+        {build.canister_name || build.trigger}
       </Badge>
       <span className="text-sm truncate flex-1">
         {build.commit_message || "No message"}

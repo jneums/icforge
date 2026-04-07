@@ -15,18 +15,22 @@ function parseRoute(pathname: string) {
   const segments = pathname.split("/").filter(Boolean);
   // /projects/:id/deploys/:deployId
   if (segments[0] === "projects" && segments[2] === "deploys" && segments[3]) {
-    return { id: segments[1], deployId: segments[3] };
+    return { id: segments[1], deployId: segments[3], buildId: undefined };
+  }
+  // /projects/:id/builds/:buildId
+  if (segments[0] === "projects" && segments[2] === "builds" && segments[3]) {
+    return { id: segments[1], deployId: undefined, buildId: segments[3] };
   }
   // /projects/:id
   if (segments[0] === "projects" && segments[1]) {
-    return { id: segments[1], deployId: undefined };
+    return { id: segments[1], deployId: undefined, buildId: undefined };
   }
-  return { id: undefined, deployId: undefined };
+  return { id: undefined, deployId: undefined, buildId: undefined };
 }
 
 export function AppBreadcrumbs() {
   const { pathname } = useLocation();
-  const { id, deployId } = parseRoute(pathname);
+  const { id, deployId, buildId } = parseRoute(pathname);
 
   // Only fetch project if we're on a project-related route
   const { data } = useProject(id ?? "");
@@ -75,6 +79,31 @@ export function AppBreadcrumbs() {
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbPage>Deploy #{deployId.slice(0, 8)}</BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
+    );
+  }
+
+  // /projects/:id/builds/:buildId
+  if (id && buildId) {
+    return (
+      <Breadcrumb>
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbLink asChild>
+              <Link to="/projects">Projects</Link>
+            </BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbLink asChild>
+              <Link to={`/projects/${id}`}>{projectName ?? "Project"}</Link>
+            </BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbPage>Build #{buildId.slice(0, 8)}</BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>

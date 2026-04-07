@@ -10,14 +10,12 @@ export function useProject(id: string) {
     enabled: !!id,
     refetchInterval: (query) => {
       const deployments = query.state.data?.deployments;
-      const builds = query.state.data?.builds;
       if (
-        deployments?.some((d: { status: string }) => IN_PROGRESS_STATUSES.includes(d.status)) ||
-        builds?.some((b: { status: string }) => IN_PROGRESS_STATUSES.includes(b.status))
+        deployments?.some((d: { status: string }) => IN_PROGRESS_STATUSES.includes(d.status))
       ) {
         return 3000;
       }
-      // Slow poll to catch newly-triggered builds
+      // Slow poll to catch newly-triggered deployments
       return 30_000;
     },
   });

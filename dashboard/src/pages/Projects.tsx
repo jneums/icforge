@@ -55,7 +55,7 @@ function ProjectRow({ project }: { project: Project }) {
               </span>
               <span className="flex items-center gap-1.5 shrink-0 ml-4">
                 <Clock className="h-3 w-3" />
-                {timeAgo(latestDeploy.started_at)}
+                {timeAgo(latestDeploy.started_at ?? latestDeploy.created_at)}
                 {latestDeploy.branch && (
                   <span className="text-muted-foreground/60">
                     on <span className="font-mono">{latestDeploy.branch}</span>

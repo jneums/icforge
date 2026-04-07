@@ -747,7 +747,7 @@ pub async fn list_github_repos(
                p.id as linked_project_id, p.name as linked_project_name
         FROM github_repos gr
         JOIN github_installations gi ON gr.installation_id = gi.id
-        LEFT JOIN projects p ON p.github_repo_id = CAST(gr.id AS TEXT) AND p.user_id = $1
+        LEFT JOIN projects p ON p.github_repo_id = gr.id AND p.user_id = $1
         WHERE gi.user_id = $1
         ORDER BY gr.full_name ASC
         "#,
@@ -762,7 +762,7 @@ pub async fn list_github_repos(
         .iter()
         .map(|row| {
             let mut v = json!({
-                "id": row.get::<i64, _>("id"),
+                "id": row.get::<String, _>("id"),
                 "installation_id": row.get::<String, _>("installation_id"),
                 "github_repo_id": row.get::<i64, _>("github_repo_id"),
                 "full_name": row.get::<String, _>("full_name"),

@@ -27,9 +27,9 @@ import { StatusBadge } from "@/components/status-badge";
 import { StatusDot } from "@/components/status-dot";
 import { CopyButton } from "@/components/copy-button";
 import { displayRecipe } from "@/lib/utils";
-import type { Canister, Deployment } from "@/api/types";
+import type { Canister, Deployment, Build } from "@/api/types";
 
-const IN_PROGRESS_STATUSES = ["pending", "building", "deploying", "created"];
+const IN_PROGRESS_STATUSES = ["pending", "queued", "building", "deploying", "created"];
 
 function timeAgo(dateStr: string): string {
   const date = new Date(dateStr + "Z");
@@ -175,6 +175,50 @@ function DeployRow({
   );
 }
 
+function BuildRow({
+  build,
+  projectId,
+}: {
+  build: Build;
+  projectId: string;
+}) {
+  const navigate = useNavigate();
+  const inProgress = IN_PROGRESS_STATUSES.includes(build.status);
+  const succeeded = build.status === "succeeded" || build.status === "deployed";
+  const failed = build.status === "failed" || build.status === "error";
+
+  return (
+    <div
+      className={`flex items-center gap-3 px-4 py-2.5 transition-colors${build.deployment_id ? " hover:bg-muted/40 cursor-pointer" : ""}`}
+      onClick={() => build.deployment_id && navigate(`/projects/${projectId}/deploys/${build.deployment_id}`)}
+    >
+      {succeeded ? (
+        <CheckCircle2 className="h-4 w-4 shrink-0 text-success" />
+      ) : failed ? (
+        <XCircle className="h-4 w-4 shrink-0 text-destructive" />
+      ) : inProgress ? (
+        <Loader2 className="h-4 w-4 shrink-0 text-warning animate-spin" />
+      ) : (
+        <StatusDot status={build.status} pulse={inProgress} />
+      )}
+      <Badge variant="outline" className="text-xs shrink-0">
+        {build.trigger}
+      </Badge>
+      <span className="text-sm truncate flex-1">
+        {build.commit_message || "No message"}
+      </span>
+      {build.commit_sha && (
+        <span className="font-mono text-xs text-muted-foreground">
+          {build.commit_sha.slice(0, 7)}
+        </span>
+      )}
+      <span className="text-xs text-muted-foreground whitespace-nowrap">
+        {timeAgo(build.created_at)}
+      </span>
+    </div>
+  );
+}
+
 function ProductionDeployCard({
   deploy,
   projectId,
@@ -248,10 +292,11 @@ export default function ProjectDetail() {
     );
   }
 
-  const { project, deployments = [] } = data;
+  const { project, deployments = [], builds = [] } = data;
   const latestDeploy = deployments[0];
+  const latestBuild = builds[0];
   const latestStatus =
-    latestDeploy?.status ?? project.canisters?.[0]?.status ?? "pending";
+    latestBuild?.status ?? latestDeploy?.status ?? project.canisters?.[0]?.status ?? "pending";
   const canisters = project.canisters ?? [];
 
   return (
@@ -275,8 +320,11 @@ export default function ProjectDetail() {
       )}
 
       {/* Tabs */}
-      <Tabs defaultValue="deploys" className="pt-6">
+      <Tabs defaultValue="builds" className="pt-6">
         <TabsList>
+          <TabsTrigger value="builds">
+            Builds ({builds.length})
+          </TabsTrigger>
           <TabsTrigger value="deploys">
             Deployments ({deployments.length})
           </TabsTrigger>
@@ -285,13 +333,27 @@ export default function ProjectDetail() {
           </TabsTrigger>
         </TabsList>
 
+        <TabsContent value="builds">
+          {builds.length === 0 ? (
+            <Card className="p-8 text-center border-border/50">
+              <p className="text-sm text-muted-foreground">
+                No builds yet. Link a GitHub repo to trigger your first build.
+              </p>
+            </Card>
+          ) : (
+            <Card className="divide-y divide-border/50 border-border/50 overflow-hidden">
+              {builds.map((b) => (
+                <BuildRow key={b.id} build={b} projectId={project.id} />
+              ))}
+            </Card>
+          )}
+        </TabsContent>
+
         <TabsContent value="deploys">
           {deployments.length === 0 ? (
             <Card className="p-8 text-center border-border/50">
               <p className="text-sm text-muted-foreground">
-                No deployments yet. Run{" "}
-                <code className="font-mono bg-popover px-1.5 py-0.5 rounded text-xs">icforge deploy</code> to create
-                your first deployment.
+                No deployments yet. Successful builds will create deployments automatically.
               </p>
             </Card>
           ) : (

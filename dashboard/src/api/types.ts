@@ -43,6 +43,23 @@ export interface Deployment {
   completed_at: string | null;
 }
 
+export interface Build {
+  id: string;
+  project_id: string;
+  deployment_id: string | null;
+  canister_name: string | null;
+  commit_sha: string;
+  commit_message: string | null;
+  branch: string;
+  repo_full_name: string;
+  trigger: string;
+  status: string;
+  error_message: string | null;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
 export interface User {
   id: string;
   github_id: number;

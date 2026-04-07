@@ -340,9 +340,18 @@ pub async fn get_project(
     .await
     .map_err(AppError::Database)?;
 
+    let builds: Vec<crate::models::BuildJob> = sqlx::query_as(
+        "SELECT * FROM build_jobs WHERE project_id = $1 ORDER BY created_at DESC LIMIT 50",
+    )
+    .bind(&project.id)
+    .fetch_all(&state.db)
+    .await
+    .map_err(AppError::Database)?;
+
     Ok(Json(json!({
         "project": ProjectWithCanisters { project, canisters, latest_deployment: None },
         "deployments": deployments,
+        "builds": builds,
     })))
 }
 
@@ -851,7 +860,7 @@ pub async fn link_repo(
         .ok_or_else(|| AppError::NotFound("Project not found".into()))?;
 
     // Verify the repo belongs to this user's installation
-    let _repo: crate::models::GitHubRepo = sqlx::query_as(
+    let repo: crate::models::GitHubRepo = sqlx::query_as(
         r#"
         SELECT gr.* FROM github_repos gr
         JOIN github_installations gi ON gr.installation_id = gi.id
@@ -877,7 +886,123 @@ pub async fn link_repo(
     .await
     .map_err(AppError::Database)?;
 
-    Ok(Json(json!({ "linked": true })))
+    // Auto-trigger the first build: fetch HEAD commit from default branch
+    let installation: crate::models::GitHubInstallation = sqlx::query_as(
+        "SELECT * FROM github_installations WHERE id = $1"
+    )
+    .bind(&repo.installation_id)
+    .fetch_one(&state.db)
+    .await
+    .map_err(AppError::Database)?;
+
+    let token = crate::github::get_installation_token(&state.config, installation.installation_id)
+        .await?;
+
+    let client = reqwest::Client::new();
+    let branch_url = format!(
+        "https://api.github.com/repos/{}/branches/{}",
+        repo.full_name, branch
+    );
+    let branch_resp = client
+        .get(&branch_url)
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Accept", "application/vnd.github+json")
+        .header("User-Agent", "ICForge")
+        .send()
+        .await;
+
+    let mut build_ids: Vec<String> = Vec::new();
+
+    if let Ok(resp) = branch_resp {
+        if resp.status().is_success() {
+            if let Ok(body) = resp.json::<serde_json::Value>().await {
+                let commit_sha = body["commit"]["sha"].as_str().unwrap_or("HEAD").to_string();
+                let commit_msg = body["commit"]["commit"]["message"].as_str().unwrap_or("Initial deploy").to_string();
+
+                let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+                // Look up all registered canisters
+                let canister_names: Vec<String> = sqlx::query_scalar(
+                    "SELECT name FROM canisters WHERE project_id = $1 ORDER BY name",
+                )
+                .bind(&params.project_id)
+                .fetch_all(&state.db)
+                .await
+                .map_err(AppError::Database)?;
+
+                if canister_names.is_empty() {
+                    // Single build job for all canisters
+                    let build_id = uuid::Uuid::new_v4().to_string();
+                    sqlx::query(
+                        r#"
+                        INSERT INTO build_jobs (id, project_id, commit_sha, commit_message, branch, repo_full_name, installation_id, trigger, status, retry_count, created_at, updated_at)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, 'dashboard', 'queued', 0, $8, $9)
+                        "#,
+                    )
+                    .bind(&build_id)
+                    .bind(&params.project_id)
+                    .bind(&commit_sha)
+                    .bind(&commit_msg)
+                    .bind(branch)
+                    .bind(&repo.full_name)
+                    .bind(installation.installation_id)
+                    .bind(&now)
+                    .bind(&now)
+                    .execute(&state.db)
+                    .await
+                    .map_err(AppError::Database)?;
+
+                    tracing::info!(
+                        build_id = %build_id,
+                        project_id = %params.project_id,
+                        commit = %commit_sha,
+                        trigger = "dashboard",
+                        "Auto-triggered initial build (all canisters)"
+                    );
+                    build_ids.push(build_id);
+                } else {
+                    // One job per canister
+                    for canister_name in &canister_names {
+                        let build_id = uuid::Uuid::new_v4().to_string();
+                        sqlx::query(
+                            r#"
+                            INSERT INTO build_jobs (id, project_id, canister_name, commit_sha, commit_message, branch, repo_full_name, installation_id, trigger, status, retry_count, created_at, updated_at)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'dashboard', 'queued', 0, $9, $10)
+                            "#,
+                        )
+                        .bind(&build_id)
+                        .bind(&params.project_id)
+                        .bind(canister_name)
+                        .bind(&commit_sha)
+                        .bind(&commit_msg)
+                        .bind(branch)
+                        .bind(&repo.full_name)
+                        .bind(installation.installation_id)
+                        .bind(&now)
+                        .bind(&now)
+                        .execute(&state.db)
+                        .await
+                        .map_err(AppError::Database)?;
+
+                        tracing::info!(
+                            build_id = %build_id,
+                            project_id = %params.project_id,
+                            canister = %canister_name,
+                            commit = %commit_sha,
+                            trigger = "dashboard",
+                            "Auto-triggered initial per-canister build"
+                        );
+                        build_ids.push(build_id);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(Json(json!({
+        "linked": true,
+        "build_ids": build_ids,
+    })))
 }
 
 /// GET /api/v1/github/repos/:repo_id/config — Fetch icp.yaml from the repo's default branch

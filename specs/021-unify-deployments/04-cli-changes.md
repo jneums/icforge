@@ -68,12 +68,4 @@ other than removing any `builds` references from the response destructuring.
 
 Already uses `/api/v1/deploy/:id/logs/stream`. No change needed.
 
-## Backward Compatibility
 
-The backend keeps `/api/v1/builds` as aliases pointing to the same handlers.
-This means:
-- Old CLI versions continue to work
-- GitHub commit status URLs (`/builds/{id}`) still resolve
-- Bookmarked URLs don't break
-
-The aliases can be removed in a future major version.

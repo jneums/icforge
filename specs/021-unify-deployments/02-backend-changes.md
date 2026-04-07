@@ -197,14 +197,10 @@ key is already deployment_id. Now the worker broadcasts to it directly.
 .route("/api/v1/builds", post(routes::trigger_build))
 .route("/api/v1/builds/{build_id}", get(routes::get_build))
 
-// ADD (keep /builds as aliases for CLI backward compat):
+// ADD:
 .route("/api/v1/deployments", get(routes::list_deployments))
 .route("/api/v1/deployments", post(routes::trigger_deploy))
 .route("/api/v1/deployments/{deploy_id}", get(routes::get_deployment))
-// Backward compat aliases:
-.route("/api/v1/builds", get(routes::list_deployments))
-.route("/api/v1/builds", post(routes::trigger_deploy))
-.route("/api/v1/builds/{build_id}", get(routes::get_deployment))
 ```
 
 **Module rename:**

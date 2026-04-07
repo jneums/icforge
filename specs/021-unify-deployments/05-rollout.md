@@ -59,8 +59,6 @@ Before merging:
 If something goes wrong:
 1. The old tables still exist (migration 012 hasn't run yet)
 2. Revert the code PR — the old code reads from build_jobs/build_logs
-3. New deployments created during the broken window exist in both tables
-   (migration 011 doesn't remove data, and the old deploy.rs had fallback logic)
 
 ## Files Changed Summary
 

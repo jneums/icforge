@@ -154,12 +154,6 @@ since they exist in the deployments table from the start.
 // REMOVE:
 import BuildDetail from "./pages/BuildDetail";
 <Route path="/projects/:id/builds/:buildId" element={...} />
-
-// ADD redirect for bookmarks/links:
-<Route
-  path="/projects/:id/builds/:buildId"
-  element={<Navigate to={`/projects/${id}/deploys/${buildId}`} replace />}
-/>
 ```
 
 ### 3.9 components/app-breadcrumbs.tsx

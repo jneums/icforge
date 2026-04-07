@@ -72,7 +72,6 @@ async fn main() {
         .route("/api/v1/projects", get(routes::list_projects))
         .route("/api/v1/projects", post(routes::create_project))
         .route("/api/v1/projects/{project_id}", get(routes::get_project))
-        .route("/api/v1/deploy", post(routes::deploy))
         .route("/api/v1/deploy/{deploy_id}/status", get(routes::deploy_status))
         .route("/api/v1/deploy/{deploy_id}/logs", get(routes::deploy_logs))
         .route("/api/v1/deploy/{deploy_id}/logs/stream", get(routes::deploy_logs_stream))
@@ -85,6 +84,7 @@ async fn main() {
         .route("/api/v1/tokens/{token_id}", delete(routes::delete_api_token))
         // Build jobs
         .route("/api/v1/builds", get(routes::list_builds))
+        .route("/api/v1/builds", post(routes::trigger_build))
         .route("/api/v1/builds/{build_id}", get(routes::get_build))
         // GitHub App
         .route("/api/v1/github/installations", get(routes::list_installations))

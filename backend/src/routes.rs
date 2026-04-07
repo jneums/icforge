@@ -9,6 +9,7 @@ use serde_json::{json, Value};
 use crate::auth::{self, AuthUser};
 use crate::error::AppError;
 use crate::models::{
+    TriggerBuildRequest,
     ApiToken, CanisterRecord, CreateProjectRequest, CreateTokenRequest, CreateTokenResponse,
     DeploymentRecord, Project, ProjectWithCanisters,
 };
@@ -258,13 +259,17 @@ pub async fn create_project(
     let mut canisters = Vec::new();
     for canister_input in &req.canisters {
         let canister_id = uuid::Uuid::new_v4().to_string();
+        // recipe takes priority, default to "custom"
+        let recipe = canister_input.recipe.as_deref()
+            .unwrap_or("custom");
         sqlx::query(
-            "INSERT INTO canisters (id, project_id, name, type, subnet_id, status, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7)",
+            "INSERT INTO canisters (id, project_id, name, type, recipe, subnet_id, status, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, $8)",
         )
         .bind(&canister_id)
         .bind(&project_id)
         .bind(&canister_input.name)
-        .bind(&canister_input.canister_type)
+        .bind(recipe)
+        .bind(recipe)
         .bind(&req.subnet)
         .bind(&now)
         .bind(&now)
@@ -276,12 +281,13 @@ pub async fn create_project(
             id: canister_id,
             project_id: project_id.clone(),
             name: canister_input.name.clone(),
-            canister_type: canister_input.canister_type.clone(),
+            recipe: recipe.to_string(),
             canister_id: None,
             subnet_id: req.subnet.clone(),
             status: "pending".into(),
             cycles_balance: None,
             candid_interface: None,
+            canister_type: Some(recipe.to_string()),
             created_at: now.clone(),
             updated_at: now.clone(),
         });
@@ -338,15 +344,6 @@ pub async fn get_project(
         "project": ProjectWithCanisters { project, canisters, latest_deployment: None },
         "deployments": deployments,
     })))
-}
-
-/// POST /api/v1/deploy — Deploy a wasm to a canister
-pub async fn deploy(
-    state: State<AppState>,
-    auth_user: AuthUser,
-    multipart: axum::extract::Multipart,
-) -> Result<Json<Value>, AppError> {
-    crate::deploy::deploy(state, auth_user, multipart).await
 }
 
 /// GET /api/v1/deploy/{deploy_id}/status — Deploy status
@@ -554,6 +551,136 @@ pub async fn list_builds(
     .map_err(AppError::Database)?;
 
     Ok(Json(json!({ "builds": builds })))
+}
+
+/// POST /api/v1/builds — Trigger a CLI-initiated build
+pub async fn trigger_build(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+    Json(req): Json<TriggerBuildRequest>,
+) -> Result<Json<Value>, AppError> {
+    // Validate project ownership
+    let project: Project = sqlx::query_as("SELECT * FROM projects WHERE id = $1 AND user_id = $2")
+        .bind(&req.project_id)
+        .bind(&auth_user.user.id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(AppError::Database)?
+        .ok_or_else(|| AppError::NotFound("Project not found".into()))?;
+
+    // Project must have a linked GitHub repo for server-side builds
+    let repo_full_name = project.github_repo_id.as_deref()
+        .ok_or_else(|| AppError::BadRequest("Project has no linked GitHub repo. Link one with `icforge init`.".into()))?;
+
+    // Look up the GitHub repo record to get installation_id
+    let repo: crate::models::GitHubRepo = sqlx::query_as(
+        "SELECT * FROM github_repos WHERE id = $1"
+    )
+    .bind(repo_full_name)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(AppError::Database)?
+    .ok_or_else(|| AppError::BadRequest("Linked GitHub repo not found in DB".into()))?;
+
+    // Look up installation to get installation_id
+    let installation: crate::models::GitHubInstallation = sqlx::query_as(
+        "SELECT * FROM github_installations WHERE id = $1"
+    )
+    .bind(&repo.installation_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(AppError::Database)?
+    .ok_or_else(|| AppError::Internal("GitHub installation not found".into()))?;
+
+    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    // Determine which canisters to build
+    let canister_names: Vec<String> = if let Some(ref name) = req.canister_name {
+        // CLI specified a single canister
+        vec![name.clone()]
+    } else {
+        // Look up all registered canisters for per-canister jobs
+        sqlx::query_scalar(
+            "SELECT name FROM canisters WHERE project_id = $1 ORDER BY name",
+        )
+        .bind(&req.project_id)
+        .fetch_all(&state.db)
+        .await
+        .map_err(AppError::Database)?
+    };
+
+    let mut build_ids = Vec::new();
+
+    if canister_names.is_empty() {
+        // No canisters registered — enqueue a single job (worker will discover from icp.yaml)
+        let build_id = uuid::Uuid::new_v4().to_string();
+        sqlx::query(
+            r#"
+            INSERT INTO build_jobs (id, project_id, commit_sha, commit_message, branch, repo_full_name, installation_id, trigger, status, retry_count, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, 'cli', 'queued', 0, $8, $9)
+            "#,
+        )
+        .bind(&build_id)
+        .bind(&req.project_id)
+        .bind(&req.commit_sha)
+        .bind(&req.commit_message)
+        .bind(&req.branch)
+        .bind(&repo.full_name)
+        .bind(installation.installation_id)
+        .bind(&now)
+        .bind(&now)
+        .execute(&state.db)
+        .await
+        .map_err(AppError::Database)?;
+
+        tracing::info!(
+            build_id = %build_id,
+            project_id = %req.project_id,
+            commit = %req.commit_sha,
+            trigger = "cli",
+            "CLI-triggered build enqueued (all canisters)"
+        );
+        build_ids.push(build_id);
+    } else {
+        // One job per canister
+        for canister_name in &canister_names {
+            let build_id = uuid::Uuid::new_v4().to_string();
+            sqlx::query(
+                r#"
+                INSERT INTO build_jobs (id, project_id, canister_name, commit_sha, commit_message, branch, repo_full_name, installation_id, trigger, status, retry_count, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'cli', 'queued', 0, $9, $10)
+                "#,
+            )
+            .bind(&build_id)
+            .bind(&req.project_id)
+            .bind(canister_name)
+            .bind(&req.commit_sha)
+            .bind(&req.commit_message)
+            .bind(&req.branch)
+            .bind(&repo.full_name)
+            .bind(installation.installation_id)
+            .bind(&now)
+            .bind(&now)
+            .execute(&state.db)
+            .await
+            .map_err(AppError::Database)?;
+
+            tracing::info!(
+                build_id = %build_id,
+                project_id = %req.project_id,
+                canister = %canister_name,
+                commit = %req.commit_sha,
+                trigger = "cli",
+                "Per-canister CLI-triggered build enqueued"
+            );
+            build_ids.push(build_id);
+        }
+    }
+
+    Ok(Json(json!({
+        "build_id": build_ids.first().unwrap_or(&String::new()),
+        "build_ids": build_ids,
+    })))
 }
 
 /// GET /api/v1/builds/{build_id} — Get a specific build with logs

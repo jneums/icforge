@@ -23,6 +23,7 @@ import {
 import { StatusBadge } from "@/components/status-badge";
 import { StatusDot } from "@/components/status-dot";
 import { CopyButton } from "@/components/copy-button";
+import { displayRecipe } from "@/lib/utils";
 import type { Canister, Deployment } from "@/api/types";
 
 const IN_PROGRESS_STATUSES = ["pending", "building", "deploying", "created"];
@@ -55,7 +56,7 @@ function CanisterCard({ canister, projectSlug }: { canister: Canister; projectSl
       <div className="flex items-center gap-3">
         <span className="text-sm font-semibold">{canister.name}</span>
         <Badge variant="outline" className="text-xs">
-          {canister.type}
+          {displayRecipe(canister.recipe)}
         </Badge>
         <StatusDot status={canister.status} />
         {canister.canister_id && (

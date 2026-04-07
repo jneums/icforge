@@ -17,7 +17,10 @@ export interface Canister {
   id: string;
   project_id: string;
   name: string;
-  type: string;
+  /** icp-cli recipe (e.g. "rust@v3.1.0", "asset-canister@v2.1.0") */
+  recipe: string;
+  /** Legacy type field — may be absent on newer records */
+  type?: string;
   canister_id: string | null;
   subnet_id: string | null;
   status: string;

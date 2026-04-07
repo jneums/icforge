@@ -138,6 +138,7 @@ impl GitHubNotifier {
         state: &str,
         description: &str,
         target_url: &str,
+        context: &str,
     ) -> Result<(), AppError> {
         self.client
             .post(format!(
@@ -150,7 +151,7 @@ impl GitHubNotifier {
                 "state": state,
                 "target_url": target_url,
                 "description": description,
-                "context": "icforge"
+                "context": context
             }))
             .send()
             .await
@@ -165,6 +166,7 @@ impl GitHubNotifier {
         token: &str,
         repo: &str,
         sha: &str,
+        name: &str,
         title: &str,
     ) -> Result<u64, AppError> {
         let resp = self
@@ -176,7 +178,7 @@ impl GitHubNotifier {
             .header("Accept", "application/vnd.github+json")
             .header("User-Agent", "ICForge")
             .json(&serde_json::json!({
-                "name": "ICForge Build",
+                "name": name,
                 "head_sha": sha,
                 "status": "in_progress",
                 "started_at": chrono::Utc::now().to_rfc3339(),

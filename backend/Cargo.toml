@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-axum = { version = "0.8", features = ["macros", "multipart"] }
+axum = { version = "0.8", features = ["macros"] }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -22,12 +22,7 @@ chrono = { version = "0.4", features = ["serde"] }
 
 # IC-specific
 ic-agent = { version = "0.47", features = ["pem"] }
-ic-utils = "0.47"
-ic-asset = "0.29"
 candid = "0.10"
-slog = "2"
-flate2 = "1"
-tar = "0.4"
 hex = "0.4"
 
 # GitHub App / webhook auth

@@ -34,14 +34,17 @@ pub struct CanisterRecord {
     pub id: String,
     pub project_id: String,
     pub name: String,
-    #[sqlx(rename = "type")]
-    #[serde(rename = "type")]
-    pub canister_type: String,
+    /// icp-cli recipe (e.g. "rust@v3.1.0", "asset-canister@v2.1.0")
+    pub recipe: String,
     pub canister_id: Option<String>,
     pub subnet_id: Option<String>,
     pub status: String,
     pub cycles_balance: Option<i64>,
     pub candid_interface: Option<String>,
+    /// Legacy `type` column — nullable, kept for backward compat
+    #[sqlx(rename = "type")]
+    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
+    pub canister_type: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -82,8 +85,19 @@ pub struct CreateProjectRequest {
 #[derive(Debug, Deserialize)]
 pub struct CreateCanisterInput {
     pub name: String,
-    #[serde(rename = "type")]
-    pub canister_type: String,
+    /// Recipe string from icp.yaml (e.g. "rust@v3.1.0", "asset-canister@v2.1.0")
+    pub recipe: Option<String>,
+}
+
+/// CLI-triggered build request
+#[derive(Debug, Deserialize)]
+pub struct TriggerBuildRequest {
+    pub project_id: String,
+    pub commit_sha: String,
+    pub branch: String,
+    pub commit_message: Option<String>,
+    pub canister_name: Option<String>,
+    pub trigger: Option<String>,
 }
 
 // Response types
@@ -130,6 +144,7 @@ pub struct BuildJob {
     pub id: String,
     pub project_id: String,
     pub deployment_id: Option<String>,
+    pub canister_name: Option<String>,
     pub commit_sha: String,
     pub commit_message: Option<String>,
     pub branch: String,

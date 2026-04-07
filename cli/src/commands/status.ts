@@ -67,7 +67,8 @@ interface Canister {
   id: string;
   project_id: string;
   name: string;
-  type: string;
+  recipe: string | null;
+  type?: string; // deprecated, kept for backwards compat
   canister_id: string | null;
   status: string;
   cycles_balance?: number | null;
@@ -145,7 +146,7 @@ export async function statusCommand(_options: Record<string, unknown> = {}) {
       // Column headers
       const nameW = Math.max(8, ...canisters.map((c) => c.name.length)) + 2;
       const idW = Math.max(11, ...canisters.map((c) => (c.canister_id ?? "—").length)) + 2;
-      const typeW = Math.max(6, ...canisters.map((c) => c.type.length)) + 2;
+      const recipeW = Math.max(8, ...canisters.map((c) => (c.recipe ?? "custom").length)) + 2;
       const statusW = 12;
 
       const header =
@@ -153,10 +154,10 @@ export async function statusCommand(_options: Record<string, unknown> = {}) {
         "Canister".padEnd(nameW) +
         "Canister ID".padEnd(idW) +
         "Status".padEnd(statusW) +
-        "Type".padEnd(typeW);
+        "Recipe".padEnd(recipeW);
 
       console.log(chalk.bold(header));
-      console.log(chalk.dim("  " + "─".repeat(nameW + idW + statusW + typeW)));
+      console.log(chalk.dim("  " + "─".repeat(nameW + idW + statusW + recipeW)));
 
       for (const c of canisters) {
         const line =
@@ -164,7 +165,7 @@ export async function statusCommand(_options: Record<string, unknown> = {}) {
           c.name.padEnd(nameW) +
           (c.canister_id ?? "—").padEnd(idW) +
           colorStatus(c.status).padEnd(statusW + 10) + // extra for ANSI codes
-          chalk.dim(c.type);
+          chalk.dim(c.recipe ?? "custom");
         console.log(line);
       }
     }

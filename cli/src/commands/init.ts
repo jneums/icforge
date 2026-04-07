@@ -1,15 +1,13 @@
 import path from "node:path";
 import chalk from "chalk";
 import {
-  loadIcpManifest,
+  extractCanisters,
   loadICForgeConfig,
   saveICForgeConfig,
-  classifyCanister,
   isIcProject,
 } from "../config.js";
 import { isAuthenticated } from "../auth.js";
 import { apiFetch } from "../api.js";
-import { topoSortCanisters } from "./deploy.js";
 
 export async function initCommand(options: Record<string, unknown> = {}) {
   // 1. Check auth
@@ -33,35 +31,20 @@ export async function initCommand(options: Record<string, unknown> = {}) {
     process.exit(1);
   }
 
-  // 4. Parse icp.yaml
-  const manifest = await loadIcpManifest();
-  if (!manifest || !manifest.canisters?.length) {
+  // 4. Extract canister names + recipes from icp.yaml (minimal parsing)
+  const canisters = await extractCanisters();
+  if (!canisters || canisters.length === 0) {
     console.log(chalk.red("No canisters defined in icp.yaml."));
     process.exit(1);
   }
 
-  // 5. Validate dependency graph (detect circular deps early)
-  try {
-    const sorted = topoSortCanisters(manifest.canisters);
-    const hasDeps = manifest.canisters.some((c) => c.dependencies?.length);
-    if (hasDeps) {
-      console.log(chalk.dim(`  Deploy order: ${sorted.map((c) => c.name).join(" → ")}\n`));
-    }
-  } catch (err) {
-    console.log(chalk.red(`\n✗ ${(err as Error).message}`));
-    console.log(chalk.dim("  Fix the dependencies in icp.yaml and try again."));
-    process.exit(1);
-  }
-
-  // 6. Show what we found
-  console.log(chalk.cyan("\n☁️  ICForge Init\n"));
+  // 5. Show what we found
+  console.log(chalk.cyan("\n\u2601\uFE0F  ICForge Init\n"));
   console.log(chalk.dim("Reading icp.yaml...\n"));
 
-  for (const canister of manifest.canisters) {
-    const type = classifyCanister(canister);
-    const icon = type === "frontend" ? "🌐" : "⚙️";
-    const recipe = canister.recipe?.type ?? "custom build";
-    console.log(`  ${icon} ${chalk.bold(canister.name)} — ${type} (${chalk.dim(recipe)})`);
+  for (const canister of canisters) {
+    const recipe = canister.recipe ?? "custom";
+    console.log(`  \u{1F4E6} ${chalk.bold(canister.name)} (${chalk.dim(recipe)})`);
   }
 
   console.log();
@@ -71,9 +54,9 @@ export async function initCommand(options: Record<string, unknown> = {}) {
     method: 'POST',
     body: JSON.stringify({
       name: (options.name as string) || path.basename(process.cwd()),
-      canisters: manifest.canisters.map(c => ({
+      canisters: canisters.map(c => ({
         name: c.name,
-        type: classifyCanister(c),
+        recipe: c.recipe ?? "custom",
       })),
       subnet: undefined,
     }),
@@ -86,14 +69,13 @@ export async function initCommand(options: Record<string, unknown> = {}) {
   }
 
   const body = await resp.json() as { project: { id: string; slug?: string } } | { id: string; slug?: string };
-  // Handle both wrapped and unwrapped response shapes
   const projectData = 'project' in body ? body.project : body;
   const { id: projectId, slug } = projectData;
 
   // 7. Save .icforge link file
   await saveICForgeConfig({ projectId, slug: slug ?? undefined });
 
-  console.log(chalk.green("✓"), "Project linked:", chalk.cyan(slug ?? projectId));
+  console.log(chalk.green("\u2713"), "Project linked:", chalk.cyan(slug ?? projectId));
   if (slug) {
     console.log(chalk.dim(`  Vanity URL: https://${slug}.icforge.dev`));
   }
@@ -103,11 +85,9 @@ export async function initCommand(options: Record<string, unknown> = {}) {
   try {
     const { execSync } = await import("child_process");
     const remoteUrl = execSync("git remote get-url origin", { encoding: "utf-8" }).trim();
-    // Extract owner/repo from GitHub URL (HTTPS or SSH)
     const match = remoteUrl.match(/github\.com[:/](.+?\/.+?)(?:\.git)?$/);
     if (match) {
       const fullName = match[1];
-      // Fetch user's GitHub repos from the installation
       const reposResp = await apiFetch('/api/v1/github/repos');
       if (reposResp.ok) {
         const reposBody = await reposResp.json() as { repos: Array<{ id: string; full_name: string }> };
@@ -123,7 +103,7 @@ export async function initCommand(options: Record<string, unknown> = {}) {
             }),
           });
           if (linkResp.ok) {
-            console.log(chalk.green("✓"), "GitHub repo linked:", chalk.cyan(fullName));
+            console.log(chalk.green("\u2713"), "GitHub repo linked:", chalk.cyan(fullName));
             console.log(chalk.dim("  Pushes to main will auto-deploy."));
           }
         } else {

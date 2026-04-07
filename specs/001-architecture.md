@@ -463,6 +463,7 @@ The progression is natural: start free on shared infra, graduate to your own Clo
 - [ ] Cycles monitoring + auto top-up alerts — see 010
 - [ ] Canister eject flow (transfer control to user's principal) — see 011
 - [ ] Subnet selection (in icp.yaml or dashboard) — see 012
+- [ ] icp-cli migration — delegate build/deploy/sync to icp-cli — see 020
 
 ### v0.4 — "Growth"
 - [ ] Preview deployments on PRs — see 013

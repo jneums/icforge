@@ -10,7 +10,7 @@ import { logsCommand } from "./commands/logs.js";
 program
   .name("icforge")
   .description("Deploy to the Internet Computer — zero config, zero crypto")
-  .version("0.1.0");
+  .version("0.2.0");
 
 program
   .command("init")
@@ -30,10 +30,7 @@ program
 
 program
   .command("deploy")
-  .description("Build and deploy your project to the Internet Computer")
-  .option("--skip-build", "Skip the local build step")
-  .option("-e, --env <environment>", "Target environment", "production")
-  .option("-w, --wasm <path>", "Path to a pre-built .wasm file")
+  .description("Trigger a server-side build and deploy for the current commit")
   .option("-c, --canister <name>", "Deploy only the specified canister")
   .action(deployCommand);
 

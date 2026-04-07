@@ -128,26 +128,66 @@ async fn handle_push(state: AppState, payload: Value) -> Result<(), AppError> {
     .await
     .map_err(AppError::Database)?;
 
-    // Enqueue build job
-    let job_id = uuid::Uuid::new_v4().to_string();
-    sqlx::query(
-        r#"
-        INSERT INTO build_jobs (id, project_id, commit_sha, commit_message, branch, repo_full_name, installation_id, trigger, status)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, 'push', 'pending')
-        "#,
+    // Look up registered canisters for per-canister job enqueuing
+    let canister_names: Vec<String> = sqlx::query_scalar(
+        "SELECT name FROM canisters WHERE project_id = $1 ORDER BY name",
     )
-    .bind(&job_id)
     .bind(&project.id)
-    .bind(commit_sha)
-    .bind(&commit_message)
-    .bind(branch)
-    .bind(repo_full_name)
-    .bind(installation_id)
-    .execute(&state.db)
+    .fetch_all(&state.db)
     .await
     .map_err(AppError::Database)?;
 
-    tracing::info!(job_id = job_id, project = project.name, "Build job enqueued");
+    if canister_names.is_empty() {
+        // No canisters registered yet — enqueue a single job (worker will discover from icp.yaml)
+        let job_id = uuid::Uuid::new_v4().to_string();
+        sqlx::query(
+            r#"
+            INSERT INTO build_jobs (id, project_id, commit_sha, commit_message, branch, repo_full_name, installation_id, trigger, status)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, 'push', 'pending')
+            "#,
+        )
+        .bind(&job_id)
+        .bind(&project.id)
+        .bind(commit_sha)
+        .bind(&commit_message)
+        .bind(branch)
+        .bind(repo_full_name)
+        .bind(installation_id)
+        .execute(&state.db)
+        .await
+        .map_err(AppError::Database)?;
+
+        tracing::info!(job_id = job_id, project = project.name, "Build job enqueued (all canisters)");
+    } else {
+        // One job per canister — like Render.io services
+        for canister_name in &canister_names {
+            let job_id = uuid::Uuid::new_v4().to_string();
+            sqlx::query(
+                r#"
+                INSERT INTO build_jobs (id, project_id, canister_name, commit_sha, commit_message, branch, repo_full_name, installation_id, trigger, status)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'push', 'pending')
+                "#,
+            )
+            .bind(&job_id)
+            .bind(&project.id)
+            .bind(canister_name)
+            .bind(commit_sha)
+            .bind(&commit_message)
+            .bind(branch)
+            .bind(repo_full_name)
+            .bind(installation_id)
+            .execute(&state.db)
+            .await
+            .map_err(AppError::Database)?;
+
+            tracing::info!(
+                job_id = job_id,
+                project = project.name,
+                canister = canister_name,
+                "Per-canister build job enqueued"
+            );
+        }
+    }
 
     Ok(())
 }
@@ -213,31 +253,72 @@ async fn handle_pull_request(state: AppState, payload: Value) -> Result<(), AppE
                 .await
                 .map_err(AppError::Database)?;
 
-                // Enqueue preview build
-                let job_id = uuid::Uuid::new_v4().to_string();
-                sqlx::query(
-                    r#"
-                    INSERT INTO build_jobs (id, project_id, commit_sha, branch, repo_full_name, installation_id, trigger, pr_number, status)
-                    VALUES ($1, $2, $3, $4, $5, $6, 'pull_request', $7, 'pending')
-                    "#,
+                // Look up registered canisters for per-canister job enqueuing
+                let canister_names: Vec<String> = sqlx::query_scalar(
+                    "SELECT name FROM canisters WHERE project_id = $1 ORDER BY name",
                 )
-                .bind(&job_id)
                 .bind(&project.id)
-                .bind(commit_sha)
-                .bind(branch)
-                .bind(repo_full_name)
-                .bind(installation_id)
-                .bind(pr_number)
-                .execute(&state.db)
+                .fetch_all(&state.db)
                 .await
                 .map_err(AppError::Database)?;
 
-                tracing::info!(
-                    job_id = job_id,
-                    project = project.name,
-                    pr = pr_number,
-                    "Preview build job enqueued"
-                );
+                if canister_names.is_empty() {
+                    // No canisters registered yet — enqueue a single job
+                    let job_id = uuid::Uuid::new_v4().to_string();
+                    sqlx::query(
+                        r#"
+                        INSERT INTO build_jobs (id, project_id, commit_sha, branch, repo_full_name, installation_id, trigger, pr_number, status)
+                        VALUES ($1, $2, $3, $4, $5, $6, 'pull_request', $7, 'pending')
+                        "#,
+                    )
+                    .bind(&job_id)
+                    .bind(&project.id)
+                    .bind(commit_sha)
+                    .bind(branch)
+                    .bind(repo_full_name)
+                    .bind(installation_id)
+                    .bind(pr_number)
+                    .execute(&state.db)
+                    .await
+                    .map_err(AppError::Database)?;
+
+                    tracing::info!(
+                        job_id = job_id,
+                        project = project.name,
+                        pr = pr_number,
+                        "Preview build job enqueued (all canisters)"
+                    );
+                } else {
+                    // One job per canister
+                    for canister_name in &canister_names {
+                        let job_id = uuid::Uuid::new_v4().to_string();
+                        sqlx::query(
+                            r#"
+                            INSERT INTO build_jobs (id, project_id, canister_name, commit_sha, branch, repo_full_name, installation_id, trigger, pr_number, status)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, 'pull_request', $8, 'pending')
+                            "#,
+                        )
+                        .bind(&job_id)
+                        .bind(&project.id)
+                        .bind(canister_name)
+                        .bind(commit_sha)
+                        .bind(branch)
+                        .bind(repo_full_name)
+                        .bind(installation_id)
+                        .bind(pr_number)
+                        .execute(&state.db)
+                        .await
+                        .map_err(AppError::Database)?;
+
+                        tracing::info!(
+                            job_id = job_id,
+                            project = project.name,
+                            canister = canister_name,
+                            pr = pr_number,
+                            "Per-canister preview build job enqueued"
+                        );
+                    }
+                }
             }
         }
         "closed" => {

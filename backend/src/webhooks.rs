@@ -121,7 +121,7 @@ async fn handle_push(state: AppState, payload: Value) -> Result<(), AppError> {
 
     // Cancel any pending builds for this project (deduplication)
     sqlx::query(
-        "UPDATE deployments SET status = 'cancelled', updated_at = to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS') WHERE project_id = $1 AND status = 'pending'"
+        "UPDATE deployments SET status = 'cancelled', updated_at = to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS') WHERE project_id = $1 AND status = 'queued'"
     )
     .bind(&project.id)
     .execute(&state.db)
@@ -143,7 +143,7 @@ async fn handle_push(state: AppState, payload: Value) -> Result<(), AppError> {
         sqlx::query(
             r#"
             INSERT INTO deployments (id, project_id, commit_sha, commit_message, branch, repo_full_name, installation_id, trigger, status)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, 'push', 'pending')
+            VALUES ($1, $2, $3, $4, $5, $6, $7, 'push', 'queued')
             "#,
         )
         .bind(&job_id)
@@ -165,7 +165,7 @@ async fn handle_push(state: AppState, payload: Value) -> Result<(), AppError> {
             sqlx::query(
                 r#"
                 INSERT INTO deployments (id, project_id, canister_name, commit_sha, commit_message, branch, repo_full_name, installation_id, trigger, status)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'push', 'pending')
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'push', 'queued')
                 "#,
             )
             .bind(&job_id)
@@ -245,7 +245,7 @@ async fn handle_pull_request(state: AppState, payload: Value) -> Result<(), AppE
             if let Some(project) = project {
                 // Cancel any pending preview builds for this PR
                 sqlx::query(
-                    "UPDATE deployments SET status = 'cancelled', updated_at = to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS') WHERE project_id = $1 AND pr_number = $2 AND status = 'pending'"
+                    "UPDATE deployments SET status = 'cancelled', updated_at = to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS') WHERE project_id = $1 AND pr_number = $2 AND status = 'queued'"
                 )
                 .bind(&project.id)
                 .bind(pr_number)
@@ -268,7 +268,7 @@ async fn handle_pull_request(state: AppState, payload: Value) -> Result<(), AppE
                     sqlx::query(
                         r#"
                         INSERT INTO deployments (id, project_id, commit_sha, branch, repo_full_name, installation_id, trigger, pr_number, status)
-                        VALUES ($1, $2, $3, $4, $5, $6, 'pull_request', $7, 'pending')
+                        VALUES ($1, $2, $3, $4, $5, $6, 'pull_request', $7, 'queued')
                         "#,
                     )
                     .bind(&job_id)
@@ -295,7 +295,7 @@ async fn handle_pull_request(state: AppState, payload: Value) -> Result<(), AppE
                         sqlx::query(
                             r#"
                             INSERT INTO deployments (id, project_id, canister_name, commit_sha, branch, repo_full_name, installation_id, trigger, pr_number, status)
-                            VALUES ($1, $2, $3, $4, $5, $6, $7, 'pull_request', $8, 'pending')
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, 'pull_request', $8, 'queued')
                             "#,
                         )
                         .bind(&job_id)

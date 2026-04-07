@@ -8,11 +8,11 @@ import { Folder, AlertCircle, GitCommit, Clock, Plus, Box } from "lucide-react";
 import type { Project } from "@/api/types";
 
 function getProjectStatus(project: Project): string {
-  if (!project.canisters?.length) return "pending";
+  if (!project.canisters?.length) return "queued";
   const statuses = project.canisters.map((c) => c.status);
   if (statuses.includes("running")) return "running";
   if (statuses.includes("created")) return "created";
-  return statuses[0] ?? "pending";
+  return statuses[0] ?? "queued";
 }
 
 function timeAgo(dateStr: string): string {

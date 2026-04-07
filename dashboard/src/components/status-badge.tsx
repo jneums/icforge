@@ -5,7 +5,7 @@ const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
   running:  { label: "Running",  className: "bg-success/15 text-success border-success/20" },
   live:     { label: "Live",     className: "bg-success/15 text-success border-success/20" },
   building: { label: "Building", className: "bg-warning/15 text-warning border-warning/20" },
-  pending:  { label: "Pending",  className: "bg-warning/15 text-warning border-warning/20" },
+  queued:   { label: "Queued",   className: "bg-warning/15 text-warning border-warning/20" },
   deploying:{ label: "Deploying",className: "bg-warning/15 text-warning border-warning/20" },
   created:  { label: "Created",  className: "bg-warning/15 text-warning border-warning/20" },
   failed:   { label: "Failed",   className: "bg-destructive/15 text-destructive border-destructive/20" },

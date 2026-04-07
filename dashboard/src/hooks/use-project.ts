@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { fetchProject } from '@/api';
 
-const IN_PROGRESS_STATUSES = ['pending', 'queued', 'building', 'deploying', 'created'];
+const IN_PROGRESS_STATUSES = ['queued', 'building', 'deploying', 'created'];
 
 export function useProject(id: string) {
   return useQuery({

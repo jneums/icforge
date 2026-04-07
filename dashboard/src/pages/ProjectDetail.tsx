@@ -29,7 +29,7 @@ import { CopyButton } from "@/components/copy-button";
 import { displayRecipe } from "@/lib/utils";
 import type { Canister, Deployment } from "@/api/types";
 
-const IN_PROGRESS_STATUSES = ["pending", "queued", "building", "deploying", "created"];
+const IN_PROGRESS_STATUSES = ["queued", "building", "deploying", "created"];
 
 function timeAgo(dateStr: string): string {
   const date = new Date(dateStr + "Z");
@@ -253,7 +253,7 @@ export default function ProjectDetail() {
   const { project, deployments = [] } = data;
   const latestDeploy = deployments[0];
     const latestStatus =
-    latestDeploy?.status ?? project.canisters?.[0]?.status ?? "pending";
+    latestDeploy?.status ?? project.canisters?.[0]?.status ?? "queued";
   const canisters = project.canisters ?? [];
 
   return (

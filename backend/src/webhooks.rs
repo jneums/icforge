@@ -119,7 +119,7 @@ async fn handle_push(state: AppState, payload: Value) -> Result<(), AppError> {
         }
     };
 
-    // Cancel any pending builds for this project (deduplication)
+    // Cancel any queued deployments for this project (deduplication)
     sqlx::query(
         "UPDATE deployments SET status = 'cancelled', updated_at = to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS') WHERE project_id = $1 AND status = 'queued'"
     )
@@ -243,7 +243,7 @@ async fn handle_pull_request(state: AppState, payload: Value) -> Result<(), AppE
             .map_err(AppError::Database)?;
 
             if let Some(project) = project {
-                // Cancel any pending preview builds for this PR
+                // Cancel any queued preview deployments for this PR
                 sqlx::query(
                     "UPDATE deployments SET status = 'cancelled', updated_at = to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS') WHERE project_id = $1 AND pr_number = $2 AND status = 'queued'"
                 )

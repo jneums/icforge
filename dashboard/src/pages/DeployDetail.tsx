@@ -26,7 +26,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { CopyButton } from "@/components/copy-button";
 import { toast } from "sonner";
 
-const IN_PROGRESS_STATUSES = ["pending", "building", "deploying", "created"];
+const IN_PROGRESS_STATUSES = ["queued", "building", "deploying", "created"];
 
 const LEVEL_COLORS: Record<string, string> = {
   error: "text-destructive",
@@ -140,7 +140,7 @@ export default function DeployDetail() {
   const { id: projectId, deployId } = useParams();
   const { user, loading: authLoading } = useAuth();
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [status, setStatus] = useState<string>("pending");
+  const [status, setStatus] = useState<string>("queued");
   const [deployMeta, setDeployMeta] = useState<{
     canister_id?: string;
     url?: string;

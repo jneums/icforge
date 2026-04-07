@@ -5,7 +5,7 @@ use crate::db::DbPool;
 use crate::github::{self, GitHubNotifier};
 use crate::models::DeploymentRecord;
 
-/// Spawn the background build worker that polls for pending jobs.
+/// Spawn the background deploy worker that polls for queued jobs.
 pub fn spawn_worker(pool: DbPool, config: AppConfig) {
     tokio::spawn(async move {
         tracing::info!("Deploy worker started — polling for jobs every 5s");
@@ -29,13 +29,13 @@ pub fn spawn_worker(pool: DbPool, config: AppConfig) {
     });
 }
 
-/// Try to claim one pending job and execute it. Returns true if a job was processed.
+/// Try to claim one queued job and execute it. Returns true if a job was processed.
 async fn claim_and_run(
     pool: &DbPool,
     config: &AppConfig,
     notifier: &GitHubNotifier,
 ) -> Result<bool, String> {
-    // Atomic claim: grab the oldest pending job with FOR UPDATE SKIP LOCKED
+    // Atomic claim: grab the oldest queued job with FOR UPDATE SKIP LOCKED
     let job: Option<DeploymentRecord> = sqlx::query_as(
         r#"
         UPDATE deployments

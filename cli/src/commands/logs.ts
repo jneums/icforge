@@ -91,7 +91,7 @@ function colorStatus(status: string): string {
       return chalk.red(status);
     case "deploying":
     case "building":
-    case "pending":
+    case "queued":
     case "in_progress":
       return chalk.yellow(status);
     default:

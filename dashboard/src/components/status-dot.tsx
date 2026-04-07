@@ -2,7 +2,7 @@ import { cn } from "@/lib/utils"
 
 const DOT_COLORS: Record<string, string> = {
   deployed: "bg-success", running: "bg-success", live: "bg-success", succeeded: "bg-success",
-  building: "bg-warning", pending: "bg-warning", deploying: "bg-warning", created: "bg-warning",
+  building: "bg-warning", queued: "bg-warning", deploying: "bg-warning", created: "bg-warning",
   failed: "bg-destructive", error: "bg-destructive",
 };
 

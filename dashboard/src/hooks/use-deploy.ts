@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { fetchDeployStatus, fetchDeployLogs } from '@/api';
 
-const IN_PROGRESS_STATUSES = ['pending', 'building', 'deploying', 'created'];
+const IN_PROGRESS_STATUSES = ['queued', 'building', 'deploying', 'created'];
 
 export function useDeployStatus(deployId: string) {
   return useQuery({

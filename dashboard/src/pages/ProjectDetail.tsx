@@ -140,7 +140,7 @@ function DeployRow({
 }) {
   const navigate = useNavigate();
   const inProgress = IN_PROGRESS_STATUSES.includes(deploy.status);
-  const succeeded = deploy.status === "succeeded" || deploy.status === "deployed";
+  const succeeded = deploy.status === "live" || deploy.status === "succeeded" || deploy.status === "deployed";
   const failed = deploy.status === "failed" || deploy.status === "error";
 
   return (

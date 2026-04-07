@@ -6,6 +6,9 @@ import {
   Clock,
   ChevronDown,
   ChevronRight,
+  CheckCircle2,
+  XCircle,
+  Loader2,
 } from "lucide-react";
 import { useProject } from "@/hooks/use-project";
 import { useCanisterEnv } from "@/hooks/use-canister-env";
@@ -137,13 +140,26 @@ function DeployRow({
 }) {
   const navigate = useNavigate();
   const inProgress = IN_PROGRESS_STATUSES.includes(deploy.status);
+  const succeeded = deploy.status === "succeeded" || deploy.status === "deployed";
+  const failed = deploy.status === "failed" || deploy.status === "error";
 
   return (
     <div
       className="flex items-center gap-3 px-4 py-2.5 hover:bg-muted/40 transition-colors cursor-pointer"
       onClick={() => navigate(`/projects/${projectId}/deploys/${deploy.id}`)}
     >
-      <StatusDot status={deploy.status} pulse={inProgress} />
+      {succeeded ? (
+        <CheckCircle2 className="h-4 w-4 shrink-0 text-success" />
+      ) : failed ? (
+        <XCircle className="h-4 w-4 shrink-0 text-destructive" />
+      ) : inProgress ? (
+        <Loader2 className="h-4 w-4 shrink-0 text-warning animate-spin" />
+      ) : (
+        <StatusDot status={deploy.status} pulse={inProgress} />
+      )}
+      <Badge variant="outline" className="text-xs shrink-0">
+        {deploy.canister_name}
+      </Badge>
       <span className="text-sm truncate flex-1">
         {deploy.commit_message || "No message"}
       </span>

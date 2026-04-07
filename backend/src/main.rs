@@ -61,7 +61,7 @@ async fn main() {
     };
 
     // Start the background build worker
-    deploy_worker::spawn_worker(pool, config);
+    deploy_worker::spawn_worker(pool, config, state.log_channels.clone());
 
     let app = Router::new()
         .route("/health", get(health))

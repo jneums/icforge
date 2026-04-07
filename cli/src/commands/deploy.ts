@@ -54,6 +54,8 @@ async function streamDeployLogs(deployId: string): Promise<{ status: string; err
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
+      let currentEvent = ""; // tracks the SSE "event:" field
+      let finalStatus = "";
 
       while (true) {
         const { done, value } = await reader.read();
@@ -64,30 +66,42 @@ async function streamDeployLogs(deployId: string): Promise<{ status: string; err
         buffer = lines.pop() ?? "";
 
         for (const line of lines) {
-          if (line.startsWith("data: ")) {
+          if (line.startsWith("event: ")) {
+            currentEvent = line.slice(7).trim();
+          } else if (line.startsWith("data: ")) {
             const data = line.slice(6).trim();
-            if (data === "[DONE]") {
-              // Fetch final status
-              const statusResp = await apiFetch(`/api/v1/deployments/${deployId}`);
-              if (statusResp.ok) {
-                const statusData = (await statusResp.json()) as { build: { status: string; error_message?: string } };
-                return { status: statusData.build.status, error: statusData.build.error_message ?? undefined };
+
+            if (currentEvent === "done") {
+              // Terminal event — data is the final status (e.g. "live", "failed")
+              finalStatus = data;
+              return { status: finalStatus };
+            } else if (currentEvent === "status") {
+              // Status update — track it but keep streaming
+              finalStatus = data;
+            } else if (currentEvent === "log" || currentEvent === "") {
+              // Log event — parse JSON and print
+              try {
+                const evt = JSON.parse(data) as { level: string; message: string };
+                const levelColor =
+                  evt.level === "error" ? chalk.red :
+                  evt.level === "warn" ? chalk.yellow :
+                  chalk.dim;
+                console.log(`  ${levelColor(`[${evt.level}]`)} ${evt.message}`);
+              } catch {
+                // non-JSON SSE data, print as-is
+                if (data) console.log(`  ${chalk.dim(data)}`);
               }
-              return { status: "completed" };
             }
-            try {
-              const event = JSON.parse(data) as { level: string; message: string };
-              const levelColor =
-                event.level === "error" ? chalk.red :
-                event.level === "warn" ? chalk.yellow :
-                chalk.dim;
-              console.log(`  ${levelColor(`[${event.level}]`)} ${event.message}`);
-            } catch {
-              // non-JSON SSE data, print as-is
-              if (data) console.log(`  ${chalk.dim(data)}`);
-            }
+
+            // Reset event type after processing data
+            currentEvent = "";
           }
         }
+      }
+
+      // Stream ended without explicit "done" event — use last known status
+      if (finalStatus) {
+        return { status: finalStatus };
       }
     }
   } catch {
@@ -109,7 +123,7 @@ async function streamDeployLogs(deployId: string): Promise<{ status: string; err
       }
 
       const buildData = (await deployResp.json()) as {
-        build: { status: string; error_message?: string };
+        deployment: { status: string; error_message?: string };
         logs: Array<{ level: string; message: string }>;
       };
 
@@ -126,11 +140,11 @@ async function streamDeployLogs(deployId: string): Promise<{ status: string; err
       }
       lastLogCount = buildData.logs.length;
 
-      spinner.text = `Status: ${buildData.build.status}`;
+      spinner.text = `Status: ${buildData.deployment.status}`;
 
-      if (["completed", "failed", "cancelled"].includes(buildData.build.status)) {
+      if (["live", "failed", "cancelled"].includes(buildData.deployment.status)) {
         spinner.stop();
-        return { status: buildData.build.status, error: buildData.build.error_message ?? undefined };
+        return { status: buildData.deployment.status, error: buildData.deployment.error_message ?? undefined };
       }
     } catch {
       spinner.text = "Waiting for build status...";
@@ -202,7 +216,7 @@ export async function deployCommand(options: DeployOptions = {}) {
 
   // 6. Print summary
   console.log();
-  if (result.status === "completed") {
+  if (result.status === "live") {
     console.log(chalk.green("  \u2713 Deploy complete!"));
     console.log(chalk.dim(`  View status: icforge status`));
   } else if (result.status === "failed") {

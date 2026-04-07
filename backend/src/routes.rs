@@ -688,8 +688,8 @@ pub async fn trigger_deploy(
     }
 
     Ok(Json(json!({
-        "build_id": build_ids.first().unwrap_or(&String::new()),
-        "build_ids": build_ids,
+        "deployment_id": build_ids.first().unwrap_or(&String::new()),
+        "deployment_ids": build_ids,
     })))
 }
 

@@ -1,18 +1,26 @@
+use std::sync::Arc;
 use std::time::Instant;
+
+use dashmap::DashMap;
+use tokio::sync::broadcast;
 
 use crate::config::AppConfig;
 use crate::db::DbPool;
 use crate::github::{self, GitHubNotifier};
 use crate::models::DeploymentRecord;
+use crate::LogEvent;
+
+/// Shared map of per-deployment broadcast channels for SSE log streaming.
+pub type LogChannels = Arc<DashMap<String, broadcast::Sender<LogEvent>>>;
 
 /// Spawn the background deploy worker that polls for queued jobs.
-pub fn spawn_worker(pool: DbPool, config: AppConfig) {
+pub fn spawn_worker(pool: DbPool, config: AppConfig, log_channels: LogChannels) {
     tokio::spawn(async move {
         tracing::info!("Deploy worker started — polling for jobs every 5s");
         let notifier = GitHubNotifier::new();
 
         loop {
-            match claim_and_run(&pool, &config, &notifier).await {
+            match claim_and_run(&pool, &config, &notifier, &log_channels).await {
                 Ok(true) => {
                     // Processed a job — immediately check for more
                     continue;
@@ -34,6 +42,7 @@ async fn claim_and_run(
     pool: &DbPool,
     config: &AppConfig,
     notifier: &GitHubNotifier,
+    log_channels: &LogChannels,
 ) -> Result<bool, String> {
     // Atomic claim: grab the oldest queued job with FOR UPDATE SKIP LOCKED
     let job: Option<DeploymentRecord> = sqlx::query_as(
@@ -70,7 +79,7 @@ async fn claim_and_run(
     // Get installation token for GitHub API access + cloning
     let installation_id = job.installation_id
         .ok_or_else(|| "BUG: deployment has no installation_id".to_string())?;
-    let token = github::get_installation_token(&config, installation_id)
+    let token=github::get_installation_token(config, installation_id)
         .await
         .map_err(|e| format!("Failed to get installation token: {e}"))?;
 
@@ -111,9 +120,13 @@ async fn claim_and_run(
         .await
         .ok();
 
+    // Create a broadcast channel for real-time log streaming via SSE
+    let (tx, _) = broadcast::channel::<LogEvent>(256);
+    log_channels.insert(job.id.clone(), tx.clone());
+
     // Run the actual build
     let start = Instant::now();
-    let result = execute_deploy(pool, config, &job, &token).await;
+    let result = execute_deploy(pool, config, &job, &token, &tx).await;
     let duration_ms = start.elapsed().as_millis() as i32;
 
     match result {
@@ -257,6 +270,9 @@ async fn claim_and_run(
         }
     }
 
+    // Clean up broadcast channel — SSE subscribers see channel close
+    log_channels.remove(&job.id);
+
     Ok(true)
 }
 
@@ -266,11 +282,12 @@ async fn execute_deploy(
     config: &AppConfig,
     job: &DeploymentRecord,
     token: &str,
+    tx: &broadcast::Sender<LogEvent>,
 ) -> Result<(), String> {
     let work_dir = format!("/tmp/icforge-deploys/{}", job.id);
 
     // Phase: clone
-    log_deploy(pool, &job.id, "info", "clone", "Cloning repository...").await;
+    log_deploy(pool, &job.id, "info", "clone", "Cloning repository...", tx).await;
 
     let clone_url = format!(
         "https://x-access-token:{token}@github.com/{}.git",
@@ -293,7 +310,7 @@ async fn execute_deploy(
     .await?;
     run_cmd(&work_dir, &["git", "checkout", job.commit_sha.as_deref().unwrap_or("HEAD")]).await?;
 
-    log_deploy(pool, &job.id, "info", "clone", "Repository cloned").await;
+    log_deploy(pool, &job.id, "info", "clone", "Repository cloned", tx).await;
 
     // Require icp.yaml — no fallback framework detection
     let icp_yaml_path = format!("{work_dir}/icp.yaml");
@@ -309,7 +326,7 @@ async fn execute_deploy(
         .map_err(|e| format!("Failed to fetch project slug: {e}"))?;
 
     // Phase: setup icp-cli identity
-    log_deploy(pool, &job.id, "info", "setup", "Setting up icp-cli identity...").await;
+    log_deploy(pool, &job.id, "info", "setup", "Setting up icp-cli identity...", tx).await;
 
     let ic_pem = config
         .ic_identity_pem
@@ -340,7 +357,7 @@ async fn execute_deploy(
     // Clean up PEM file immediately
     let _ = tokio::fs::remove_file(&pem_path).await;
 
-    log_deploy(pool, &job.id, "info", "setup", "Identity configured").await;
+    log_deploy(pool, &job.id, "info", "setup", "Identity configured", tx).await;
 
     // Every job targets exactly one canister — webhook fan-out guarantees this
     let canister_name = &job.canister_name;
@@ -351,11 +368,12 @@ async fn execute_deploy(
         "info",
         "deploy",
         &format!("Deploying canister '{canister_name}'..."),
+        tx,
     )
     .await;
 
     // Phase: pre-provision — ensure canister has ID in DB
-    log_deploy(pool, &job.id, "info", "provision", &format!("Pre-provisioning canister '{canister_name}'...")).await;
+    log_deploy(pool, &job.id, "info", "provision", &format!("Pre-provisioning canister '{canister_name}'..."), tx).await;
 
     {
         let canister_row = sqlx::query_as::<_, (String, Option<String>)>(
@@ -375,6 +393,7 @@ async fn execute_deploy(
                     "info",
                     "provision",
                     &format!("Canister '{canister_name}' already provisioned: {cid}"),
+                    tx,
                 )
                 .await;
             }
@@ -386,6 +405,7 @@ async fn execute_deploy(
                     "info",
                     "provision",
                     &format!("Creating canister '{canister_name}' on IC..."),
+                    tx,
                 )
                 .await;
 
@@ -414,6 +434,7 @@ async fn execute_deploy(
                     "info",
                     "provision",
                     &format!("Created canister '{canister_name}': {cid}"),
+                    tx,
                 )
                 .await;
             }
@@ -425,7 +446,7 @@ async fn execute_deploy(
 
     // Phase: hydrate .icp/data/mappings/ — write ALL canister IDs from DB
     // so icp-cli discovers sibling canisters and injects PUBLIC_CANISTER_ID:* env vars
-    log_deploy(pool, &job.id, "info", "hydrate", "Hydrating .icp mappings from DB...").await;
+    log_deploy(pool, &job.id, "info", "hydrate", "Hydrating .icp mappings from DB...", tx).await;
 
     let all_canisters = sqlx::query_as::<_, (String, Option<String>)>(
         "SELECT name, canister_id FROM canisters WHERE project_id = $1",
@@ -465,6 +486,7 @@ async fn execute_deploy(
             "Wrote {} canister IDs to .icp/data/mappings/ic.ids.json",
             all_canisters.iter().filter(|(_, c)| c.is_some()).count()
         ),
+        tx,
     )
     .await;
 
@@ -474,6 +496,7 @@ async fn execute_deploy(
         &job.id,
         &work_dir,
         &["icp", "deploy", canister_name, "-e", "ic", "--identity", "icforge"],
+        tx,
     )
     .await
     .map_err(|e| format!("icp deploy failed for '{canister_name}': {e}"))?;
@@ -505,6 +528,7 @@ async fn execute_deploy(
             "info",
             "deploy",
             &format!("✅ Canister '{canister_name}' deployed to {cid}"),
+            tx,
         )
         .await;
 
@@ -527,6 +551,7 @@ async fn execute_deploy(
             "info",
             "deploy",
             &format!("✅ Canister '{canister_name}' deployed (no canister ID in DB yet)"),
+            tx,
         )
         .await;
     }
@@ -534,7 +559,7 @@ async fn execute_deploy(
     // Cleanup
     let _ = tokio::fs::remove_dir_all(&work_dir).await;
 
-    log_deploy(pool, &job.id, "info", "complete", "Deployment complete").await;
+    log_deploy(pool, &job.id, "info", "complete", "Deployment complete", tx).await;
     Ok(())
 }
 
@@ -596,6 +621,7 @@ async fn run_cmd_streaming(
     deployment_id: &str,
     work_dir: &str,
     args: &[&str],
+    tx: &broadcast::Sender<LogEvent>,
 ) -> Result<String, String> {
     use tokio::io::{AsyncBufReadExt, BufReader};
     use tokio::process::Command;
@@ -617,6 +643,7 @@ async fn run_cmd_streaming(
     let stderr = child.stderr.take();
 
     let pool_clone = pool.clone();
+    let tx_clone = tx.clone();
     let dep_id = deployment_id.to_string();
     let stdout_handle = tokio::spawn(async move {
         let mut lines_out = Vec::new();
@@ -624,7 +651,7 @@ async fn run_cmd_streaming(
             let reader = BufReader::new(stdout);
             let mut lines = reader.lines();
             while let Ok(Some(line)) = lines.next_line().await {
-                log_deploy(&pool_clone, &dep_id, "info", "deploy", &format!("  | {line}")).await;
+                log_deploy(&pool_clone, &dep_id, "info", "deploy", &format!("  | {line}"), &tx_clone).await;
                 lines_out.push(line);
             }
         }
@@ -632,6 +659,7 @@ async fn run_cmd_streaming(
     });
 
     let pool_clone2 = pool.clone();
+    let tx_clone2 = tx.clone();
     let dep_id2 = deployment_id.to_string();
     let stderr_handle = tokio::spawn(async move {
         let mut lines_err = Vec::new();
@@ -639,7 +667,7 @@ async fn run_cmd_streaming(
             let reader = BufReader::new(stderr);
             let mut lines = reader.lines();
             while let Ok(Some(line)) = lines.next_line().await {
-                log_deploy(&pool_clone2, &dep_id2, "warn", "deploy", &format!("  | {line}")).await;
+                log_deploy(&pool_clone2, &dep_id2, "warn", "deploy", &format!("  | {line}"), &tx_clone2).await;
                 lines_err.push(line);
             }
         }
@@ -672,8 +700,12 @@ async fn run_cmd_streaming(
 }
 
 
-async fn log_deploy(pool: &DbPool, deployment_id: &str, level: &str, phase: &str, message: &str) {
+async fn log_deploy(pool: &DbPool, deployment_id: &str, level: &str, phase: &str, message: &str, tx: &broadcast::Sender<LogEvent>) {
     tracing::info!(deployment_id = deployment_id, phase = phase, "{}", message);
+
+    let timestamp = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    // Write to DB
     let _ = sqlx::query(
         "INSERT INTO deploy_logs (deployment_id, level, message, phase) VALUES ($1, $2, $3, $4)",
     )
@@ -683,6 +715,13 @@ async fn log_deploy(pool: &DbPool, deployment_id: &str, level: &str, phase: &str
     .bind(phase)
     .execute(pool)
     .await;
+
+    // Broadcast to SSE subscribers (ignore error = no active subscribers)
+    let _ = tx.send(LogEvent {
+        level: level.to_string(),
+        message: message.to_string(),
+        timestamp,
+    });
 }
 
 async fn run_cmd(work_dir: &str, args: &[&str]) -> Result<String, String> {

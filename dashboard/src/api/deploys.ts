@@ -17,6 +17,7 @@ export async function fetchDeployStatus(deployId: string): Promise<{
   branch?: string;
   repo_full_name?: string;
   started_at?: string;
+  build_duration_ms?: number;
 }> {
   return apiFetch(`/api/v1/deploy/${deployId}/status`);
 }

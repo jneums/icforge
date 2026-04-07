@@ -228,16 +228,19 @@ function LogLine({ entry, lineNumber, highlighted, onClickLine }) {
 
 ## 6. Checklist
 
-- [ ] Rewrite page header with `<StatusBadge>` + streaming indicator
-- [ ] Replace metadata grid with `<Card>` summary (two-column key-value)
-- [ ] Add build duration calculation
-- [ ] Add error `<Alert>` for failed deploys
-- [ ] Replace log container with viewport-filling div (dynamic max-height)
-- [ ] Add line numbers with click-to-highlight (URL hash)
-- [ ] Add auto-scroll toggle button
-- [ ] Add copy-all-logs button using Sonner toast
-- [ ] Add `<CopyButton>` for canister ID
-- [ ] Add `<Spinner>` for "waiting for logs" state
-- [ ] Link commit SHA to GitHub when repo info available
-- [ ] Delete all inline style objects
-- [ ] Migrate SSE streaming logic (keep as-is, just restyle the output)
+- [x] Rewrite page header with `<StatusBadge>` + streaming indicator
+- [x] Replace metadata grid with `<Card>` summary (two-column key-value)
+- [x] Add build duration display (build_duration_ms from deploy status API)
+- [x] Add error `<Alert>` for failed deploys
+- [x] Replace log container with viewport-filling div (dynamic max-height)
+- [x] Add line numbers with click-to-highlight (URL hash)
+- [x] Add auto-scroll toggle button
+- [x] Add copy-all-logs button using Sonner toast
+- [x] Add `<CopyButton>` for canister ID
+- [x] Add `<Spinner>` for "waiting for logs" state
+- [x] Link commit SHA to GitHub when repo info available
+- [x] Delete all inline style objects
+- [x] Migrate SSE streaming logic (kept, restyled output)
+- [x] Visit button when deploy URL is available
+- [x] Level-colored log lines (error/warn/info/debug)
+- [x] Linkified URLs in log messages

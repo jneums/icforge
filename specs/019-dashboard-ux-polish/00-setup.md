@@ -167,14 +167,14 @@ After setup:
 
 ## 11. Checklist
 
-- [ ] Install `tailwindcss` + `@tailwindcss/vite`
-- [ ] Update `vite.config.ts` with Tailwind plugin
-- [ ] Run `npx shadcn@latest init` and configure
-- [ ] Install shadcn components (sidebar, breadcrumb, card, badge, tabs, skeleton, button, avatar, separator, collapsible, tooltip, sonner, spinner, alert, scroll-area)
-- [ ] Add `class="dark"` to `<html>` in `index.html`
-- [ ] Override shadcn CSS variables to match ICForge brand colors
-- [ ] Add custom `--color-success` and `--color-warning` theme tokens
-- [ ] Configure font families (Inter + JetBrains Mono)
-- [ ] Clean up old `index.css` (remove old custom properties and global classes)
-- [ ] Verify `npm run dev` works, app renders, no console errors
-- [ ] Verify a shadcn component renders correctly (e.g., drop a `<Button>` in Landing)
+- [x] Install `tailwindcss` + `@tailwindcss/vite`
+- [x] Update `vite.config.ts` with Tailwind plugin
+- [x] Run `npx shadcn@latest init` and configure
+- [x] Install shadcn components (sidebar, breadcrumb, card, badge, tabs, skeleton, button, avatar, separator, collapsible, tooltip, sonner, spinner, alert, scroll-area, sheet, input)
+- [x] Add `class="dark"` to `<html>` in `index.html`
+- [~] Override shadcn CSS variables to match ICForge brand colors — ⚠️ uses shadcn neutral defaults, not spec's blue primary (#3b82f6)
+- [x] Add custom `--color-success` and `--color-warning` theme tokens
+- [x] Configure font families (Inter + JetBrains Mono)
+- [x] Clean up old `index.css` (remove old custom properties and global classes)
+- [x] Verify `npm run dev` works, app renders, no console errors
+- [x] Verify a shadcn component renders correctly

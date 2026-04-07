@@ -121,14 +121,14 @@ toast("Canister ID copied to clipboard");
 
 ## 7. Checklist
 
-- [ ] Install `react-error-boundary`
-- [ ] Create `<ErrorFallback>` component with retry + back-to-projects
-- [ ] Wrap `<Routes>` in `<ErrorBoundary>` in App.tsx
-- [ ] Add catch-all `<Route path="*">` for 404
-- [ ] Create `<NotFound>` component
-- [ ] Create `<RequireAuth>` component
-- [ ] Wrap all authenticated routes in `<RequireAuth>`
-- [ ] Add `<Toaster />` (Sonner) to App.tsx root
-- [ ] Replace all `alert()` calls with `toast()` calls
-- [ ] Add `<Spinner>` to auth loading state
-- [ ] Audit all pages for uncaught promise rejections
+- [x] Install `react-error-boundary`
+- [x] Create `<ErrorFallback>` component with retry + back-to-projects
+- [x] Wrap `<Routes>` in `<ErrorBoundary>` in App.tsx
+- [x] Add catch-all `<Route path="*">` for 404
+- [x] Create `<NotFound>` component
+- [x] Create `<RequireAuth>` component
+- [x] Wrap all authenticated routes in `<RequireAuth>`
+- [x] Add `<Toaster />` (Sonner) to App.tsx root
+- [x] Replace all `alert()` calls with `toast()` calls (0 alert() remaining)
+- [x] Add `<Spinner>` to auth loading state
+- [x] Skeleton loading states on Projects, ProjectDetail, DeployDetail, Settings

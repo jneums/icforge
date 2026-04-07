@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useParams, Link } from "react-router-dom";
 import {
   GitCommit,
@@ -6,15 +6,12 @@ import {
   Copy,
   AlertCircle,
   ExternalLink,
+  Clock,
 } from "lucide-react";
-import {
-  fetchDeployLogs,
-  fetchDeployStatus,
-  getAuthHeaders,
-  API_URL,
-} from "@/api";
 import type { LogEntry } from "@/api/types";
 import { useAuth } from "@/hooks/use-auth";
+import { useDeployStatus, useDeployLogs } from "@/hooks/use-deploy";
+import { useDeployStream } from "@/hooks/use-deploy-stream";
 import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -39,7 +36,6 @@ const LEVEL_COLORS: Record<string, string> = {
 function formatTimestamp(ts: string): string | null {
   if (!ts) return null;
   try {
-    // Backend sends "YYYY-MM-DD HH:MM:SS" (UTC, no T/Z)
     const normalized = ts.includes("T") ? ts : ts.replace(" ", "T");
     const d = new Date(normalized.endsWith("Z") ? normalized : normalized + "Z");
     if (isNaN(d.getTime())) return null;
@@ -61,6 +57,15 @@ function timeAgo(dateStr: string): string {
   if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
   if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`;
   return date.toLocaleDateString();
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  return rem > 0 ? `${m}m ${rem}s` : `${m}m`;
 }
 
 /* -- Linkify URLs in log messages -- */
@@ -139,25 +144,39 @@ function LogLine({
 export default function DeployDetail() {
   const { id: projectId, deployId } = useParams();
   const { user, loading: authLoading } = useAuth();
-  const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [status, setStatus] = useState<string>("queued");
-  const [deployMeta, setDeployMeta] = useState<{
-    canister_id?: string;
-    url?: string;
-    error?: string;
-    commit_sha?: string;
-    commit_message?: string;
-    branch?: string;
-    repo_full_name?: string;
-    started_at?: string;
-  }>({});
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [streaming, setStreaming] = useState(false);
+  const ready = !authLoading && !!user && !!deployId;
+
+  // TanStack Query hooks for initial data
+  const {
+    data: statusData,
+    isLoading: statusLoading,
+    error: statusError,
+  } = useDeployStatus(deployId ?? "");
+  const {
+    data: initialLogs,
+    isLoading: logsLoading,
+  } = useDeployLogs(deployId ?? "");
+
+  const status = statusData?.status ?? "queued";
+  const isInProgress = IN_PROGRESS_STATUSES.includes(status);
+
+  // SSE streaming for in-progress deploys
+  const { logs: streamLogs, streaming } = useDeployStream(
+    deployId,
+    status,
+    ready && !statusLoading
+  );
+
+  // Use stream logs when streaming, otherwise initial logs
+  const logs = useMemo(
+    () => (streamLogs.length > 0 ? streamLogs : initialLogs ?? []),
+    [streamLogs, initialLogs]
+  );
+
+  // UI state
   const [autoScroll, setAutoScroll] = useState(true);
   const [highlightedLine, setHighlightedLine] = useState<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const abortRef = useRef<AbortController | null>(null);
 
   // Read line from URL hash
   useEffect(() => {
@@ -172,132 +191,11 @@ export default function DeployDetail() {
     }
   }, [logs, autoScroll]);
 
-  // Fetch initial status and logs
-  useEffect(() => {
-    if (authLoading || !user || !deployId) return;
-
-    let cancelled = false;
-
-    async function load() {
-      try {
-        const [statusData, logData] = await Promise.all([
-          fetchDeployStatus(deployId!),
-          fetchDeployLogs(deployId!),
-        ]);
-        if (cancelled) return;
-        setStatus(statusData.status);
-        setDeployMeta({
-          canister_id: statusData.canister_id,
-          url: statusData.url,
-          error: statusData.error,
-          commit_sha: statusData.commit_sha,
-          commit_message: statusData.commit_message,
-          branch: statusData.branch,
-          repo_full_name: statusData.repo_full_name,
-          started_at: statusData.started_at,
-        });
-        setLogs(logData);
-      } catch (e: unknown) {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [deployId, user, authLoading]);
-
-  // SSE streaming for in-progress deploys
-  const connectSSE = useCallback(
-    async (signal: AbortSignal) => {
-      if (!deployId) return;
-
-      const headers = getAuthHeaders();
-      try {
-        const response = await fetch(
-          `${API_URL}/api/v1/deploy/${deployId}/logs/stream`,
-          { headers, signal }
-        );
-
-        if (!response.ok || !response.body) return;
-
-        setStreaming(true);
-        setLogs([]); // SSE replays all logs — clear to avoid duplicates
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-        let currentEvent = "";
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() ?? "";
-
-          for (const line of lines) {
-            if (line.startsWith("event:")) {
-              currentEvent = line.slice(6).trim();
-            } else if (line.startsWith("data:")) {
-              const data = line.slice(5).trim();
-              if (currentEvent === "log") {
-                try {
-                  const entry: LogEntry = JSON.parse(data);
-                  setLogs((prev) => [...prev, entry]);
-                } catch {
-                  // skip malformed
-                }
-              } else if (currentEvent === "status") {
-                setStatus(data);
-              } else if (currentEvent === "done") {
-                setStreaming(false);
-                try {
-                  const finalStatus = await fetchDeployStatus(deployId);
-                  setStatus(finalStatus.status);
-                  setDeployMeta((prev) => ({
-                    ...prev,
-                    canister_id: finalStatus.canister_id,
-                    url: finalStatus.url,
-                    error: finalStatus.error,
-                  }));
-                } catch {
-                  // ignore
-                }
-                return;
-              }
-            }
-          }
-        }
-      } catch (e: unknown) {
-        if (e instanceof DOMException && e.name === "AbortError") return;
-      } finally {
-        setStreaming(false);
-      }
-    },
-    [deployId]
-  );
-
-  useEffect(() => {
-    if (authLoading || !user || loading) return;
-    if (!IN_PROGRESS_STATUSES.includes(status)) return;
-
-    const controller = new AbortController();
-    abortRef.current = controller;
-    connectSSE(controller.signal);
-
-    return () => {
-      controller.abort();
-      abortRef.current = null;
-    };
-  }, [status, loading, authLoading, user, connectSSE]);
-
   /* -- Render -- */
 
-  if (authLoading || loading) {
+  const loading = authLoading || statusLoading || logsLoading;
+
+  if (loading) {
     return (
       <div className="space-y-6">
         <Skeleton className="h-7 w-48" />
@@ -307,16 +205,28 @@ export default function DeployDetail() {
     );
   }
 
-  if (error) {
+  if (statusError) {
     return (
       <div className="text-center py-12">
-        <p className="text-sm text-destructive mb-3">{error}</p>
+        <p className="text-sm text-destructive mb-3">
+          {statusError instanceof Error ? statusError.message : String(statusError)}
+        </p>
         <Button variant="outline" size="sm" asChild>
           <Link to={`/projects/${projectId}`}>&larr; Back to Project</Link>
         </Button>
       </div>
     );
   }
+
+  const commitUrl =
+    statusData?.repo_full_name && statusData?.commit_sha
+      ? `https://github.com/${statusData.repo_full_name}/commit/${statusData.commit_sha}`
+      : null;
+
+  const branchUrl =
+    statusData?.repo_full_name && statusData?.branch
+      ? `https://github.com/${statusData.repo_full_name}/tree/${statusData.branch}`
+      : null;
 
   return (
     <div className="space-y-6">
@@ -336,9 +246,9 @@ export default function DeployDetail() {
               Streaming
             </Badge>
           )}
-          {deployMeta.url && (
+          {statusData?.url && (
             <Button asChild size="sm">
-              <a href={deployMeta.url} target="_blank" rel="noopener noreferrer">
+              <a href={statusData.url} target="_blank" rel="noopener noreferrer">
                 Visit <ExternalLink className="h-3.5 w-3.5 ml-1" />
               </a>
             </Button>
@@ -349,75 +259,84 @@ export default function DeployDetail() {
       {/* Summary Card */}
       <Card className="p-5 border-border/50">
         <div className="grid grid-cols-2 gap-y-4 gap-x-12 text-sm">
-          {deployMeta.commit_sha && (
+          {statusData?.commit_sha && (
             <div>
               <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground/70">Commit</span>
               <div className="flex items-center gap-2 mt-1">
                 <GitCommit className="h-3.5 w-3.5 text-muted-foreground" />
-                {deployMeta.repo_full_name ? (
+                {commitUrl ? (
                   <a
-                    href={`https://github.com/${deployMeta.repo_full_name}/commit/${deployMeta.commit_sha}`}
+                    href={commitUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="font-mono text-xs text-primary hover:underline"
                   >
-                    {deployMeta.commit_sha.slice(0, 7)}
+                    {statusData.commit_sha.slice(0, 7)}
                   </a>
                 ) : (
                   <span className="font-mono text-xs">
-                    {deployMeta.commit_sha.slice(0, 7)}
+                    {statusData.commit_sha.slice(0, 7)}
                   </span>
                 )}
-                {deployMeta.commit_message && (
+                {statusData.commit_message && (
                   <span className="text-muted-foreground truncate">
-                    {deployMeta.commit_message}
+                    {statusData.commit_message}
                   </span>
                 )}
               </div>
             </div>
           )}
-          {deployMeta.branch && (
+          {statusData?.branch && (
             <div>
               <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground/70">Branch</span>
               <div className="flex items-center gap-2 mt-1">
                 <GitBranch className="h-3.5 w-3.5 text-muted-foreground" />
-                {deployMeta.repo_full_name ? (
+                {branchUrl ? (
                   <a
-                    href={`https://github.com/${deployMeta.repo_full_name}/tree/${deployMeta.branch}`}
+                    href={branchUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="font-mono text-primary hover:underline"
                   >
-                    {deployMeta.branch}
+                    {statusData.branch}
                   </a>
                 ) : (
-                  <span className="font-mono">{deployMeta.branch}</span>
+                  <span className="font-mono">{statusData.branch}</span>
                 )}
               </div>
             </div>
           )}
-          {deployMeta.started_at && (
+          {statusData?.started_at && (
             <div>
               <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground/70">Started</span>
-              <div className="mt-1">{timeAgo(deployMeta.started_at)}</div>
+              <div className="mt-1">{timeAgo(statusData.started_at)}</div>
             </div>
           )}
-          {deployMeta.canister_id && (
+          {statusData?.build_duration_ms != null && (
+            <div>
+              <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground/70">Duration</span>
+              <div className="flex items-center gap-2 mt-1">
+                <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                <span>{formatDuration(statusData.build_duration_ms)}</span>
+              </div>
+            </div>
+          )}
+          {statusData?.canister_id && (
             <div>
               <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground/70">Canister</span>
               <div className="flex items-center gap-2 mt-1">
                 <span className="font-mono text-xs">
-                  {deployMeta.canister_id}
+                  {statusData.canister_id}
                 </span>
-                <CopyButton text={deployMeta.canister_id} />
+                <CopyButton text={statusData.canister_id} />
               </div>
             </div>
           )}
-          {deployMeta.error && (
+          {statusData?.error && (
             <div className="col-span-2">
               <Alert variant="destructive" className="mt-2">
                 <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{deployMeta.error}</AlertDescription>
+                <AlertDescription>{statusData.error}</AlertDescription>
               </Alert>
             </div>
           )}
@@ -460,7 +379,7 @@ export default function DeployDetail() {
         >
           {logs.length === 0 ? (
             <div className="flex items-center justify-center py-8 text-muted-foreground">
-              {streaming ? (
+              {streaming || isInProgress ? (
                 <>
                   <Spinner className="h-4 w-4 mr-2" />
                   Waiting for logs...

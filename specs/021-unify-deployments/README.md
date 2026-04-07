@@ -1,8 +1,13 @@
 # 021 — Unify Build Jobs and Deployments
 
-**Status:** Draft v0.1  
+**Status:** ✅ Complete  
 **Depends on:** 008-build-pipeline, 020-icp-cli-migration  
 **Milestone:** v0.3
+
+> **Completed:** Migration 011 applied — `build_jobs` table dropped, columns merged into
+> `deployments`. `build_logs` merged into `deploy_logs`. Unified status flow
+> (`queued → building → deploying → live | failed | cancelled`) is live.
+> Dashboard, CLI, and worker all use the single `deployments` table.
 
 ## Problem
 

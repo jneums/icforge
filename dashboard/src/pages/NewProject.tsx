@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useInstallations, useGitHubRepos, useRepoConfig } from "@/hooks/use-github";
-import { createProject, linkRepo } from "@/api";
+import { useCreateProject, useLinkRepo } from "@/hooks/use-create-project";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,6 +34,8 @@ export default function NewProject() {
   const { data: repoConfig, isLoading: configLoading, isFetching: configFetching, refetch: recheckConfig } = useRepoConfig(
     selectedRepo?.id ?? null
   );
+  const createProjectMutation = useCreateProject();
+  const linkRepoMutation = useLinkRepo();
 
   const hasInstallations = !!installations?.length;
   const isLoading = installLoading || reposLoading;
@@ -57,13 +59,13 @@ export default function NewProject() {
       // Extract canisters from icp.yaml config if available
       const canisters = extractCanisters(repoConfig?.config, repoConfig?.canisters as Record<string, unknown>[] | undefined);
 
-      const { project } = await createProject({
+      const { project } = await createProjectMutation.mutateAsync({
         name: projectName.trim(),
         canisters: canisters.length > 0 ? canisters : [{ name: "default" }],
       });
 
       // Link the GitHub repo to the project
-      await linkRepo({
+      await linkRepoMutation.mutateAsync({
         project_id: project.id,
         github_repo_id: selectedRepo.id,
         production_branch: selectedRepo.default_branch,

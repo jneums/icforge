@@ -1,8 +1,13 @@
 # ICForge — icp-cli Migration
 
-**Status:** Draft v0.1
+**Status:** ✅ Complete
 **Parent:** 001-architecture.md
 **Milestone:** v0.3
+
+> **All 5 phases complete.** Build, deploy, and asset sync fully delegated to icp-cli.
+> CLI simplified to trigger server-side builds only. icp.yaml recipe system adopted.
+> The only remaining `ic-agent` usage is in `ic_client.rs` for read-only platform
+> queries (cycles balance, canister status) — not build/deploy/sync.
 
 ---
 
@@ -52,20 +57,20 @@ Maintaining this duplicated logic is a liability — every icp-cli update could 
 
 ## 4. Migration Phases
 
-**Phase 1: Build delegation** (01-build-delegation.md)
+**Phase 1: Build delegation** (01-build-delegation.md) — ✅ Done
 Replace framework detection + build commands with `icp build`.
 
-**Phase 2: Deploy delegation** (02-deploy-delegation.md)
+**Phase 2: Deploy delegation** (02-deploy-delegation.md) — ✅ Done
 Replace ic-agent canister creation/install with `icp deploy`.
 
-**Phase 3: Asset sync delegation** (03-asset-sync-delegation.md)
-Replace ic_asset::sync() with `icp sync`.
+**Phase 3: Asset sync delegation** (03-asset-sync-delegation.md) — ✅ Done
+Replace ic_asset::sync() with `icp sync` (handled by `icp deploy`).
 
-**Phase 4: CLI simplification** (04-cli-simplification.md)
-Strip local build/deploy logic from the TS CLI.
+**Phase 4: CLI simplification** (04-cli-simplification.md) — ✅ Done
+CLI triggers server-side builds via POST /api/v1/deployments, streams logs via SSE. No local build/deploy/wasm upload.
 
-**Phase 5: Config alignment** (05-icp-yaml-alignment.md)
-Ensure icp.yaml compatibility, drop custom parsing.
+**Phase 5: Config alignment** (05-icp-yaml-alignment.md) — ✅ Done
+icp.yaml with recipe system adopted, no custom parsing.
 
 Phases 1-3 target the backend (build_worker.rs, deploy.rs, ic_client.rs).
 Phase 4 targets the CLI (deploy.ts, config.ts).

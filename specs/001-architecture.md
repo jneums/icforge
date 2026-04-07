@@ -77,7 +77,7 @@ npx icforge deploy    # Ship it 🚀
 │                └────┬─────┘                                      │
 │                     │                                            │
 │  ┌─────────────────┐│  ┌──────────────────────────────────────┐  │
-│  │  Cycles Pool    ││  │  Database (SQLite → Postgres)        │  │
+│  │  Cycles Pool    ││  │  Database (PostgreSQL)                │  │
 │  │                 ││  │                                      │  │
 │  │  Bulk ICP buy   ││  │  - Users & auth tokens               │  │
 │  │  ICP → cycles   ├┘  │  - Projects & canister mappings      │  │
@@ -207,18 +207,29 @@ ICForge detects canister types from recipes: `asset-canister` → frontend,
 
 | Method | Path | Description |
 |--------|------|-------------|
+| GET | `/api/v1/auth/login` | Initiate GitHub OAuth flow |
 | GET | `/api/v1/auth/callback` | OAuth callback handler |
-| POST | `/api/v1/auth/refresh` | Refresh access token |
-| GET | `/api/v1/user` | Current user info |
-| POST | `/api/v1/projects` | Create project |
+| GET | `/api/v1/auth/me` | Current user info |
 | GET | `/api/v1/projects` | List user's projects |
-| GET | `/api/v1/projects/:id` | Get project details |
-| POST | `/api/v1/deploy` | Upload artifacts + trigger deploy |
+| POST | `/api/v1/projects` | Create project |
+| GET | `/api/v1/projects/:id` | Get project details (with canisters + latest deploy) |
 | GET | `/api/v1/deploy/:id/status` | Deployment status |
-| GET | `/api/v1/deploy/:id/logs` | Stream deployment logs (SSE) |
-| POST | `/api/v1/billing/subscribe` | Create Stripe subscription |
-| GET | `/api/v1/billing/usage` | Cycles usage & cost breakdown |
-| POST | `/api/v1/eject` | Transfer canister control to user-provided principal |
+| GET | `/api/v1/deploy/:id/logs` | Deployment logs (JSON) |
+| GET | `/api/v1/deploy/:id/logs/stream` | Stream deployment logs (SSE) |
+| GET | `/api/v1/cycles/balance` | Cycles balance for current user |
+| GET | `/api/v1/canisters/:id/env` | Canister environment variables |
+| GET | `/api/v1/tokens` | List API tokens |
+| POST | `/api/v1/tokens` | Create API token |
+| DELETE | `/api/v1/tokens/:id` | Delete API token |
+| GET | `/api/v1/deployments` | List deployments (filterable by project) |
+| POST | `/api/v1/deployments` | Trigger a deployment |
+| GET | `/api/v1/deployments/:id` | Get deployment detail |
+| GET | `/api/v1/github/installations` | List GitHub App installations |
+| POST | `/api/v1/github/installations/claim` | Claim a GitHub installation |
+| GET | `/api/v1/github/repos` | List repos from GitHub installations |
+| GET | `/api/v1/github/repos/:id/config` | Fetch repo icp.yaml config |
+| POST | `/api/v1/github/link` | Link a GitHub repo to a project |
+| POST | `/api/v1/webhooks/github` | GitHub webhook handler (signature-verified, no auth) |
 
 **Deploy Pipeline (server-side):**
 ```
@@ -271,16 +282,17 @@ ICForge maintains a pool of cycles funded by bulk ICP purchases.
 
 ### 5.5 Dashboard (`dashboard/`)
 
-**Tech:** TBD — Next.js or SvelteKit
+**Tech:** React + Vite + TypeScript, shadcn/ui component library, Tailwind CSS v4
 
 **Pages:**
 - `/` — Landing page & marketing
-- `/login` — OAuth flow
-- `/projects` — Project list with deploy status
-- `/projects/:id` — Project detail: canisters, deploys, settings
-- `/projects/:id/deployments/:deployId` — Deploy logs (real-time)
-- `/billing` — Subscription, usage, payment methods
-- `/settings` — Account, API keys, eject
+- `/login` — OAuth flow (GitHub)
+- `/projects` — Project list with deploy status cards
+- `/projects/new` — Create new project (connect GitHub repo)
+- `/projects/:id` — Project detail: latest push card, tabbed canisters + deploys
+- `/projects/:id/deploys/:deployId` — Deploy logs (real-time SSE)
+- `/settings` — Account info, API tokens
+- `*` — 404 Not Found
 
 ## 6. Pricing Model (Draft)
 
@@ -303,10 +315,10 @@ User clicks "Connect Repository" in the dashboard, installs the ICForge GitHub A
 
 **How it works:**
 1. GitHub sends `push` webhook to ICForge API
-2. Build job is enqueued in Postgres
-3. Build worker clones the repo (via GitHub installation token)
-4. Auto-detects framework (spec 015) and builds canisters
-5. Deploys artifacts to IC (reuses existing deploy pipeline)
+2. Deployment record is enqueued in Postgres (`status = 'queued'`)
+3. Deploy worker claims the job, clones the repo (via GitHub installation token)
+4. Builds canisters using icp-cli recipes from `icp.yaml`
+5. Deploys artifacts to IC via `icp deploy`
 6. Posts commit status + check run back to GitHub
 
 **Builds run server-side** in the ICForge build worker — no user CI configuration needed.
@@ -418,9 +430,9 @@ The progression is natural: start free on shared infra, graduate to your own Clo
 |-------|-----------|-----------|
 | CLI | TypeScript, Commander | npm ecosystem, `npx` distribution |
 | Backend API | Rust, Axum | ic-agent crate, async-native |
-| Database | SQLite → PostgreSQL | Start simple, migrate when needed |
-| Auth | OAuth2 (GitHub, Google) | Familiar to developers |
-| Billing | Stripe | Industry standard, subscription + metering |
+| Database | PostgreSQL | Render managed Postgres |
+| Auth | OAuth2 (GitHub) | Familiar to developers |
+| Billing | Stripe (planned) | Industry standard, subscription + metering |
 | IC Agent | `ic-agent` Rust crate | First-party DFINITY SDK |
 | Dashboard | React (Vite) on IC canister | Dogfood our own product |
 | Backend Hosting | Render.com | Existing account, simple deploy |
@@ -445,25 +457,28 @@ The progression is natural: start free on shared infra, graduate to your own Clo
 - [x] `icforge.dev` subdomain routing — see 002
 - [x] Dashboard production deploy (icforge.dev)
 
-### v0.2.1 — "UX Polish" 🔧 IN PROGRESS
-- [ ] Design system cleanup (CSS tokens, typography, component primitives) — see 019/01
-- [ ] Sidebar navigation + breadcrumbs — see 019/02
-- [ ] Project list redesign (card rows, loading/empty states) — see 019/03
-- [ ] Project detail redesign (production card, tabs) — see 019/04
-- [ ] Deploy detail improvements (viewport log viewer, line numbers) — see 019/05
-- [ ] Settings page polish — see 019/06
-- [ ] Landing page refresh — see 019/07
-- [ ] Technical debt (protected routes, error boundary, 404, skeletons) — see 019/08
+### v0.2.1 — "UX Polish" 🔧 IN PROGRESS (~90%)
+- [x] Tailwind v4 + shadcn/ui setup — see 019/00 ✅
+- [x] Design system cleanup (CSS tokens, typography, component primitives) — see 019/01 ✅
+- [x] Sidebar navigation + breadcrumbs — see 019/02 ✅
+- [x] Project list redesign (card rows, loading/empty states) — see 019/03 ✅
+- [~] Project detail redesign (LatestPushCard, tabs) — see 019/04 (~85%: missing Visit button, vanity URL, build duration)
+- [~] Deploy detail improvements (viewport log viewer, line numbers) — see 019/05 (~95%: missing build duration field)
+- [~] Settings page polish — see 019/06 (~95%: minor — no GitHub @username link)
+- [x] Landing page refresh — see 019/07 ✅
+- [x] Technical debt (protected routes, error boundary, 404, skeletons) — see 019/08 ✅
+- [~] Data layer (api/ + hooks/ + TanStack Query) — see 019/09 (~80%: DeployDetail not migrated, direct api/ imports remain)
 
 ### v0.3 — "Production Ready"
 - [ ] Stripe billing integration — see 007
 - [ ] GitHub commit statuses + check runs on PRs — see 008-status-feedback
-- [ ] API tokens for machine-to-machine auth — see 008-status-feedback
+- [x] API tokens for machine-to-machine auth — see 008-status-feedback
 - [ ] Custom domain support — see 009
 - [ ] Cycles monitoring + auto top-up alerts — see 010
 - [ ] Canister eject flow (transfer control to user's principal) — see 011
 - [ ] Subnet selection (in icp.yaml or dashboard) — see 012
-- [ ] icp-cli migration — delegate build/deploy/sync to icp-cli — see 020
+- [x] Unify build_jobs + deployments into single table — see 021 ✅
+- [x] icp-cli migration — delegate build/deploy/sync to icp-cli — see 020 ✅
 
 ### v0.4 — "Growth"
 - [ ] Preview deployments on PRs — see 013

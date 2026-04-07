@@ -43,6 +43,15 @@ function timeAgo(dateStr: string): string {
   return date.toLocaleDateString();
 }
 
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  return rem > 0 ? `${m}m ${rem}s` : `${m}m`;
+}
+
 /* -- Sub-components -- */
 
 function CanisterCard({
@@ -267,6 +276,12 @@ function LatestPushCard({
         <span className="text-muted-foreground/40">&middot;</span>
         <Clock className="h-3 w-3" />
         <span>{timeAgo(deploy.created_at)}</span>
+        {deploy.build_duration_ms != null && (
+          <>
+            <span className="text-muted-foreground/40">&middot;</span>
+            <span>{formatDuration(deploy.build_duration_ms)}</span>
+          </>
+        )}
       </div>
     </Card>
   );
@@ -313,6 +328,7 @@ export default function ProjectDetail() {
     const latestStatus =
     latestDeploy?.status ?? project.canisters?.[0]?.status ?? "queued";
   const canisters = project.canisters ?? [];
+  const vanityUrl = `https://${project.slug}.icforge.dev`;
 
   return (
     <div className="space-y-6">
@@ -322,11 +338,26 @@ export default function ProjectDetail() {
           <h1 className="text-2xl font-semibold tracking-tight">
             {project.name}
           </h1>
-          <span className="text-sm font-mono text-muted-foreground">
-            {project.slug}
-          </span>
+          <div className="flex items-center gap-2 mt-1">
+            <a
+              href={vanityUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm font-mono text-muted-foreground hover:text-primary inline-flex items-center gap-1 transition-colors"
+            >
+              {project.slug}.icforge.dev
+              <ExternalLink className="h-3 w-3" />
+            </a>
+          </div>
         </div>
-        <StatusBadge status={latestStatus} />
+        <div className="flex items-center gap-3">
+          <StatusBadge status={latestStatus} />
+          <Button asChild size="sm">
+            <a href={vanityUrl} target="_blank" rel="noopener noreferrer">
+              Visit <ExternalLink className="h-3.5 w-3.5 ml-1" />
+            </a>
+          </Button>
+        </div>
       </div>
 
       {/* Latest Push Card */}

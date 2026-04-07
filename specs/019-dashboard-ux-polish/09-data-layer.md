@@ -52,6 +52,9 @@ src/
 │   ├── use-projects.ts
 │   ├── use-project.ts
 │   ├── use-deploy.ts
+│   ├── use-deploy-stream.ts
+│   ├── use-login.ts
+│   ├── use-create-project.ts
 │   ├── use-canister-env.ts
 │   ├── use-auth.ts
 │   └── use-tokens.ts
@@ -453,22 +456,24 @@ Remove the `useApi` section from 08-technical-debt.
 
 ## 9. Checklist
 
-- [ ] Install `@tanstack/react-query` (and optionally devtools)
-- [ ] Create `src/api/` directory structure (client, types, projects, deploys, canisters, auth, tokens, index)
-- [ ] Move all interfaces from `api.ts` → `api/types.ts`
-- [ ] Move `apiFetch` + token utils → `api/client.ts`
-- [ ] Split API functions into domain modules (projects, deploys, canisters, auth)
-- [ ] Create barrel export `api/index.ts`
-- [ ] Temporarily keep `src/api.ts` as re-export for backwards compat
-- [ ] Add `QueryClientProvider` to `main.tsx` with sensible defaults
-- [ ] Create `src/hooks/use-projects.ts`
-- [ ] Create `src/hooks/use-project.ts`
-- [ ] Create `src/hooks/use-canister-env.ts`
-- [ ] Create `src/hooks/use-deploy.ts` (status + logs)
-- [ ] Create `src/hooks/use-deploy-stream.ts` (SSE)
-- [ ] Migrate `Projects.tsx` to use `useProjects()`
-- [ ] Migrate `ProjectDetail.tsx` to use `useProject()` + `useCanisterEnv()`
-- [ ] Migrate `DeployDetail.tsx` to use `useDeployStatus()` + `useDeployStream()`
-- [ ] Delete old `src/api.ts` once all pages migrated
-- [ ] Remove `useApi` hook from 08-technical-debt spec (superseded)
-- [ ] Verify no component imports directly from `src/api/`
+- [x] Install `@tanstack/react-query` (v5.96.2)
+- [x] Create `src/api/` directory structure (client, types, projects, deploys, canisters, auth, tokens, github, index)
+- [x] Move all interfaces from `api.ts` → `api/types.ts`
+- [x] Move `apiFetch` + token utils → `api/client.ts`
+- [x] Split API functions into domain modules (projects, deploys, canisters, auth, tokens, github)
+- [x] Create barrel export `api/index.ts`
+- [x] ~~Temporarily keep `src/api.ts` as re-export~~ — deleted, no longer needed
+- [x] Add `QueryClientProvider` to `main.tsx` with sensible defaults
+- [x] Create `src/hooks/use-projects.ts`
+- [x] Create `src/hooks/use-project.ts`
+- [x] Create `src/hooks/use-canister-env.ts`
+- [x] Create `src/hooks/use-deploy.ts` (status + logs)
+- [x] Create `src/hooks/use-deploy-stream.ts` (SSE) — uses apiFetchRaw, invalidates deploy-status on done
+- [x] Migrate `Projects.tsx` to use `useProjects()`
+- [x] Migrate `ProjectDetail.tsx` to use `useProject()` + `useCanisterEnv()`
+- [x] Migrate `DeployDetail.tsx` to use `useDeployStatus()` + `useDeployLogs()` + `useDeployStream()`
+- [x] Delete old `src/api.ts` — all pages migrated
+- [x] Verify no component imports directly from `src/api/` — all use hooks (useDevLogin, useCreateProject, useLinkRepo)
+- [x] Create `src/hooks/use-github.ts` (installations, repos, config)
+- [x] Create `src/hooks/use-tokens.ts` (list, create, revoke mutations)
+- [x] Migrate `Settings.tsx` to use `useTokens()` + mutations

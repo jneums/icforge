@@ -57,11 +57,12 @@ Canisters may depend on each other. The frontend often needs to know the backend
 ```yaml
 canisters:
   - name: backend
-    type: rust
-    path: ./backend
+    recipe:
+      type: "@dfinity/rust@v3.0.0"
 
   - name: frontend
-    type: assets
+    recipe:
+      type: "@dfinity/asset-canister@v1.0.0"
     source: ./dist
     build: "npm run build"
     dependencies:

@@ -127,11 +127,13 @@ The landing page uses its own simple header — NOT the sidebar:
 
 ## 4. Checklist
 
-- [ ] Rewrite Landing header (logo + login button) with Tailwind
-- [ ] Rewrite hero section with shadcn `<Button>`
-- [ ] Rewrite feature grid with shadcn `<Card>`
-- [ ] Rewrite code snippet with styled card
-- [ ] Rewrite footer with Tailwind
-- [ ] Remove all inline style objects
-- [ ] Responsive: stack features on mobile (already handled by grid-cols-1 sm:grid-cols-3)
-- [ ] Verify landing page does NOT show the sidebar
+- [x] Rewrite Landing header (logo + login button) with Tailwind
+- [x] Rewrite hero section with shadcn `<Button>`
+- [x] Rewrite feature grid with shadcn `<Card>`
+- [x] Rewrite code snippet with styled card
+- [x] Rewrite footer with Tailwind
+- [x] Remove all inline style objects
+- [x] Responsive: stack features on mobile (grid-cols-1 sm:grid-cols-3)
+- [x] Verify landing page does NOT show the sidebar
+- [x] Conditional CTA: logged in → /projects, logged out → /login
+- [x] Extra: "Ready to deploy?" CTA section

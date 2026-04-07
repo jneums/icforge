@@ -15,8 +15,9 @@ Support deploying **backend canisters** (Rust and Motoko) in addition to the exi
 - `icforge deploy` uploads a `.wasm` file and optional assets tarball
 - The deploy pipeline calls `install_code` then optionally `ic_asset::sync`
 - The CLI's `--skip-build` flag lets users upload pre-built wasm
-- `icp.yaml` already supports `type: rust`, `type: motoko`, `type: assets` in canister definitions
-- `CanisterRecord.canister_type` column exists in the DB
+- `icp.yaml` uses the **recipe system** (e.g., `@dfinity/rust@v3.0.0`, `@dfinity/asset-canister@v1.0.0`) for canister definitions
+- `CanisterRecord.recipe` column stores the recipe string; the legacy `type` column is nullable and deprecated
+- The dashboard displays recipe strings instead of type labels
 
 ## 3. What Changes
 
@@ -44,12 +45,12 @@ The compilation step is the key difference. ICForge has two options:
 User runs: icforge deploy
 
 CLI:
-  1. Read icp.yaml → find all canisters
+  1. Read icp.yaml → find all canisters + recipes
   2. For each canister:
-     a. If type=assets: build frontend (npm run build), package dist/ as tarball
-     b. If type=rust: run `cargo build --target wasm32-unknown-unknown --release`, 
+     a. If recipe is asset-canister: build frontend (npm run build), package dist/ as tarball
+     b. If recipe is rust: run `cargo build --target wasm32-unknown-unknown --release`, 
         then `ic-wasm optimize` (if available)
-     c. If type=motoko: run `moc` compiler (if available)
+     c. If recipe is motoko: run `moc` compiler (if available)
      d. Upload wasm to backend
   3. Backend deploys each canister in dependency order
 ```
@@ -61,29 +62,26 @@ The CLI should support build recipes in `icp.yaml`:
 ```yaml
 canisters:
   - name: backend
-    type: rust
-    path: ./backend  # Cargo project root
-    build: "cargo build --target wasm32-unknown-unknown --release"
-    wasm: "./target/wasm32-unknown-unknown/release/backend.wasm"
+    recipe:
+      type: "@dfinity/rust@v3.0.0"
+      configuration:
+        package: my-backend
     
   - name: frontend
-    type: assets
+    recipe:
+      type: "@dfinity/asset-canister@v1.0.0"
     source: ./dist
     build: "npm run build"
 ```
 
-The `build` field is optional — if omitted, ICForge uses sensible defaults:
-- **Rust:** `cargo build --target wasm32-unknown-unknown --release` in the `path` directory
-- **Motoko:** `moc --package ... -o <name>.wasm` (needs `moc` in PATH)
-- **Assets:** No build step (user runs their own frontend build, or specifies `build`)
-
-The `wasm` field points to the output wasm file. If omitted, ICForge looks in conventional locations.
+The `build` field is optional — if omitted, icp-cli's recipe system handles the build automatically.
+The `wasm` field points to the output wasm file. If omitted, icp-cli uses the `$ICP_WASM_OUTPUT_PATH` convention.
 
 ### 3.4 Backend changes
 
 Minimal. The deploy pipeline already accepts arbitrary wasm bytes and calls `install_code`. The only changes:
 
-1. **Skip asset sync for non-asset canisters.** Currently `run_deploy_pipeline()` syncs assets if an asset tarball is present. Add a check: only sync assets if the canister type is `assets`.
+1. **Skip asset sync for non-asset canisters.** Currently `run_deploy_pipeline()` syncs assets if an asset tarball is present. Add a check: only sync assets if the canister recipe is `asset-canister`.
 
 2. **Init args for backend canisters.** Backend canisters may need Candid init arguments. Add an optional `init_arg` field to the deploy multipart payload, passed through to `install_code`'s `arg` parameter.
 

@@ -178,13 +178,13 @@ Default: most recently deployed first (not created date). Projects with no deplo
 
 ## 6. Checklist
 
-- [ ] Rewrite `Projects.tsx` using shadcn `Card` + Tailwind classes
-- [ ] Extract `<ProjectRow>` component
-- [ ] Add `<ProjectListSkeleton>` using shadcn `Skeleton`
-- [ ] Add `<ProjectListEmpty>` with CLI snippet
-- [ ] Add `<ProjectListError>` with retry button
-- [ ] Show vanity URL per project
-- [ ] Show latest deploy info (commit message, time ago, branch)
-- [ ] Sort by most recent deploy (not created date)
-- [ ] Delete old inline style objects
-- [ ] Verify click-through to ProjectDetail works
+- [x] Rewrite `Projects.tsx` using shadcn `Card` + Tailwind classes
+- [x] Extract `<ProjectRow>` component
+- [x] Add `<ProjectListSkeleton>` using shadcn `Skeleton`
+- [x] Add `<ProjectListEmpty>` with CLI snippet
+- [x] Add `<ProjectListError>` with retry button
+- [~] Show vanity URL per project — ⚠️ currently shows canister names instead
+- [x] Show latest deploy info (commit message, time ago, branch)
+- [ ] Sort by most recent deploy (not created date) — depends on API ordering
+- [x] Delete old inline style objects
+- [x] Verify click-through to ProjectDetail works

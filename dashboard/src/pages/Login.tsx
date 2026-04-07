@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { devLogin } from "@/api";
+import { useDevLogin } from "@/hooks/use-login";
 import { useAuth } from "@/hooks/use-auth";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ import { Separator } from "@/components/ui/separator";
 export default function Login() {
   const navigate = useNavigate();
   const { user, loading: authLoading, login } = useAuth();
+  const devLoginMutation = useDevLogin();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -37,7 +38,7 @@ export default function Login() {
     setLoading(true);
     setError(null);
     try {
-      const token = await devLogin();
+      const token = await devLoginMutation.mutateAsync();
       login(token);
       navigate("/projects");
     } catch (e: any) {

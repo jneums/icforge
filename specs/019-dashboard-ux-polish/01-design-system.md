@@ -174,9 +174,9 @@ When rewriting each page:
 
 ## 7. Checklist
 
-- [ ] Define `StatusBadge` component in `src/components/status-badge.tsx`
-- [ ] Define `StatusDot` component in `src/components/status-dot.tsx`
-- [ ] Define `CopyButton` component in `src/components/copy-button.tsx`
-- [ ] Install `lucide-react` if not present
-- [ ] Add `--sidebar-width` and `--content-max-width` to `@theme` in CSS
-- [ ] Document color/typography conventions (this file serves as the reference)
+- [x] Define `StatusBadge` component in `src/components/status-badge.tsx`
+- [x] Define `StatusDot` component in `src/components/status-dot.tsx`
+- [x] Define `CopyButton` component in `src/components/copy-button.tsx`
+- [x] Install `lucide-react`
+- [x] Add `--sidebar-width` and `--content-max-width` to `@theme` in CSS
+- [x] Document color/typography conventions (this file serves as the reference)

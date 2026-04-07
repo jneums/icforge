@@ -210,13 +210,13 @@ function AppSidebar() {
 
 ## 7. Checklist
 
-- [ ] Create `src/components/app-sidebar.tsx`
-- [ ] Create `src/components/app-breadcrumbs.tsx`
-- [ ] Create `src/components/app-shell.tsx`
-- [ ] Update `App.tsx` routing to use `<AppShell>`
-- [ ] Delete `src/components/Header.tsx`
-- [ ] Delete old header styles from `index.css`
-- [ ] Verify shadcn sidebar collapses on mobile
-- [ ] Verify breadcrumbs show correct trail for all routes
-- [ ] Verify Landing + Login pages render without sidebar
-- [ ] Verify active nav link highlights correctly
+- [x] Create `src/components/app-sidebar.tsx`
+- [x] Create `src/components/app-breadcrumbs.tsx`
+- [x] Create `src/components/app-shell.tsx`
+- [x] Update `App.tsx` routing to use `<AppShell>`
+- [x] Delete `src/components/Header.tsx`
+- [x] Delete old header styles from `index.css`
+- [x] Verify shadcn sidebar collapses on mobile
+- [x] Verify breadcrumbs show correct trail for all routes
+- [x] Verify Landing + Login pages render without sidebar
+- [x] Verify active nav link highlights correctly

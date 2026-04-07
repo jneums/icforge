@@ -1,6 +1,6 @@
 # ICForge — Build Pipeline
 
-**Status:** Complete v0.2
+**Status:** Complete v0.2 (updated: build_jobs/build_logs merged into unified deployments table — see 021)
 **Parent:** 001-architecture.md
 **Milestone:** v0.2
 **Related:** 008-github-app.md, 008-status-feedback.md, 015-framework-auto-detection.md
@@ -20,62 +20,58 @@ GitHub push webhook
 Webhook handler (008-github-app.md)
     │
     ▼
-Enqueue build job → Postgres `build_jobs` table
+Enqueue deployment → Postgres `deployments` table (status='queued')
     │
     ▼
-Build Worker (Render background worker)
-    │  Polls for pending jobs
+Deploy Worker (in-process background task)
+    │  Polls for queued deployments
     │
     ▼
-Docker container (per build):
+Build + Deploy (per deployment):
     1. Clone repo (installation token as git credential)
-    2. Auto-detect framework (spec 015)
-    3. Install deps + build
-    4. Upload .wasm + assets to IC (existing deploy pipeline)
+    2. Read icp.yaml for canister recipes
+    3. Install deps + build via icp-cli recipes
+    4. Deploy artifacts to IC via `icp deploy`
     │
     ▼
-Update job status → notify GitHub (008-status-feedback.md)
+Update deployment status → notify GitHub (008-status-feedback.md)
 ```
+
+> **Note (post-021):** The original `build_jobs` and `build_logs` tables have been
+> merged into the unified `deployments` and `deploy_logs` tables respectively.
+> See spec 021 for the migration details. The architecture below has been updated
+> to reflect the current schema.
 
 ## 3. Job Queue (Postgres)
 
 No external queue (Redis, RabbitMQ). Postgres is already there. Use `SELECT ... FOR UPDATE SKIP LOCKED` for reliable job claiming.
 
-### 3.1 Table: `build_jobs`
+### 3.1 Table: `deployments` (unified — formerly `build_jobs` + `deployments`)
+
+The `deployments` table now serves as both the job queue and the deployment record.
+See migration 011 for the full schema. Key columns for the build pipeline:
 
 ```sql
-CREATE TABLE build_jobs (
-    id TEXT PRIMARY KEY,                -- ulid
-    project_id TEXT NOT NULL REFERENCES projects(id),
-    deployment_id TEXT REFERENCES deployments(id),
-
-    -- Git context
-    commit_sha TEXT NOT NULL,
-    branch TEXT NOT NULL,
-    repo_full_name TEXT NOT NULL,
-    installation_id BIGINT NOT NULL,
-
-    -- Trigger context
-    trigger TEXT NOT NULL,              -- 'push', 'pull_request', 'manual'
-    pr_number INTEGER,                  -- null for production builds
-
-    -- State
-    status TEXT NOT NULL DEFAULT 'pending',
-        -- pending → claimed → building → deploying → success | failed | cancelled
-    claimed_at TEXT,
-    started_at TEXT,
-    completed_at TEXT,
-    error_message TEXT,
-
-    -- Metadata
-    framework TEXT,                     -- detected framework (e.g., 'vite', 'rust')
-    build_duration_ms INTEGER,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
-
-CREATE INDEX idx_build_jobs_status ON build_jobs(status);
-CREATE INDEX idx_build_jobs_project ON build_jobs(project_id);
+-- Relevant columns for build pipeline (subset of full deployments table):
+-- id TEXT PRIMARY KEY
+-- project_id TEXT NOT NULL REFERENCES projects(id)
+-- canister_name TEXT NOT NULL
+-- status TEXT NOT NULL DEFAULT 'queued'
+--     queued → building → deploying → live | failed | cancelled
+-- commit_sha TEXT
+-- branch TEXT
+-- repo_full_name TEXT
+-- installation_id BIGINT
+-- trigger TEXT              -- 'push', 'pull_request', 'manual', 'cli'
+-- pr_number INTEGER
+-- claimed_at TEXT
+-- retry_count INTEGER NOT NULL DEFAULT 0
+-- build_duration_ms INTEGER
+-- error_message TEXT
+-- started_at TEXT
+-- completed_at TEXT
+-- created_at TEXT NOT NULL
+-- updated_at TEXT NOT NULL
 ```
 
 ### 3.2 Job Claiming
@@ -83,13 +79,14 @@ CREATE INDEX idx_build_jobs_project ON build_jobs(project_id);
 The worker polls for jobs using an atomic claim query:
 
 ```rust
-async fn claim_next_job(pool: &PgPool) -> Option<BuildJob> {
-    sqlx::query_as!(BuildJob, r#"
-        UPDATE build_jobs
-        SET status = 'claimed', claimed_at = datetime('now'), updated_at = datetime('now')
+async fn claim_next_job(pool: &PgPool) -> Option<DeploymentRecord> {
+    sqlx::query_as!(DeploymentRecord, r#"
+        UPDATE deployments
+        SET status = 'building', claimed_at = to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'),
+            updated_at = to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS')
         WHERE id = (
-            SELECT id FROM build_jobs
-            WHERE status = 'pending'
+            SELECT id FROM deployments
+            WHERE status = 'queued'
             ORDER BY created_at ASC
             LIMIT 1
             FOR UPDATE SKIP LOCKED
@@ -110,12 +107,11 @@ Free tier: builds are queued (FIFO). Paid tiers: priority queue (add `priority` 
 
 ## 4. Build Worker
 
-The build worker is a Render **Background Worker** — same codebase as the API server, different entrypoint.
+The build worker is an **in-process background task** spawned by the main backend server via `tokio::spawn`. It runs in the same process as the API server.
 
 ```
-# Render service config
-Type: Background Worker
-Command: cargo run --bin icforge-worker
+# Part of the main backend binary
+# Spawned at startup in main.rs via deploy_worker::spawn_worker()
 ```
 
 ### 4.1 Worker Loop
@@ -283,18 +279,17 @@ If a build exceeds the timeout, kill the process and mark the job as `failed` wi
 
 ### 6.3 Build Logs
 
-Every line of stdout/stderr from the build process is captured and stored:
+Every line of stdout/stderr from the build process is captured and stored in the
+unified `deploy_logs` table (formerly separate `build_logs`):
 
 ```sql
-CREATE TABLE build_logs (
-    id TEXT PRIMARY KEY,
-    build_job_id TEXT NOT NULL REFERENCES build_jobs(id),
-    level TEXT NOT NULL DEFAULT 'info',  -- info, warn, error
-    message TEXT NOT NULL,
-    timestamp TEXT NOT NULL
-);
-
-CREATE INDEX idx_build_logs_job ON build_logs(build_job_id);
+-- deploy_logs table (already exists from 001_init.sql, phase column added in 012)
+-- id SERIAL PRIMARY KEY
+-- deployment_id TEXT NOT NULL REFERENCES deployments(id)
+-- level TEXT NOT NULL DEFAULT 'info'  -- info, warn, error
+-- message TEXT NOT NULL
+-- phase TEXT                          -- clone, build, deploy, etc.
+-- timestamp TEXT NOT NULL
 ```
 
 Logs are also published to the broadcast channel (spec 005) for real-time SSE streaming.
@@ -317,16 +312,13 @@ Logs are also published to the broadcast channel (spec 005) for real-time SSE st
 ```rust
 const MAX_RETRIES: u32 = 3;
 
-// In job claiming query, add:
-// WHERE status = 'pending' AND retry_count < 3
+// In claiming query, add:
+// WHERE status = 'queued' AND retry_count < 3
 // On retriable failure:
-// UPDATE build_jobs SET status = 'pending', retry_count = retry_count + 1
+// UPDATE deployments SET status = 'queued', retry_count = retry_count + 1
 ```
 
-Add to `build_jobs`:
-```sql
-ALTER TABLE build_jobs ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0;
-```
+The `retry_count` column is part of the unified `deployments` table (added in migration 011).
 
 ## 8. Future: Docker Isolation (v0.4+)
 
@@ -356,13 +348,13 @@ This is a drop-in upgrade — the build steps are the same, just wrapped in a co
 ## 9. Implementation Checklist
 
 ### Backend
-- [x] `build_jobs` table + migration
-- [x] `build_logs` table + migration
+- [x] `deployments` table with build columns (via migration 011, formerly `build_jobs`)
+- [x] `deploy_logs` table (unified, formerly separate `build_logs`)
 - [x] Job enqueue function (called from webhook handlers)
 - [x] Job claim query (`FOR UPDATE SKIP LOCKED`)
-- [x] Build worker binary (`icforge-worker`)
+- [x] Deploy worker (in-process background task via `tokio::spawn`)
 - [x] Clone step (with installation token auth)
-- [x] Framework detection (reuse spec 015 logic)
+- [x] Framework detection (reuse spec 015 logic → migrating to icp-cli recipes, see 020)
 - [x] Build execution (npm/cargo/dfx)
 - [x] Deploy step (reuse existing deploy pipeline)
 - [x] Build timeout enforcement
@@ -371,9 +363,9 @@ This is a drop-in upgrade — the build steps are the same, just wrapped in a co
 - [ ] Deduplication: if a new push arrives while a build is pending, cancel the old one
 
 ### Infrastructure
-- [x] Worker Dockerfile with IC SDK + Node + Rust
-- [x] Render background worker service
+- [x] Worker runs in-process (same binary as API server)
 - [x] Environment variables (shared with API server)
+- [x] icp-cli + Node + Rust available in build environment
 
 ## 10. Open Questions
 

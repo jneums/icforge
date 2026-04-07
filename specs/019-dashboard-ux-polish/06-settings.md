@@ -177,12 +177,14 @@ function SettingsSection({ title, description, children, danger = false }) {
 
 ## 4. Checklist
 
-- [ ] Extract `<SettingsSection>` reusable card wrapper
-- [ ] Rewrite Profile section with shadcn `<Avatar>`
-- [ ] Rewrite Plan section with shadcn `<Badge>` + disabled billing button
-- [ ] Rewrite API Tokens section with token list + create/revoke
-- [ ] Rewrite Danger Zone with destructive card border + eject button
-- [ ] Stack sections vertically with `space-y-6`
-- [ ] Delete old inline style objects
-- [ ] Keep existing API token CRUD logic, just restyle
-- [ ] Keep existing eject dialog logic, just restyle
+- [x] Extract `<SettingsSection>` reusable card wrapper
+- [x] Rewrite Profile section with shadcn `<Avatar>`
+- [~] Rewrite Plan section with shadcn `<Badge>` — ⚠️ no disabled "Manage billing" button yet
+- [x] Rewrite API Tokens section with token list + create/revoke
+- [x] Rewrite Danger Zone with destructive card border + eject button (disabled, "coming in v0.3")
+- [x] Stack sections vertically with `space-y-6`
+- [x] Delete old inline style objects
+- [x] Keep existing API token CRUD logic, restyled
+- [x] Eject button present (disabled placeholder)
+- [x] Skeleton loading state
+- [~] GitHub @username link in Profile — not implemented yet

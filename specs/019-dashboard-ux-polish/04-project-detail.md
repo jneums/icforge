@@ -25,12 +25,12 @@ The current ProjectDetail page is the most complex (~438 lines) and has several 
 │  my-dapp                                                    │
 │  my-dapp.icforge.dev ↗          ● Deployed         Visit ↗ │
 │                                                             │
-│  ┌─ Production Deployment ─────────────────────────────────┐│
+│  ┌─ Latest Push ───────────────────────────────────────────┐│
 │  │  "Updated canister controllers"                         ││
 │  │  abc1234 on main · 3 minutes ago · Built in 45s         ││
 │  └─────────────────────────────────────────────────────────┘│
 │                                                             │
-│  ┌─ Deployments ──┬─ Canisters ──┬─ Settings ─────────────┐│
+│  ┌─ Canisters ────┬─ Deployments ─────────────────────────┐│
 │  │  (tab content)                                          ││
 │  └─────────────────────────────────────────────────────────┘│
 └─────────────────────────────────────────────────────────────┘
@@ -40,7 +40,7 @@ The current ProjectDetail page is the most complex (~438 lines) and has several 
 
 ```tsx
 function ProjectHeader({ project, status }) {
-  const vanityUrl = `https://${project.name}.icforge.dev`;
+  const vanityUrl = `https://${project.slug}.icforge.dev`;
 
   return (
     <div className="flex items-start justify-between">
@@ -51,7 +51,7 @@ function ProjectHeader({ project, status }) {
           target="_blank"
           className="text-sm font-mono text-muted-foreground hover:text-primary inline-flex items-center gap-1"
         >
-          {project.name}.icforge.dev
+          {project.slug}.icforge.dev
           <ExternalLink className="h-3 w-3" />
         </a>
       </div>
@@ -68,10 +68,12 @@ function ProjectHeader({ project, status }) {
 }
 ```
 
-## 4. Production Deployment Card
+## 4. Latest Push Card
+
+> **Implementation note:** This component is implemented as `LatestPushCard` (not `ProductionDeployCard`).
 
 ```tsx
-function ProductionDeployCard({ deploy, projectId }) {
+function LatestPushCard({ deploy, repoFullName }) {
   if (!deploy) return null;
 
   const isBuilding = IN_PROGRESS_STATUSES.includes(deploy.status);
@@ -80,7 +82,7 @@ function ProductionDeployCard({ deploy, projectId }) {
     <Link to={`/projects/${projectId}/deploys/${deploy.id}`}>
       <Card className="p-4 mt-6 hover:border-border/80 transition-colors cursor-pointer">
         <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
-          <span className="font-semibold text-foreground">Production Deployment</span>
+          <span className="font-semibold text-foreground">Latest Push</span>
           {isBuilding && <Spinner className="h-3 w-3" />}
         </div>
         <p className="text-sm font-medium truncate">
@@ -111,32 +113,27 @@ function ProductionDeployCard({ deploy, projectId }) {
 
 Using shadcn `<Tabs>`:
 
+> **Implementation note:** Tab order is **Canisters first**, then Deployments. No in-page Settings tab (settings is at `/settings`).
+
 ```tsx
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
-<Tabs defaultValue="deploys" className="mt-6">
+<Tabs defaultValue="canisters" className="mt-6">
   <TabsList>
-    <TabsTrigger value="deploys">
-      Deployments ({deploys.length})
-    </TabsTrigger>
     <TabsTrigger value="canisters">
       Canisters ({canisters.length})
     </TabsTrigger>
-    <TabsTrigger value="settings">
-      Settings
+    <TabsTrigger value="deployments">
+      Deployments ({deployments.length})
     </TabsTrigger>
   </TabsList>
-
-  <TabsContent value="deploys">
-    <DeployList deploys={deploys} projectId={project.id} />
-  </TabsContent>
 
   <TabsContent value="canisters">
     <CanisterList canisters={canisters} />
   </TabsContent>
 
-  <TabsContent value="settings">
-    <ProjectSettings project={project} />
+  <TabsContent value="deployments">
+    <DeployList deploys={deployments} projectId={project.id} />
   </TabsContent>
 </Tabs>
 ```
@@ -173,7 +170,7 @@ function CanisterCard({ canister }) {
     <Card className="p-4">
       <div className="flex items-center gap-3">
         <span className="text-sm font-semibold">{canister.name}</span>
-        <Badge variant="outline" className="text-xs">{canister.canister_type}</Badge>
+        <Badge variant="outline" className="text-xs">{canister.recipe || canister.canister_type}</Badge>
         <StatusDot status={canister.status} />
         <span className="ml-auto font-mono text-xs text-muted-foreground">
           {canister.canister_id}
@@ -204,43 +201,21 @@ function CanisterCard({ canister }) {
 }
 ```
 
-### Project Settings (Tab)
-
-Placeholder for now — minimal info:
-
-```tsx
-function ProjectSettings({ project }) {
-  return (
-    <Card className="p-4">
-      <h3 className="text-sm font-semibold mb-3">Repository</h3>
-      <div className="text-sm text-muted-foreground">
-        {project.repo_url ? (
-          <a href={project.repo_url} target="_blank" className="hover:text-primary inline-flex items-center gap-1">
-            {project.repo_url.replace('https://github.com/', '')}
-            <ExternalLink className="h-3 w-3" />
-          </a>
-        ) : (
-          'No repository connected'
-        )}
-      </div>
-    </Card>
-  );
-}
-```
-
 ## 6. Checklist
 
-- [ ] Create `<ProjectHeader>` component
-- [ ] Create `<ProductionDeployCard>` component
-- [ ] Create `<DeployList>` / `<DeployRow>` components
-- [ ] Create `<CanisterList>` / `<CanisterCard>` components using shadcn Collapsible
-- [ ] Create `<ProjectSettings>` placeholder component
-- [ ] Wire up shadcn `<Tabs>` for the three sections
-- [ ] Add "Visit" button using shadcn `<Button>`
-- [ ] Add `<CopyButton>` for canister IDs
-- [ ] Show build duration on production deploy card
-- [ ] Show `<Spinner>` when deploy in progress
-- [ ] Remove the 4-column stats grid
-- [ ] Delete old inline style objects
-- [ ] Rewrite `ProjectDetail.tsx` to compose sub-components
-- [ ] Verify navigation to deploy detail from deploy rows
+- [~] Extract `<ProjectHeader>` as separate component — left inline, page is cohesive enough
+- [x] Create `<LatestPushCard>` component (was `ProductionDeployCard` in original spec)
+- [x] Create `<DeployList>` / `<DeployRow>` components
+- [x] Create `<CanisterList>` / `<CanisterCard>` components using shadcn Collapsible
+- ~~Create `<ProjectSettings>` placeholder component~~ (removed — settings at `/settings`)
+- [x] Wire up shadcn `<Tabs>` — Canisters first, then Deployments
+- [x] Add "Visit" button using shadcn `<Button>` with ExternalLink icon
+- [x] Add vanity URL link (`{slug}.icforge.dev`) in header — uses project.slug, not name
+- [x] Add `<CopyButton>` for canister IDs
+- [x] Show build duration on latest push card (build_duration_ms from API)
+- [x] Show `<Spinner>` when deploy in progress
+- [x] Remove the 4-column stats grid
+- [x] Delete old inline style objects
+- [x] Rewrite `ProjectDetail.tsx` to compose sub-components
+- [x] Verify navigation to deploy detail from deploy rows
+- [x] Skeleton loading state (`ProjectDetailSkeleton`)

@@ -8,6 +8,7 @@ import {
   ChevronRight,
   CheckCircle2,
   XCircle,
+  Ban,
   Loader2,
 } from "lucide-react";
 import { useProject } from "@/hooks/use-project";
@@ -142,6 +143,7 @@ function DeployRow({
   const inProgress = IN_PROGRESS_STATUSES.includes(deploy.status);
   const succeeded = deploy.status === "live" || deploy.status === "succeeded" || deploy.status === "deployed";
   const failed = deploy.status === "failed" || deploy.status === "error";
+  const cancelled = deploy.status === "cancelled";
 
   return (
     <div
@@ -152,6 +154,8 @@ function DeployRow({
         <CheckCircle2 className="h-4 w-4 shrink-0 text-success" />
       ) : failed ? (
         <XCircle className="h-4 w-4 shrink-0 text-destructive" />
+      ) : cancelled ? (
+        <Ban className="h-4 w-4 shrink-0 text-muted-foreground" />
       ) : inProgress ? (
         <Loader2 className="h-4 w-4 shrink-0 text-warning animate-spin" />
       ) : (

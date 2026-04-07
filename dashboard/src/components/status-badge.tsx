@@ -9,6 +9,7 @@ const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
   deploying:{ label: "Deploying",className: "bg-warning/15 text-warning border-warning/20" },
   created:  { label: "Created",  className: "bg-warning/15 text-warning border-warning/20" },
   failed:   { label: "Failed",   className: "bg-destructive/15 text-destructive border-destructive/20" },
+  cancelled:{ label: "Cancelled",className: "bg-muted text-muted-foreground" },
   stopped:  { label: "Stopped",  className: "bg-muted text-muted-foreground" },
 };
 

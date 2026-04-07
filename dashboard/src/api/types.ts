@@ -72,3 +72,30 @@ export interface ApiToken {
   created_at: string;
   last_used_at: string | null;
 }
+
+// GitHub App types
+
+export interface GitHubInstallation {
+  id: string;
+  user_id: string;
+  installation_id: number;
+  account_login: string;
+  account_type: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GitHubRepo {
+  id: string;
+  installation_id: string;
+  github_repo_id: number;
+  full_name: string;
+  default_branch: string;
+  created_at: string;
+}
+
+export interface RepoConfig {
+  found: boolean;
+  config: Record<string, unknown> | null;
+  raw: string | null;
+}

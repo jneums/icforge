@@ -856,6 +856,86 @@ pub async fn link_repo(
     Ok(Json(json!({ "linked": true })))
 }
 
+/// GET /api/v1/github/repos/:repo_id/config — Fetch icp.yaml from the repo's default branch
+pub async fn fetch_repo_config(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+    Path(repo_id): Path<String>,
+) -> Result<Json<Value>, AppError> {
+    // Verify the repo belongs to this user's installation
+    let repo: crate::models::GitHubRepo = sqlx::query_as(
+        r#"
+        SELECT gr.* FROM github_repos gr
+        JOIN github_installations gi ON gr.installation_id = gi.id
+        WHERE gr.id = $1 AND gi.user_id = $2
+        "#,
+    )
+    .bind(&repo_id)
+    .bind(&auth_user.user.id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(AppError::Database)?
+    .ok_or_else(|| AppError::NotFound("GitHub repo not found or not accessible".into()))?;
+
+    // Get installation_id to fetch an access token
+    let installation: crate::models::GitHubInstallation = sqlx::query_as(
+        "SELECT * FROM github_installations WHERE id = $1",
+    )
+    .bind(&repo.installation_id)
+    .fetch_one(&state.db)
+    .await
+    .map_err(AppError::Database)?;
+
+    let token = crate::github::get_installation_token(&state.config, installation.installation_id)
+        .await?;
+
+    // Fetch icp.yaml from the repo's default branch
+    let client = reqwest::Client::new();
+    let url = format!(
+        "https://api.github.com/repos/{}/contents/icp.yaml?ref={}",
+        repo.full_name, repo.default_branch
+    );
+
+    let resp = client
+        .get(&url)
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Accept", "application/vnd.github.raw+json")
+        .header("User-Agent", "ICForge")
+        .send()
+        .await
+        .map_err(|e| AppError::Internal(format!("GitHub API request failed: {e}")))?;
+
+    if resp.status() == reqwest::StatusCode::NOT_FOUND {
+        return Ok(Json(json!({
+            "found": false,
+            "config": null,
+            "raw": null,
+        })));
+    }
+
+    if !resp.status().is_success() {
+        let body = resp.text().await.unwrap_or_default();
+        return Err(AppError::Internal(format!(
+            "GitHub API error fetching icp.yaml: {body}"
+        )));
+    }
+
+    let raw_yaml = resp
+        .text()
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to read icp.yaml content: {e}")))?;
+
+    // Parse the YAML to extract canister definitions
+    let yaml_val: serde_json::Value = serde_yaml::from_str(&raw_yaml)
+        .map_err(|e| AppError::BadRequest(format!("Invalid icp.yaml: {e}")))?;
+
+    Ok(Json(json!({
+        "found": true,
+        "config": yaml_val,
+        "raw": raw_yaml,
+    })))
+}
+
 /// GET /api/v1/canisters/:canister_id/env — Fetch environment variables from IC management canister
 pub async fn canister_env(
     State(state): State<AppState>,

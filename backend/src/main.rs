@@ -90,6 +90,7 @@ async fn main() {
         .route("/api/v1/github/installations", get(routes::list_installations))
         .route("/api/v1/github/installations/claim", post(routes::claim_installation))
         .route("/api/v1/github/repos", get(routes::list_github_repos))
+        .route("/api/v1/github/repos/{repo_id}/config", get(routes::fetch_repo_config))
         .route("/api/v1/github/link", post(routes::link_repo))
         // Webhooks (no auth — signature-verified)
         .route("/api/v1/webhooks/github", post(webhooks::handle_webhook))

@@ -4,7 +4,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusDot } from "@/components/status-dot";
-import { Folder, AlertCircle, ExternalLink, GitCommit, Clock } from "lucide-react";
+import { Folder, AlertCircle, ExternalLink, GitCommit, Clock, Plus } from "lucide-react";
 import type { Project } from "@/api/types";
 
 function getProjectStatus(project: Project): string {
@@ -107,6 +107,13 @@ function ProjectListEmpty() {
         <div className="text-muted-foreground/60">$ icforge init</div>
         <div>$ icforge deploy</div>
       </Card>
+      <p className="text-sm text-muted-foreground mt-4">or</p>
+      <Button asChild className="mt-2">
+        <Link to="/projects/new">
+          <Plus className="mr-1.5 h-3.5 w-3.5" />
+          Import from GitHub
+        </Link>
+      </Button>
     </div>
   );
 }
@@ -133,11 +140,19 @@ export default function Projects() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold tracking-tight">Projects</h1>
-        {!!projects?.length && (
-          <span className="text-sm text-muted-foreground">
-            {projects.length} project{projects.length !== 1 && "s"}
-          </span>
-        )}
+        <div className="flex items-center gap-3">
+          {!!projects?.length && (
+            <span className="text-sm text-muted-foreground">
+              {projects.length} project{projects.length !== 1 && "s"}
+            </span>
+          )}
+          <Button asChild size="sm">
+            <Link to="/projects/new">
+              <Plus className="mr-1.5 h-3.5 w-3.5" />
+              New Project
+            </Link>
+          </Button>
+        </div>
       </div>
 
       {isLoading ? (

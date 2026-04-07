@@ -321,7 +321,7 @@ async fn execute_build(
 
     run_cmd(
         &work_dir,
-        &["icp", "identity", "import", "icforge", "--pem-file", &pem_path],
+        &["icp", "identity", "import", "icforge", "--from-pem", &pem_path, "--storage", "plaintext"],
     )
     .await
     .or_else(|e| {

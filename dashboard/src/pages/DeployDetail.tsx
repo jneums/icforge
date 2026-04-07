@@ -426,7 +426,7 @@ export default function DeployDetail() {
       {/* Log Viewer */}
       <div>
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-lg font-semibold">Build Logs</h2>
+          <h2 className="text-lg font-semibold">Deploy Logs</h2>
           <div className="flex items-center gap-2">
             <Button
               variant="ghost"

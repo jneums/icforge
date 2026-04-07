@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 use crate::auth::{self, AuthUser};
 use crate::error::AppError;
 use crate::models::{
-    TriggerBuildRequest,
+    TriggerDeployRequest,
     ApiToken, CanisterRecord, CreateProjectRequest, CreateTokenRequest, CreateTokenResponse,
     DeploymentRecord, Project, ProjectWithCanisters,
 };
@@ -340,8 +340,9 @@ pub async fn get_project(
     .await
     .map_err(AppError::Database)?;
 
-    let builds: Vec<crate::models::BuildJob> = sqlx::query_as(
-        "SELECT * FROM build_jobs WHERE project_id = $1 ORDER BY created_at DESC LIMIT 50",
+    // Deployments are the unified table now (no separate builds)
+    let all_deployments: Vec<crate::models::DeploymentRecord> = sqlx::query_as(
+        "SELECT * FROM deployments WHERE project_id = $1 ORDER BY created_at DESC LIMIT 50",
     )
     .bind(&project.id)
     .fetch_all(&state.db)
@@ -351,7 +352,7 @@ pub async fn get_project(
     Ok(Json(json!({
         "project": ProjectWithCanisters { project, canisters, latest_deployment: None },
         "deployments": deployments,
-        "builds": builds,
+        "deployments": all_deployments,
     })))
 }
 
@@ -541,16 +542,16 @@ pub async fn delete_api_token(
 // ============================================================
 
 /// GET /api/v1/builds — List build jobs for user's projects
-pub async fn list_builds(
+pub async fn list_deployments(
     State(state): State<AppState>,
     auth_user: AuthUser,
 ) -> Result<Json<Value>, AppError> {
-    let builds: Vec<crate::models::BuildJob> = sqlx::query_as(
+    let deployments: Vec<crate::models::DeploymentRecord> = sqlx::query_as(
         r#"
-        SELECT bj.* FROM build_jobs bj
-        JOIN projects p ON bj.project_id = p.id
+        SELECT d.* FROM deployments d
+        JOIN projects p ON d.project_id = p.id
         WHERE p.user_id = $1
-        ORDER BY bj.created_at DESC
+        ORDER BY d.created_at DESC
         LIMIT 50
         "#,
     )
@@ -559,14 +560,14 @@ pub async fn list_builds(
     .await
     .map_err(AppError::Database)?;
 
-    Ok(Json(json!({ "builds": builds })))
+    Ok(Json(json!({ "deployments": deployments })))
 }
 
-/// POST /api/v1/builds — Trigger a CLI-initiated build
-pub async fn trigger_build(
+/// POST /api/v1/deployments — Trigger a CLI-initiated build
+pub async fn trigger_deploy(
     State(state): State<AppState>,
     auth_user: AuthUser,
-    Json(req): Json<TriggerBuildRequest>,
+    Json(req): Json<TriggerDeployRequest>,
 ) -> Result<Json<Value>, AppError> {
     // Validate project ownership
     let project: Project = sqlx::query_as("SELECT * FROM projects WHERE id = $1 AND user_id = $2")
@@ -625,7 +626,7 @@ pub async fn trigger_build(
         let build_id = uuid::Uuid::new_v4().to_string();
         sqlx::query(
             r#"
-            INSERT INTO build_jobs (id, project_id, commit_sha, commit_message, branch, repo_full_name, installation_id, trigger, status, retry_count, created_at, updated_at)
+            INSERT INTO deployments (id, project_id, commit_sha, commit_message, branch, repo_full_name, installation_id, trigger, status, retry_count, created_at, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, 'cli', 'queued', 0, $8, $9)
             "#,
         )
@@ -647,7 +648,7 @@ pub async fn trigger_build(
             project_id = %req.project_id,
             commit = %req.commit_sha,
             trigger = "cli",
-            "CLI-triggered build enqueued (all canisters)"
+            "CLI-triggered deployment enqueued (all canisters)"
         );
         build_ids.push(build_id);
     } else {
@@ -656,7 +657,7 @@ pub async fn trigger_build(
             let build_id = uuid::Uuid::new_v4().to_string();
             sqlx::query(
                 r#"
-                INSERT INTO build_jobs (id, project_id, canister_name, commit_sha, commit_message, branch, repo_full_name, installation_id, trigger, status, retry_count, created_at, updated_at)
+                INSERT INTO deployments (id, project_id, canister_name, commit_sha, commit_message, branch, repo_full_name, installation_id, trigger, status, retry_count, created_at, updated_at)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'cli', 'queued', 0, $9, $10)
                 "#,
             )
@@ -680,7 +681,7 @@ pub async fn trigger_build(
                 canister = %canister_name,
                 commit = %req.commit_sha,
                 trigger = "cli",
-                "Per-canister CLI-triggered build enqueued"
+                "Per-canister CLI-triggered deployment enqueued"
             );
             build_ids.push(build_id);
         }
@@ -692,35 +693,35 @@ pub async fn trigger_build(
     })))
 }
 
-/// GET /api/v1/builds/{build_id} — Get a specific build with logs
-pub async fn get_build(
+/// GET /api/v1/deployments/{deploy_id} — Get a specific deployment with logs
+pub async fn get_deployment(
     State(state): State<AppState>,
     auth_user: AuthUser,
-    Path(build_id): Path<String>,
+    Path(deploy_id): Path<String>,
 ) -> Result<Json<Value>, AppError> {
-    let build: crate::models::BuildJob = sqlx::query_as(
+    let deployment: crate::models::DeploymentRecord = sqlx::query_as(
         r#"
-        SELECT bj.* FROM build_jobs bj
-        JOIN projects p ON bj.project_id = p.id
-        WHERE bj.id = $1 AND p.user_id = $2
+        SELECT d.* FROM deployments d
+        JOIN projects p ON d.project_id = p.id
+        WHERE d.id = $1 AND p.user_id = $2
         "#,
     )
-    .bind(&build_id)
+    .bind(&deploy_id)
     .bind(&auth_user.user.id)
     .fetch_optional(&state.db)
     .await
     .map_err(AppError::Database)?
-    .ok_or_else(|| AppError::NotFound("Build not found".into()))?;
+    .ok_or_else(|| AppError::NotFound("Deployment not found".into()))?;
 
-    let logs: Vec<crate::models::BuildLog> =
-        sqlx::query_as("SELECT * FROM build_logs WHERE build_job_id = $1 ORDER BY id ASC")
-            .bind(&build_id)
+    let logs: Vec<crate::models::DeployLog> =
+        sqlx::query_as("SELECT * FROM deploy_logs WHERE deployment_id = $1 ORDER BY id ASC")
+            .bind(&deploy_id)
             .fetch_all(&state.db)
             .await
             .map_err(AppError::Database)?;
 
     Ok(Json(json!({
-        "build": build,
+        "deployment": deployment,
         "logs": logs,
     })))
 }
@@ -935,7 +936,7 @@ pub async fn link_repo(
                     let build_id = uuid::Uuid::new_v4().to_string();
                     sqlx::query(
                         r#"
-                        INSERT INTO build_jobs (id, project_id, commit_sha, commit_message, branch, repo_full_name, installation_id, trigger, status, retry_count, created_at, updated_at)
+                        INSERT INTO deployments (id, project_id, commit_sha, commit_message, branch, repo_full_name, installation_id, trigger, status, retry_count, created_at, updated_at)
                         VALUES ($1, $2, $3, $4, $5, $6, $7, 'dashboard', 'queued', 0, $8, $9)
                         "#,
                     )
@@ -957,7 +958,7 @@ pub async fn link_repo(
                         project_id = %params.project_id,
                         commit = %commit_sha,
                         trigger = "dashboard",
-                        "Auto-triggered initial build (all canisters)"
+                        "Auto-triggered initial deployment (all canisters)"
                     );
                     build_ids.push(build_id);
                 } else {
@@ -966,7 +967,7 @@ pub async fn link_repo(
                         let build_id = uuid::Uuid::new_v4().to_string();
                         sqlx::query(
                             r#"
-                            INSERT INTO build_jobs (id, project_id, canister_name, commit_sha, commit_message, branch, repo_full_name, installation_id, trigger, status, retry_count, created_at, updated_at)
+                            INSERT INTO deployments (id, project_id, canister_name, commit_sha, commit_message, branch, repo_full_name, installation_id, trigger, status, retry_count, created_at, updated_at)
                             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'dashboard', 'queued', 0, $9, $10)
                             "#,
                         )
@@ -990,7 +991,7 @@ pub async fn link_repo(
                             canister = %canister_name,
                             commit = %commit_sha,
                             trigger = "dashboard",
-                            "Auto-triggered initial per-canister build"
+                            "Auto-triggered initial per-canister deployment"
                         );
                         build_ids.push(build_id);
                     }

@@ -27,7 +27,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { StatusDot } from "@/components/status-dot";
 import { CopyButton } from "@/components/copy-button";
 import { displayRecipe } from "@/lib/utils";
-import type { Canister, Deployment, Build } from "@/api/types";
+import type { Canister, Deployment } from "@/api/types";
 
 const IN_PROGRESS_STATUSES = ["pending", "queued", "building", "deploying", "created"];
 
@@ -169,55 +169,13 @@ function DeployRow({
         </span>
       )}
       <span className="text-xs text-muted-foreground whitespace-nowrap">
-        {timeAgo(deploy.started_at)}
+        {timeAgo(deploy.created_at)}
       </span>
     </div>
   );
 }
 
-function BuildRow({
-  build,
-  projectId,
-}: {
-  build: Build;
-  projectId: string;
-}) {
-  const navigate = useNavigate();
-  const inProgress = IN_PROGRESS_STATUSES.includes(build.status);
-  const succeeded = build.status === "succeeded" || build.status === "deployed";
-  const failed = build.status === "failed" || build.status === "error";
 
-  return (
-    <div
-      className="flex items-center gap-3 px-4 py-2.5 hover:bg-muted/40 transition-colors cursor-pointer"
-      onClick={() => navigate(`/projects/${projectId}/builds/${build.id}`)}
-    >
-      {succeeded ? (
-        <CheckCircle2 className="h-4 w-4 shrink-0 text-success" />
-      ) : failed ? (
-        <XCircle className="h-4 w-4 shrink-0 text-destructive" />
-      ) : inProgress ? (
-        <Loader2 className="h-4 w-4 shrink-0 text-warning animate-spin" />
-      ) : (
-        <StatusDot status={build.status} pulse={inProgress} />
-      )}
-      <Badge variant="outline" className="text-xs shrink-0">
-        {build.canister_name || build.trigger}
-      </Badge>
-      <span className="text-sm truncate flex-1">
-        {build.commit_message || "No message"}
-      </span>
-      {build.commit_sha && (
-        <span className="font-mono text-xs text-muted-foreground">
-          {build.commit_sha.slice(0, 7)}
-        </span>
-      )}
-      <span className="text-xs text-muted-foreground whitespace-nowrap">
-        {timeAgo(build.created_at)}
-      </span>
-    </div>
-  );
-}
 
 function ProductionDeployCard({
   deploy,
@@ -249,7 +207,7 @@ function ProductionDeployCard({
           <span className="font-mono">{deploy.branch || "main"}</span>
           <span className="text-muted-foreground/40">&middot;</span>
           <Clock className="h-3 w-3" />
-          <span>{timeAgo(deploy.started_at)}</span>
+          <span>{timeAgo(deploy.created_at)}</span>
         </div>
       </Card>
     </Link>
@@ -292,11 +250,10 @@ export default function ProjectDetail() {
     );
   }
 
-  const { project, deployments = [], builds = [] } = data;
+  const { project, deployments = [] } = data;
   const latestDeploy = deployments[0];
-  const latestBuild = builds[0];
-  const latestStatus =
-    latestBuild?.status ?? latestDeploy?.status ?? project.canisters?.[0]?.status ?? "pending";
+    const latestStatus =
+    latestDeploy?.status ?? project.canisters?.[0]?.status ?? "pending";
   const canisters = project.canisters ?? [];
 
   return (
@@ -320,12 +277,9 @@ export default function ProjectDetail() {
       )}
 
       {/* Tabs */}
-      <Tabs defaultValue="builds" className="pt-6">
+      <Tabs defaultValue="deployments" className="pt-6">
         <TabsList>
-          <TabsTrigger value="builds">
-            Builds ({builds.length})
-          </TabsTrigger>
-          <TabsTrigger value="deploys">
+          <TabsTrigger value="deployments">
             Deployments ({deployments.length})
           </TabsTrigger>
           <TabsTrigger value="canisters">
@@ -333,23 +287,7 @@ export default function ProjectDetail() {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="builds">
-          {builds.length === 0 ? (
-            <Card className="p-8 text-center border-border/50">
-              <p className="text-sm text-muted-foreground">
-                No builds yet. Link a GitHub repo to trigger your first build.
-              </p>
-            </Card>
-          ) : (
-            <Card className="divide-y divide-border/50 border-border/50 overflow-hidden">
-              {builds.map((b) => (
-                <BuildRow key={b.id} build={b} projectId={project.id} />
-              ))}
-            </Card>
-          )}
-        </TabsContent>
-
-        <TabsContent value="deploys">
+        <TabsContent value="deployments">
           {deployments.length === 0 ? (
             <Card className="p-8 text-center border-border/50">
               <p className="text-sm text-muted-foreground">

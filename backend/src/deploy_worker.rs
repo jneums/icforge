@@ -3,12 +3,12 @@ use std::time::Instant;
 use crate::config::AppConfig;
 use crate::db::DbPool;
 use crate::github::{self, GitHubNotifier};
-use crate::models::BuildJob;
+use crate::models::DeploymentRecord;
 
 /// Spawn the background build worker that polls for pending jobs.
 pub fn spawn_worker(pool: DbPool, config: AppConfig) {
     tokio::spawn(async move {
-        tracing::info!("Build worker started — polling for jobs every 5s");
+        tracing::info!("Deploy worker started — polling for jobs every 5s");
         let notifier = GitHubNotifier::new();
 
         loop {
@@ -21,7 +21,7 @@ pub fn spawn_worker(pool: DbPool, config: AppConfig) {
                     // No jobs — wait before polling again
                 }
                 Err(e) => {
-                    tracing::error!("Build worker error: {e}");
+                    tracing::error!("Deploy worker error: {e}");
                 }
             }
             tokio::time::sleep(std::time::Duration::from_secs(5)).await;
@@ -36,15 +36,15 @@ async fn claim_and_run(
     notifier: &GitHubNotifier,
 ) -> Result<bool, String> {
     // Atomic claim: grab the oldest pending job with FOR UPDATE SKIP LOCKED
-    let job: Option<BuildJob> = sqlx::query_as(
+    let job: Option<DeploymentRecord> = sqlx::query_as(
         r#"
-        UPDATE build_jobs
+        UPDATE deployments
         SET status = 'building',
             claimed_at = to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'),
             updated_at = to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS')
         WHERE id = (
-            SELECT id FROM build_jobs
-            WHERE status = 'pending'
+            SELECT id FROM deployments
+            WHERE status = 'queued'
             ORDER BY created_at ASC
             LIMIT 1
             FOR UPDATE SKIP LOCKED
@@ -63,31 +63,34 @@ async fn claim_and_run(
 
     tracing::info!(
         job_id = %job.id,
-        repo = %job.repo_full_name,
-        sha = &job.commit_sha[..7.min(job.commit_sha.len())],
-        "Claimed build job"
+        repo = %job.repo_full_name.as_deref().unwrap_or("unknown"),
+        "Claimed deployment job"
     );
 
     // Get installation token for GitHub API access + cloning
-    let token = github::get_installation_token(config, job.installation_id)
+    let installation_id = job.installation_id
+        .ok_or_else(|| "BUG: deployment has no installation_id".to_string())?;
+    let token = github::get_installation_token(&config, installation_id)
         .await
         .map_err(|e| format!("Failed to get installation token: {e}"))?;
 
     // Per-canister check name for GitHub statuses + check runs
-    let canister_name_ref = job.canister_name.as_deref()
-        .ok_or_else(|| "BUG: build job has no canister_name".to_string())?;
+    let canister_name_ref = &job.canister_name;
     let check_name = format!("icforge/{canister_name_ref}");
+    let repo = job.repo_full_name.as_deref().unwrap_or("");
+    let sha = job.commit_sha.as_deref().unwrap_or("");
 
     // Post pending commit status
-    let build_url = format!("{}/builds/{}", config.frontend_url, job.id);
+    let deploy_url = format!("{}/deploys/{}", config.frontend_url, job.id);
+    let short_sha = &sha[..sha.len().min(7)];
     let _ = notifier
         .post_commit_status(
             &token,
-            &job.repo_full_name,
-            &job.commit_sha,
+            repo,
+            sha,
             "pending",
-            "Build queued",
-            &build_url,
+            "Deployment queued",
+            &deploy_url,
             &check_name,
         )
         .await;
@@ -96,13 +99,13 @@ async fn claim_and_run(
     let check_run_id = notifier
         .create_check_run(
             &token,
-            &job.repo_full_name,
-            &job.commit_sha,
+            repo,
+            sha,
             &check_name,
             &format!(
                 "Building {} @ {}...",
                 canister_name_ref,
-                &job.commit_sha[..7.min(job.commit_sha.len())]
+                short_sha
             ),
         )
         .await
@@ -110,7 +113,7 @@ async fn claim_and_run(
 
     // Run the actual build
     let start = Instant::now();
-    let result = execute_build(pool, config, &job, &token).await;
+    let result = execute_deploy(pool, config, &job, &token).await;
     let duration_ms = start.elapsed().as_millis() as i32;
 
     match result {
@@ -118,8 +121,8 @@ async fn claim_and_run(
             // Mark success
             sqlx::query(
                 r#"
-                UPDATE build_jobs
-                SET status = 'success',
+                UPDATE deployments
+                SET status = 'live',
                     completed_at = to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'),
                     build_duration_ms = $2,
                     updated_at = to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS')
@@ -136,11 +139,11 @@ async fn claim_and_run(
             let _ = notifier
                 .post_commit_status(
                     &token,
-                    &job.repo_full_name,
-                    &job.commit_sha,
+                    repo,
+                    sha,
                     "success",
                     &format!("Deployed in {:.1}s", duration_ms as f64 / 1000.0),
-                    &build_url,
+                    &deploy_url,
                     &check_name,
                 )
                 .await;
@@ -149,47 +152,47 @@ async fn claim_and_run(
                 let _ = notifier
                     .update_check_run(
                         &token,
-                        &job.repo_full_name,
+                        repo,
                         check_id,
                         "success",
-                        "Build succeeded",
+                        "Deployment succeeded",
                         &format!(
                             "Deployed `{}` in {:.1}s",
-                            &job.commit_sha[..7.min(job.commit_sha.len())],
+                            short_sha,
                             duration_ms as f64 / 1000.0
                         ),
                     )
                     .await;
             }
 
-            // Comment on PR if this is a PR build
+            // Comment on PR if this is a PR deploy
             if let Some(pr_number) = job.pr_number {
                 let comment = format!(
                     "### 🚀 ICForge Preview\n\n\
                      **Status:** ✅ Deployed\n\
                      **Commit:** `{}`\n\
                      **Duration:** {:.1}s\n\n\
-                     [View Build]({})",
-                    &job.commit_sha[..7.min(job.commit_sha.len())],
+                     [View Deployment]({})",
+                    short_sha,
                     duration_ms as f64 / 1000.0,
-                    build_url,
+                    deploy_url,
                 );
                 let _ = notifier
-                    .comment_on_pr(&token, &job.repo_full_name, pr_number, &comment)
+                    .comment_on_pr(&token, repo, pr_number, &comment)
                     .await;
             }
 
             tracing::info!(
                 job_id = %job.id,
                 duration_ms = duration_ms,
-                "Build succeeded"
+                "Deployment succeeded"
             );
         }
         Err(err) => {
             // Mark failure
             sqlx::query(
                 r#"
-                UPDATE build_jobs
+                UPDATE deployments
                 SET status = 'failed',
                     error_message = $2,
                     completed_at = to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'),
@@ -208,11 +211,11 @@ async fn claim_and_run(
             let _ = notifier
                 .post_commit_status(
                     &token,
-                    &job.repo_full_name,
-                    &job.commit_sha,
+                    repo,
+                    sha,
                     "failure",
-                    &format!("Build failed: {}", truncate(&err, 80)),
-                    &build_url,
+                    &format!("Deploy failed: {}", truncate(&err, 80)),
+                    &deploy_url,
                     &check_name,
                 )
                 .await;
@@ -221,10 +224,10 @@ async fn claim_and_run(
                 let _ = notifier
                     .update_check_run(
                         &token,
-                        &job.repo_full_name,
+                        repo,
                         check_id,
                         "failure",
-                        "Build failed",
+                        "Deployment failed",
                         &format!("```\n{}\n```", &err),
                     )
                     .await;
@@ -236,20 +239,20 @@ async fn claim_and_run(
                      **Status:** ❌ Failed\n\
                      **Commit:** `{}`\n\n\
                      ```\n{}\n```\n\n\
-                     [View Build]({})",
-                    &job.commit_sha[..7.min(job.commit_sha.len())],
+                     [View Deployment]({})",
+                    short_sha,
                     &err,
-                    build_url,
+                    deploy_url,
                 );
                 let _ = notifier
-                    .comment_on_pr(&token, &job.repo_full_name, pr_number, &comment)
+                    .comment_on_pr(&token, repo, pr_number, &comment)
                     .await;
             }
 
             tracing::warn!(
                 job_id = %job.id,
                 error = %err,
-                "Build failed"
+                "Deployment failed"
             );
         }
     }
@@ -258,20 +261,20 @@ async fn claim_and_run(
 }
 
 /// Execute the build: clone, setup icp-cli identity, hydrate .icp mappings, run `icp deploy`.
-async fn execute_build(
+async fn execute_deploy(
     pool: &DbPool,
     config: &AppConfig,
-    job: &BuildJob,
+    job: &DeploymentRecord,
     token: &str,
 ) -> Result<(), String> {
-    let work_dir = format!("/tmp/icforge-builds/{}", job.id);
+    let work_dir = format!("/tmp/icforge-deploys/{}", job.id);
 
     // Phase: clone
-    log_build(pool, &job.id, "info", "clone", "Cloning repository...").await;
+    log_deploy(pool, &job.id, "info", "clone", "Cloning repository...").await;
 
     let clone_url = format!(
         "https://x-access-token:{token}@github.com/{}.git",
-        job.repo_full_name
+        job.repo_full_name.as_deref().unwrap_or("")
     );
 
     run_cmd(
@@ -282,15 +285,15 @@ async fn execute_build(
             "--depth",
             "1",
             "--branch",
-            &job.branch,
+            job.branch.as_deref().unwrap_or("main"),
             &clone_url,
             &work_dir,
         ],
     )
     .await?;
-    run_cmd(&work_dir, &["git", "checkout", &job.commit_sha]).await?;
+    run_cmd(&work_dir, &["git", "checkout", job.commit_sha.as_deref().unwrap_or("HEAD")]).await?;
 
-    log_build(pool, &job.id, "info", "clone", "Repository cloned").await;
+    log_deploy(pool, &job.id, "info", "clone", "Repository cloned").await;
 
     // Require icp.yaml — no fallback framework detection
     let icp_yaml_path = format!("{work_dir}/icp.yaml");
@@ -306,7 +309,7 @@ async fn execute_build(
         .map_err(|e| format!("Failed to fetch project slug: {e}"))?;
 
     // Phase: setup icp-cli identity
-    log_build(pool, &job.id, "info", "setup", "Setting up icp-cli identity...").await;
+    log_deploy(pool, &job.id, "info", "setup", "Setting up icp-cli identity...").await;
 
     let ic_pem = config
         .ic_identity_pem
@@ -337,13 +340,12 @@ async fn execute_build(
     // Clean up PEM file immediately
     let _ = tokio::fs::remove_file(&pem_path).await;
 
-    log_build(pool, &job.id, "info", "setup", "Identity configured").await;
+    log_deploy(pool, &job.id, "info", "setup", "Identity configured").await;
 
     // Every job targets exactly one canister — webhook fan-out guarantees this
-    let canister_name = job.canister_name.as_deref()
-        .ok_or_else(|| "BUG: build job has no canister_name — webhook fan-out should always set this".to_string())?;
+    let canister_name = &job.canister_name;
 
-    log_build(
+    log_deploy(
         pool,
         &job.id,
         "info",
@@ -353,7 +355,7 @@ async fn execute_build(
     .await;
 
     // Phase: pre-provision — ensure canister has ID in DB
-    log_build(pool, &job.id, "info", "provision", &format!("Pre-provisioning canister '{canister_name}'...")).await;
+    log_deploy(pool, &job.id, "info", "provision", &format!("Pre-provisioning canister '{canister_name}'...")).await;
 
     {
         let canister_row = sqlx::query_as::<_, (String, Option<String>)>(
@@ -367,7 +369,7 @@ async fn execute_build(
 
         match canister_row {
             Some((_db_id, Some(cid))) => {
-                log_build(
+                log_deploy(
                     pool,
                     &job.id,
                     "info",
@@ -378,7 +380,7 @@ async fn execute_build(
             }
             Some((db_id, None)) => {
                 // DB record exists but no canister ID — create on IC via icp-cli
-                log_build(
+                log_deploy(
                     pool,
                     &job.id,
                     "info",
@@ -406,7 +408,7 @@ async fn execute_build(
                 .execute(pool)
                 .await;
 
-                log_build(
+                log_deploy(
                     pool,
                     &job.id,
                     "info",
@@ -423,7 +425,7 @@ async fn execute_build(
 
     // Phase: hydrate .icp/data/mappings/ — write ALL canister IDs from DB
     // so icp-cli discovers sibling canisters and injects PUBLIC_CANISTER_ID:* env vars
-    log_build(pool, &job.id, "info", "hydrate", "Hydrating .icp mappings from DB...").await;
+    log_deploy(pool, &job.id, "info", "hydrate", "Hydrating .icp mappings from DB...").await;
 
     let all_canisters = sqlx::query_as::<_, (String, Option<String>)>(
         "SELECT name, canister_id FROM canisters WHERE project_id = $1",
@@ -454,7 +456,7 @@ async fn execute_build(
         .await
         .map_err(|e| format!("Failed to write ic.ids.json: {e}"))?;
 
-    log_build(
+    log_deploy(
         pool,
         &job.id,
         "info",
@@ -485,22 +487,6 @@ async fn execute_build(
     .execute(pool)
     .await;
 
-    // Create deployment record
-    let deploy_id = uuid::Uuid::new_v4().to_string();
-    let _ = sqlx::query(
-        "INSERT INTO deployments (id, project_id, canister_name, status, commit_sha, commit_message, branch, repo_full_name, build_job_id, started_at, completed_at) VALUES ($1, $2, $3, 'succeeded', $4, $5, $6, $7, $8, to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'), to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS'))",
-    )
-    .bind(&deploy_id)
-    .bind(&job.project_id)
-    .bind(canister_name)
-    .bind(&job.commit_sha)
-    .bind(&job.commit_message.as_deref().unwrap_or("Auto-deploy"))
-    .bind(&job.branch)
-    .bind(&job.repo_full_name)
-    .bind(&job.id)
-    .execute(pool)
-    .await;
-
     // Fetch canister_id from DB for KV write + log
     let canister_id: Option<String> = sqlx::query_scalar(
         "SELECT canister_id FROM canisters WHERE project_id = $1 AND name = $2",
@@ -513,7 +499,7 @@ async fn execute_build(
     .flatten();
 
     if let Some(ref cid) = canister_id {
-        log_build(
+        log_deploy(
             pool,
             &job.id,
             "info",
@@ -528,14 +514,14 @@ async fn execute_build(
             crate::cloudflare::kv_write(config, &canister_slug, cid, &job.project_id).await
         {
             tracing::warn!(
-                build_job_id = %job.id,
+                deployment_id = %job.id,
                 slug = %canister_slug,
                 error = %e,
                 "Failed to write Cloudflare KV subdomain mapping (non-fatal)"
             );
         }
     } else {
-        log_build(
+        log_deploy(
             pool,
             &job.id,
             "info",
@@ -548,7 +534,7 @@ async fn execute_build(
     // Cleanup
     let _ = tokio::fs::remove_dir_all(&work_dir).await;
 
-    log_build(pool, &job.id, "info", "complete", "Build complete").await;
+    log_deploy(pool, &job.id, "info", "complete", "Deployment complete").await;
     Ok(())
 }
 
@@ -584,10 +570,10 @@ fn parse_canister_id_from_output(output: &str) -> Option<String> {
     None
 }
 
-/// Run a command and stream its output as build log lines.
+/// Run a command and stream its output as deploy log lines.
 async fn run_cmd_streaming(
     pool: &DbPool,
-    job_id: &str,
+    deployment_id: &str,
     work_dir: &str,
     args: &[&str],
 ) -> Result<String, String> {
@@ -611,7 +597,7 @@ async fn run_cmd_streaming(
         let reader = BufReader::new(stdout);
         let mut lines = reader.lines();
         while let Ok(Some(line)) = lines.next_line().await {
-            log_build(pool, job_id, "info", "deploy", &format!("  | {line}")).await;
+            log_deploy(pool, deployment_id, "info", "deploy", &format!("  | {line}")).await;
             all_output.push_str(&line);
             all_output.push('\n');
         }
@@ -623,7 +609,7 @@ async fn run_cmd_streaming(
         let reader = BufReader::new(stderr);
         let mut lines = reader.lines();
         while let Ok(Some(line)) = lines.next_line().await {
-            log_build(pool, job_id, "warn", "deploy", &format!("  | {line}")).await;
+            log_deploy(pool, deployment_id, "warn", "deploy", &format!("  | {line}")).await;
             stderr_output.push_str(&line);
             stderr_output.push('\n');
         }
@@ -647,12 +633,12 @@ async fn run_cmd_streaming(
 }
 
 
-async fn log_build(pool: &DbPool, job_id: &str, level: &str, phase: &str, message: &str) {
-    tracing::info!(job_id = job_id, phase = phase, "{}", message);
+async fn log_deploy(pool: &DbPool, deployment_id: &str, level: &str, phase: &str, message: &str) {
+    tracing::info!(deployment_id = deployment_id, phase = phase, "{}", message);
     let _ = sqlx::query(
-        "INSERT INTO build_logs (build_job_id, level, message, phase) VALUES ($1, $2, $3, $4)",
+        "INSERT INTO deploy_logs (deployment_id, level, message, phase) VALUES ($1, $2, $3, $4)",
     )
-    .bind(job_id)
+    .bind(deployment_id)
     .bind(level)
     .bind(message)
     .bind(phase)

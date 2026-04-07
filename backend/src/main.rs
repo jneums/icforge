@@ -11,7 +11,7 @@ use tower_http::cors::CorsLayer;
 use tracing_subscriber::EnvFilter;
 
 mod auth;
-mod build_worker;
+mod deploy_worker;
 mod cloudflare;
 mod config;
 mod db;
@@ -61,7 +61,7 @@ async fn main() {
     };
 
     // Start the background build worker
-    build_worker::spawn_worker(pool, config);
+    deploy_worker::spawn_worker(pool, config);
 
     let app = Router::new()
         .route("/health", get(health))
@@ -82,10 +82,10 @@ async fn main() {
         .route("/api/v1/tokens", get(routes::list_api_tokens))
         .route("/api/v1/tokens", post(routes::create_api_token))
         .route("/api/v1/tokens/{token_id}", delete(routes::delete_api_token))
-        // Build jobs
-        .route("/api/v1/builds", get(routes::list_builds))
-        .route("/api/v1/builds", post(routes::trigger_build))
-        .route("/api/v1/builds/{build_id}", get(routes::get_build))
+        // Deployments
+        .route("/api/v1/deployments", get(routes::list_deployments))
+        .route("/api/v1/deployments", post(routes::trigger_deploy))
+        .route("/api/v1/deployments/{deploy_id}", get(routes::get_deployment))
         // GitHub App
         .route("/api/v1/github/installations", get(routes::list_installations))
         .route("/api/v1/github/installations/claim", post(routes::claim_installation))

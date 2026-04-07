@@ -1,5 +1,5 @@
 import { apiFetch, API_URL } from './client';
-import type { LogEntry, Build } from './types';
+import type { LogEntry, Deployment } from './types';
 
 export async function fetchDeployLogs(deployId: string): Promise<LogEntry[]> {
   const data = await apiFetch<{ logs: LogEntry[] }>(`/api/v1/deploy/${deployId}/logs`);
@@ -21,8 +21,8 @@ export async function fetchDeployStatus(deployId: string): Promise<{
   return apiFetch(`/api/v1/deploy/${deployId}/status`);
 }
 
-export async function fetchBuild(buildId: string): Promise<{ build: Build; logs: LogEntry[] }> {
-  return apiFetch(`/api/v1/builds/${buildId}`);
+export async function fetchDeployment(deployId: string): Promise<{ deployment: Deployment; logs: LogEntry[] }> {
+  return apiFetch(`/api/v1/deployments/${deployId}`);
 }
 
 /**

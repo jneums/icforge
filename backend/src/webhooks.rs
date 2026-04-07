@@ -121,7 +121,7 @@ async fn handle_push(state: AppState, payload: Value) -> Result<(), AppError> {
 
     // Cancel any pending builds for this project (deduplication)
     sqlx::query(
-        "UPDATE build_jobs SET status = 'cancelled', updated_at = to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS') WHERE project_id = $1 AND status = 'pending'"
+        "UPDATE deployments SET status = 'cancelled', updated_at = to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS') WHERE project_id = $1 AND status = 'pending'"
     )
     .bind(&project.id)
     .execute(&state.db)
@@ -142,7 +142,7 @@ async fn handle_push(state: AppState, payload: Value) -> Result<(), AppError> {
         let job_id = uuid::Uuid::new_v4().to_string();
         sqlx::query(
             r#"
-            INSERT INTO build_jobs (id, project_id, commit_sha, commit_message, branch, repo_full_name, installation_id, trigger, status)
+            INSERT INTO deployments (id, project_id, commit_sha, commit_message, branch, repo_full_name, installation_id, trigger, status)
             VALUES ($1, $2, $3, $4, $5, $6, $7, 'push', 'pending')
             "#,
         )
@@ -164,7 +164,7 @@ async fn handle_push(state: AppState, payload: Value) -> Result<(), AppError> {
             let job_id = uuid::Uuid::new_v4().to_string();
             sqlx::query(
                 r#"
-                INSERT INTO build_jobs (id, project_id, canister_name, commit_sha, commit_message, branch, repo_full_name, installation_id, trigger, status)
+                INSERT INTO deployments (id, project_id, canister_name, commit_sha, commit_message, branch, repo_full_name, installation_id, trigger, status)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'push', 'pending')
                 "#,
             )
@@ -245,7 +245,7 @@ async fn handle_pull_request(state: AppState, payload: Value) -> Result<(), AppE
             if let Some(project) = project {
                 // Cancel any pending preview builds for this PR
                 sqlx::query(
-                    "UPDATE build_jobs SET status = 'cancelled', updated_at = to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS') WHERE project_id = $1 AND pr_number = $2 AND status = 'pending'"
+                    "UPDATE deployments SET status = 'cancelled', updated_at = to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS') WHERE project_id = $1 AND pr_number = $2 AND status = 'pending'"
                 )
                 .bind(&project.id)
                 .bind(pr_number)
@@ -267,7 +267,7 @@ async fn handle_pull_request(state: AppState, payload: Value) -> Result<(), AppE
                     let job_id = uuid::Uuid::new_v4().to_string();
                     sqlx::query(
                         r#"
-                        INSERT INTO build_jobs (id, project_id, commit_sha, branch, repo_full_name, installation_id, trigger, pr_number, status)
+                        INSERT INTO deployments (id, project_id, commit_sha, branch, repo_full_name, installation_id, trigger, pr_number, status)
                         VALUES ($1, $2, $3, $4, $5, $6, 'pull_request', $7, 'pending')
                         "#,
                     )
@@ -294,7 +294,7 @@ async fn handle_pull_request(state: AppState, payload: Value) -> Result<(), AppE
                         let job_id = uuid::Uuid::new_v4().to_string();
                         sqlx::query(
                             r#"
-                            INSERT INTO build_jobs (id, project_id, canister_name, commit_sha, branch, repo_full_name, installation_id, trigger, pr_number, status)
+                            INSERT INTO deployments (id, project_id, canister_name, commit_sha, branch, repo_full_name, installation_id, trigger, pr_number, status)
                             VALUES ($1, $2, $3, $4, $5, $6, $7, 'pull_request', $8, 'pending')
                             "#,
                         )

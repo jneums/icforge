@@ -36,12 +36,12 @@ function getGitInfo(): { sha?: string; branch?: string; message?: string } {
  * Stream build logs via SSE until the build reaches a terminal state.
  * Returns the final build status.
  */
-async function streamBuildLogs(buildId: string): Promise<{ status: string; error?: string }> {
+async function streamDeployLogs(deployId: string): Promise<{ status: string; error?: string }> {
   const apiUrl = getApiUrl();
   const { getToken } = await import("../auth.js");
-  const token = getToken();
+  const token = await getToken();
 
-  const url = `${apiUrl}/api/v1/builds/${buildId}/logs/stream`;
+  const url = `${apiUrl}/api/v1/deploy/${deployId}/logs/stream`;
   const headers: Record<string, string> = {};
   if (token) {
     headers["Authorization"] = `Bearer ${token}`;
@@ -68,7 +68,7 @@ async function streamBuildLogs(buildId: string): Promise<{ status: string; error
             const data = line.slice(6).trim();
             if (data === "[DONE]") {
               // Fetch final status
-              const statusResp = await apiFetch(`/api/v1/builds/${buildId}`);
+              const statusResp = await apiFetch(`/api/v1/deployments/${deployId}`);
               if (statusResp.ok) {
                 const statusData = (await statusResp.json()) as { build: { status: string; error_message?: string } };
                 return { status: statusData.build.status, error: statusData.build.error_message ?? undefined };
@@ -102,13 +102,13 @@ async function streamBuildLogs(buildId: string): Promise<{ status: string; error
     await new Promise((r) => setTimeout(r, 2000));
 
     try {
-      const buildResp = await apiFetch(`/api/v1/builds/${buildId}`);
-      if (!buildResp.ok) {
-        spinner.text = `Waiting for build status... (${buildResp.status})`;
+      const deployResp = await apiFetch(`/api/v1/deployments/${deployId}`);
+      if (!deployResp.ok) {
+        spinner.text = `Waiting for build status... (${deployResp.status})`;
         continue;
       }
 
-      const buildData = (await buildResp.json()) as {
+      const buildData = (await deployResp.json()) as {
         build: { status: string; error_message?: string };
         logs: Array<{ level: string; message: string }>;
       };
@@ -181,7 +181,7 @@ export async function deployCommand(options: DeployOptions = {}) {
     body.canister_name = options.canister;
   }
 
-  const response = await apiFetch("/api/v1/builds", {
+  const response = await apiFetch("/api/v1/deployments", {
     method: "POST",
     body: JSON.stringify(body),
   });
@@ -193,12 +193,12 @@ export async function deployCommand(options: DeployOptions = {}) {
     process.exit(1);
   }
 
-  const data = (await response.json()) as { build_id: string };
-  spinner.succeed(`Build triggered: ${chalk.dim(data.build_id.slice(0, 8))}`);
+  const data = (await response.json()) as { deployment_id: string };
+  spinner.succeed(`Deploy triggered: ${chalk.dim(data.deployment_id.slice(0, 8))}`);
 
   // 5. Stream build logs
   console.log();
-  const result = await streamBuildLogs(data.build_id);
+  const result = await streamDeployLogs(data.deployment_id);
 
   // 6. Print summary
   console.log();

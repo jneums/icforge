@@ -39,25 +39,16 @@ export interface Deployment {
   branch: string | null;
   repo_full_name: string | null;
   error_message: string | null;
-  started_at: string;
-  completed_at: string | null;
-}
-
-export interface Build {
-  id: string;
-  project_id: string;
-  deployment_id: string | null;
-  canister_name: string | null;
-  commit_sha: string;
-  commit_message: string | null;
-  branch: string;
-  repo_full_name: string;
-  trigger: string;
-  status: string;
-  error_message: string | null;
-  created_at: string;
+  installation_id: number | null;
+  trigger: string | null;
+  pr_number: number | null;
+  claimed_at: string | null;
+  retry_count: number;
+  build_duration_ms: number | null;
   started_at: string | null;
   completed_at: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface User {

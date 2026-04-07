@@ -17,8 +17,8 @@ function parseRoute(pathname: string) {
   if (segments[0] === "projects" && segments[2] === "deploys" && segments[3]) {
     return { id: segments[1], deployId: segments[3], buildId: undefined };
   }
-  // /projects/:id/builds/:buildId
-  if (segments[0] === "projects" && segments[2] === "builds" && segments[3]) {
+  // /projects/:id/deploys/:deployId
+  if (segments[0] === "projects" && segments[2] === "deploys" && segments[3]) {
     return { id: segments[1], deployId: undefined, buildId: segments[3] };
   }
   // /projects/:id
@@ -85,7 +85,7 @@ export function AppBreadcrumbs() {
     );
   }
 
-  // /projects/:id/builds/:buildId
+  // /projects/:id/deploys/:deployId
   if (id && buildId) {
     return (
       <Breadcrumb>
@@ -103,7 +103,7 @@ export function AppBreadcrumbs() {
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbPage>Build #{buildId.slice(0, 8)}</BreadcrumbPage>
+            <BreadcrumbPage>Deploy #{buildId.slice(0, 8)}</BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>

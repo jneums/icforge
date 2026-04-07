@@ -49,7 +49,7 @@ pub struct CanisterRecord {
     pub updated_at: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct DeploymentRecord {
     pub id: String,
     pub project_id: String,
@@ -60,9 +60,17 @@ pub struct DeploymentRecord {
     pub branch: Option<String>,
     pub repo_full_name: Option<String>,
     pub error_message: Option<String>,
-    pub started_at: String,
+    pub started_at: Option<String>,
     pub completed_at: Option<String>,
-    pub build_job_id: Option<String>,
+    // Fields merged from former build_jobs table:
+    pub installation_id: Option<i64>,
+    pub trigger: Option<String>,
+    pub pr_number: Option<i32>,
+    pub claimed_at: Option<String>,
+    pub retry_count: i32,
+    pub build_duration_ms: Option<i32>,
+    pub created_at: String,
+    pub updated_at: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
@@ -89,9 +97,9 @@ pub struct CreateCanisterInput {
     pub recipe: Option<String>,
 }
 
-/// CLI-triggered build request
+/// CLI/dashboard-triggered deployment request
 #[derive(Debug, Deserialize)]
-pub struct TriggerBuildRequest {
+pub struct TriggerDeployRequest {
     pub project_id: String,
     pub commit_sha: String,
     pub branch: String,
@@ -133,45 +141,6 @@ pub struct GitHubRepo {
     pub full_name: String,
     pub default_branch: String,
     pub created_at: String,
-}
-
-// ============================================================
-// Build pipeline models
-// ============================================================
-
-#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
-pub struct BuildJob {
-    pub id: String,
-    pub project_id: String,
-    pub deployment_id: Option<String>,
-    pub canister_name: Option<String>,
-    pub commit_sha: String,
-    pub commit_message: Option<String>,
-    pub branch: String,
-    pub repo_full_name: String,
-    pub installation_id: i64,
-    pub trigger: String,
-    pub pr_number: Option<i32>,
-    pub status: String,
-    pub claimed_at: Option<String>,
-    pub started_at: Option<String>,
-    pub completed_at: Option<String>,
-    pub error_message: Option<String>,
-    pub retry_count: i32,
-    pub framework: Option<String>,
-    pub build_duration_ms: Option<i32>,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
-pub struct BuildLog {
-    pub id: i32,
-    pub build_job_id: String,
-    pub level: String,
-    pub message: String,
-    pub phase: Option<String>,
-    pub timestamp: String,
 }
 
 // ============================================================

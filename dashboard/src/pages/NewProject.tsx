@@ -27,7 +27,6 @@ export default function NewProject() {
   const [selectedRepo, setSelectedRepo] = useState<GitHubRepo | null>(null);
   const [projectName, setProjectName] = useState("");
   const [search, setSearch] = useState("");
-  const [creating, setCreating] = useState(false);
 
   const { data: installations, isLoading: installLoading } = useInstallations();
   const { data: repos, isLoading: reposLoading } = useGitHubRepos();
@@ -51,7 +50,6 @@ export default function NewProject() {
   async function handleCreate() {
     if (!selectedRepo || !projectName.trim()) return;
 
-    setCreating(true);
     setStep("creating");
 
     try {
@@ -76,7 +74,6 @@ export default function NewProject() {
       const msg = err instanceof Error ? err.message : "Failed to create project";
       toast.error(msg);
       setStep("configure");
-      setCreating(false);
     }
   }
 

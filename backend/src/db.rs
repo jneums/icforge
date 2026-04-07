@@ -8,7 +8,7 @@ pub async fn init_pool(database_url: &str) -> DbPool {
     let connect_opts: PgConnectOptions = database_url
         .parse::<PgConnectOptions>()
         .expect("Invalid DATABASE_URL")
-        .statement_cache_capacity(100);
+        .statement_cache_capacity(0);
 
     let pool_opts = PgPoolOptions::new()
         .max_connections(5)

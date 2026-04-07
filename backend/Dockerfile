@@ -2,7 +2,7 @@
 FROM debian:bookworm-slim AS runtime-base
 
 RUN apt-get update && apt-get install -y \
-    ca-certificates libssl3 git curl build-essential \
+    ca-certificates libssl3 git curl build-essential libdbus-1-3 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Rust toolchain + wasm target for build worker

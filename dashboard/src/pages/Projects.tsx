@@ -4,7 +4,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusDot } from "@/components/status-dot";
-import { Folder, AlertCircle, ExternalLink, GitCommit, Clock, Plus } from "lucide-react";
+import { Folder, AlertCircle, GitCommit, Clock, Plus, Box } from "lucide-react";
 import type { Project } from "@/api/types";
 
 function getProjectStatus(project: Project): string {
@@ -29,7 +29,7 @@ function timeAgo(dateStr: string): string {
 function ProjectRow({ project }: { project: Project }) {
   const status = getProjectStatus(project);
   const latestDeploy = project.latest_deployment;
-  const vanityUrl = `${project.slug}.icforge.dev`;
+  const canisterNames = project.canisters?.map((c) => c.name) ?? [];
 
   return (
     <Link to={`/projects/${project.id}`} className="block group">
@@ -39,10 +39,12 @@ function ProjectRow({ project }: { project: Project }) {
             <StatusDot status={status} />
             <span className="font-semibold truncate">{project.name}</span>
           </div>
-          <span className="flex items-center gap-1.5 font-mono text-xs text-muted-foreground shrink-0 opacity-70 group-hover:opacity-100 transition-opacity">
-            {vanityUrl}
-            <ExternalLink className="h-3 w-3" />
-          </span>
+          {canisterNames.length > 0 && (
+            <span className="flex items-center gap-1.5 font-mono text-xs text-muted-foreground shrink-0 opacity-70 group-hover:opacity-100 transition-opacity">
+              <Box className="h-3 w-3" />
+              {canisterNames.join(" · ")}
+            </span>
+          )}
         </div>
         <div className="flex items-center justify-between mt-2 ml-5 text-xs text-muted-foreground">
           {latestDeploy ? (

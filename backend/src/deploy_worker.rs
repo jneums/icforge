@@ -533,7 +533,7 @@ async fn execute_deploy(
         .await;
 
         // Write per-canister subdomain mapping to Cloudflare KV (best-effort)
-        let canister_slug = format!("{canister_name}.{project_slug}");
+        let canister_slug = format!("{project_slug}-{canister_name}");
         if let Err(e) =
             crate::cloudflare::kv_write(config, &canister_slug, cid, &job.project_id).await
         {

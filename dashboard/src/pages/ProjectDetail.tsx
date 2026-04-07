@@ -52,7 +52,7 @@ function CanisterCard({ canister, projectSlug }: { canister: Canister; projectSl
     open
   );
   const subdomainUrl = canister.canister_id
-    ? `https://${canister.name}.${projectSlug}.icforge.dev`
+    ? `https://${projectSlug}-${canister.name}.icforge.dev`
     : null;
 
   return (
@@ -81,7 +81,7 @@ function CanisterCard({ canister, projectSlug }: { canister: Canister; projectSl
             rel="noopener noreferrer"
             className="text-xs font-mono text-muted-foreground hover:text-primary inline-flex items-center gap-1"
           >
-            {canister.name}.{projectSlug}.icforge.dev
+            {projectSlug}-{canister.name}.icforge.dev
             <ExternalLink className="h-3 w-3" />
           </a>
         </div>

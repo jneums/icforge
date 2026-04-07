@@ -433,19 +433,26 @@ async fn execute_build(
     .await
     .map_err(|e| format!("DB error fetching canisters for hydration: {e}"))?;
 
-    let mappings_dir = format!("{work_dir}/.icp/data/mappings/ic");
+    let mappings_dir = format!("{work_dir}/.icp/data/mappings");
     tokio::fs::create_dir_all(&mappings_dir)
         .await
         .map_err(|e| format!("Failed to create .icp mappings dir: {e}"))?;
 
+    // icp-cli expects a single JSON file: .icp/data/mappings/ic.ids.json
+    // Format: { "canister_name": "canister-id", ... }
+    let mut ids_map = serde_json::Map::new();
     for (name, cid) in &all_canisters {
         if let Some(canister_id) = cid {
-            let mapping_path = format!("{mappings_dir}/{name}");
-            tokio::fs::write(&mapping_path, canister_id)
-                .await
-                .map_err(|e| format!("Failed to write mapping for {name}: {e}"))?;
+            ids_map.insert(name.clone(), serde_json::Value::String(canister_id.clone()));
         }
     }
+
+    let ids_json = serde_json::to_string_pretty(&serde_json::Value::Object(ids_map))
+        .map_err(|e| format!("Failed to serialize canister IDs: {e}"))?;
+    let ids_path = format!("{mappings_dir}/ic.ids.json");
+    tokio::fs::write(&ids_path, &ids_json)
+        .await
+        .map_err(|e| format!("Failed to write ic.ids.json: {e}"))?;
 
     log_build(
         pool,
@@ -453,7 +460,7 @@ async fn execute_build(
         "info",
         "hydrate",
         &format!(
-            "Wrote {} canister mappings to .icp/data/mappings/ic/",
+            "Wrote {} canister IDs to .icp/data/mappings/ic.ids.json",
             all_canisters.iter().filter(|(_, c)| c.is_some()).count()
         ),
     )

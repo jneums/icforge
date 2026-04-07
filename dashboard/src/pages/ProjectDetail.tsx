@@ -45,7 +45,15 @@ function timeAgo(dateStr: string): string {
 
 /* -- Sub-components -- */
 
-function CanisterCard({ canister, projectSlug }: { canister: Canister; projectSlug: string }) {
+function CanisterCard({
+  canister,
+  projectSlug,
+  latestDeploy,
+}: {
+  canister: Canister;
+  projectSlug: string;
+  latestDeploy?: Deployment;
+}) {
   const [open, setOpen] = useState(false);
   const { data: envVars, isLoading: envLoading } = useCanisterEnv(
     canister.canister_id,
@@ -55,14 +63,29 @@ function CanisterCard({ canister, projectSlug }: { canister: Canister; projectSl
     ? `https://${projectSlug}-${canister.name}.icforge.dev`
     : null;
 
+  const inProgress = latestDeploy && IN_PROGRESS_STATUSES.includes(latestDeploy.status);
+  const succeeded = latestDeploy && (latestDeploy.status === "live" || latestDeploy.status === "succeeded" || latestDeploy.status === "deployed");
+  const failed = latestDeploy && (latestDeploy.status === "failed" || latestDeploy.status === "error");
+  const cancelled = latestDeploy?.status === "cancelled";
+
   return (
     <Card className="p-4 border-border/50">
       <div className="flex items-center gap-3">
+        {succeeded ? (
+          <CheckCircle2 className="h-4 w-4 shrink-0 text-success" />
+        ) : failed ? (
+          <XCircle className="h-4 w-4 shrink-0 text-destructive" />
+        ) : cancelled ? (
+          <Ban className="h-4 w-4 shrink-0 text-muted-foreground" />
+        ) : inProgress ? (
+          <Loader2 className="h-4 w-4 shrink-0 text-warning animate-spin" />
+        ) : (
+          <StatusDot status={canister.status} />
+        )}
         <span className="text-sm font-semibold">{canister.name}</span>
         <Badge variant="outline" className="text-xs">
           {displayRecipe(canister.recipe)}
         </Badge>
-        <StatusDot status={canister.status} />
         {canister.canister_id && (
           <>
             <span className="ml-auto font-mono text-xs text-muted-foreground">
@@ -72,6 +95,19 @@ function CanisterCard({ canister, projectSlug }: { canister: Canister; projectSl
           </>
         )}
       </div>
+
+      {latestDeploy && (
+        <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+          {latestDeploy.commit_sha && (
+            <>
+              <GitCommit className="h-3 w-3" />
+              <span className="font-mono">{latestDeploy.commit_sha.slice(0, 7)}</span>
+            </>
+          )}
+          <span className="truncate">{latestDeploy.commit_message || "No message"}</span>
+          <span className="ml-auto whitespace-nowrap">{timeAgo(latestDeploy.created_at)}</span>
+        </div>
+      )}
 
       {subdomainUrl && (
         <div className="mt-2 flex items-center gap-1.5">
@@ -281,15 +317,34 @@ export default function ProjectDetail() {
       )}
 
       {/* Tabs */}
-      <Tabs defaultValue="deployments" className="pt-6">
+      <Tabs defaultValue="canisters" className="pt-6">
         <TabsList>
-          <TabsTrigger value="deployments">
-            Deployments ({deployments.length})
-          </TabsTrigger>
           <TabsTrigger value="canisters">
             Canisters ({canisters.length})
           </TabsTrigger>
+          <TabsTrigger value="deployments">
+            Deployments ({deployments.length})
+          </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="canisters" className="space-y-3">
+          {canisters.length === 0 ? (
+            <Card className="p-8 text-center border-border/50">
+              <p className="text-sm text-muted-foreground">
+                No canisters created yet.
+              </p>
+            </Card>
+          ) : (
+            canisters.map((c) => (
+              <CanisterCard
+                key={c.id}
+                canister={c}
+                projectSlug={project.slug}
+                latestDeploy={deployments.find((d) => d.canister_name === c.name)}
+              />
+            ))
+          )}
+        </TabsContent>
 
         <TabsContent value="deployments">
           {deployments.length === 0 ? (
@@ -304,18 +359,6 @@ export default function ProjectDetail() {
                 <DeployRow key={d.id} deploy={d} projectId={project.id} />
               ))}
             </Card>
-          )}
-        </TabsContent>
-
-        <TabsContent value="canisters" className="space-y-3">
-          {canisters.length === 0 ? (
-            <Card className="p-8 text-center border-border/50">
-              <p className="text-sm text-muted-foreground">
-                No canisters created yet.
-              </p>
-            </Card>
-          ) : (
-            canisters.map((c) => <CanisterCard key={c.id} canister={c} projectSlug={project.slug} />)
           )}
         </TabsContent>
       </Tabs>

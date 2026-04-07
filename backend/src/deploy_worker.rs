@@ -610,36 +610,51 @@ async fn run_cmd_streaming(
         .spawn()
         .map_err(|e| format!("Failed to spawn {}: {e}", args[0]))?;
 
-    let mut all_output = String::new();
+    // Read stdout and stderr CONCURRENTLY to avoid pipe deadlock.
+    // If we read them sequentially, the child can fill the stderr pipe buffer
+    // while we're blocked reading stdout (or vice versa), causing a deadlock.
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
 
-    // Stream stdout
-    if let Some(stdout) = child.stdout.take() {
-        let reader = BufReader::new(stdout);
-        let mut lines = reader.lines();
-        while let Ok(Some(line)) = lines.next_line().await {
-            log_deploy(pool, deployment_id, "info", "deploy", &format!("  | {line}")).await;
-            all_output.push_str(&line);
-            all_output.push('\n');
+    let pool_clone = pool.clone();
+    let dep_id = deployment_id.to_string();
+    let stdout_handle = tokio::spawn(async move {
+        let mut lines_out = Vec::new();
+        if let Some(stdout) = stdout {
+            let reader = BufReader::new(stdout);
+            let mut lines = reader.lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                log_deploy(&pool_clone, &dep_id, "info", "deploy", &format!("  | {line}")).await;
+                lines_out.push(line);
+            }
         }
-    }
+        lines_out
+    });
 
-    // Collect stderr
-    let mut stderr_output = String::new();
-    if let Some(stderr) = child.stderr.take() {
-        let reader = BufReader::new(stderr);
-        let mut lines = reader.lines();
-        while let Ok(Some(line)) = lines.next_line().await {
-            log_deploy(pool, deployment_id, "warn", "deploy", &format!("  | {line}")).await;
-            stderr_output.push_str(&line);
-            stderr_output.push('\n');
+    let pool_clone2 = pool.clone();
+    let dep_id2 = deployment_id.to_string();
+    let stderr_handle = tokio::spawn(async move {
+        let mut lines_err = Vec::new();
+        if let Some(stderr) = stderr {
+            let reader = BufReader::new(stderr);
+            let mut lines = reader.lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                log_deploy(&pool_clone2, &dep_id2, "warn", "deploy", &format!("  | {line}")).await;
+                lines_err.push(line);
+            }
         }
-    }
+        lines_err
+    });
+
+    let (stdout_lines, stderr_lines) = tokio::try_join!(stdout_handle, stderr_handle)
+        .map_err(|e| format!("Task join error: {e}"))?;
 
     let status = child
         .wait()
         .await
         .map_err(|e| format!("Failed to wait for {}: {e}", args[0]))?;
 
+    let stderr_output = stderr_lines.join("\n");
     if !status.success() {
         return Err(format!(
             "Command `{}` failed (exit {}):\n{stderr_output}",
@@ -648,6 +663,10 @@ async fn run_cmd_streaming(
         ));
     }
 
+    let mut all_output = stdout_lines.join("\n");
+    if !all_output.is_empty() {
+        all_output.push('\n');
+    }
     all_output.push_str(&stderr_output);
     Ok(all_output)
 }

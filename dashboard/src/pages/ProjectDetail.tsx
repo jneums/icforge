@@ -217,40 +217,53 @@ function DeployRow({
 
 
 
-function ProductionDeployCard({
+function LatestPushCard({
   deploy,
-  projectId,
+  repoFullName,
 }: {
   deploy: Deployment;
-  projectId: string;
+  repoFullName?: string;
 }) {
   const isBuilding = IN_PROGRESS_STATUSES.includes(deploy.status);
+  const commitUrl =
+    repoFullName && deploy.commit_sha
+      ? `https://github.com/${repoFullName}/commit/${deploy.commit_sha}`
+      : null;
 
   return (
-    <Link to={`/projects/${projectId}/deploys/${deploy.id}`}>
-      <Card className="p-5 hover:border-border hover:bg-card/80 border-border/50 transition-all duration-150 cursor-pointer">
-        <div className="flex items-center gap-2 mb-3">
-          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Production Deployment
-          </span>
-          {isBuilding && <Spinner className="h-3 w-3" />}
-        </div>
-        <p className="font-medium truncate">
-          {deploy.commit_message || "No commit message"}
-        </p>
-        <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
-          <GitCommit className="h-3 w-3" />
+    <Card className="p-5 border-border/50">
+      <div className="flex items-center gap-2 mb-3">
+        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Latest Push
+        </span>
+        {isBuilding && <Spinner className="h-3 w-3" />}
+      </div>
+      <p className="font-medium truncate">
+        {deploy.commit_message || "No commit message"}
+      </p>
+      <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
+        <GitCommit className="h-3 w-3" />
+        {commitUrl ? (
+          <a
+            href={commitUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-mono hover:text-primary"
+          >
+            {deploy.commit_sha?.slice(0, 7) ?? "—"}
+          </a>
+        ) : (
           <span className="font-mono">
             {deploy.commit_sha?.slice(0, 7) ?? "—"}
           </span>
-          <span className="text-muted-foreground/60">on</span>
-          <span className="font-mono">{deploy.branch || "main"}</span>
-          <span className="text-muted-foreground/40">&middot;</span>
-          <Clock className="h-3 w-3" />
-          <span>{timeAgo(deploy.created_at)}</span>
-        </div>
-      </Card>
-    </Link>
+        )}
+        <span className="text-muted-foreground/60">on</span>
+        <span className="font-mono">{deploy.branch || "main"}</span>
+        <span className="text-muted-foreground/40">&middot;</span>
+        <Clock className="h-3 w-3" />
+        <span>{timeAgo(deploy.created_at)}</span>
+      </div>
+    </Card>
   );
 }
 
@@ -311,9 +324,9 @@ export default function ProjectDetail() {
         <StatusBadge status={latestStatus} />
       </div>
 
-      {/* Production Deploy Card */}
+      {/* Latest Push Card */}
       {latestDeploy && (
-        <ProductionDeployCard deploy={latestDeploy} projectId={project.id} />
+        <LatestPushCard deploy={latestDeploy} repoFullName={latestDeploy.repo_full_name ?? undefined} />
       )}
 
       {/* Tabs */}

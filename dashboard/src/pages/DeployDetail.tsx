@@ -225,6 +225,7 @@ export default function DeployDetail() {
         if (!response.ok || !response.body) return;
 
         setStreaming(true);
+        setLogs([]); // SSE replays all logs — clear to avoid duplicates
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";

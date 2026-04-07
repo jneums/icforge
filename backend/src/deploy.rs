@@ -203,8 +203,6 @@ pub async fn deploy_logs_stream(
         .get(&deploy_id)
         .map(|entry| entry.value().subscribe());
 
-    let replay_count = replay_entries.len();
-
     let stream = async_stream::stream! {
         // Phase 1: replay existing logs from DB
         for entry in replay_entries {
@@ -228,16 +226,10 @@ pub async fn deploy_logs_stream(
         }
 
         // Phase 2: stream new logs from broadcast channel
-        // Skip the first `replay_count` events — they were already sent from DB above.
         if let Some(mut rx) = rx {
-            let mut skip_remaining = replay_count;
             loop {
                 match rx.recv().await {
                     Ok(evt) => {
-                        if skip_remaining > 0 {
-                            skip_remaining -= 1;
-                            continue;
-                        }
                         let is_done_msg = evt.message.starts_with("Live at ")
                             || evt.level == "error";
                         let data = serde_json::to_string(&evt).unwrap_or_default();

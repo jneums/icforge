@@ -48,10 +48,12 @@ function timeAgo(dateStr: string): string {
 function CanisterCard({
   canister,
   projectSlug,
+  projectId,
   latestDeploy,
 }: {
   canister: Canister;
   projectSlug: string;
+  projectId: string;
   latestDeploy?: Deployment;
 }) {
   const [open, setOpen] = useState(false);
@@ -97,7 +99,10 @@ function CanisterCard({
       </div>
 
       {latestDeploy && (
-        <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+        <Link
+          to={`/projects/${projectId}/deploys/${latestDeploy.id}`}
+          className="mt-2 flex items-center gap-2 text-xs text-muted-foreground hover:text-primary transition-colors"
+        >
           {latestDeploy.commit_sha && (
             <>
               <GitCommit className="h-3 w-3" />
@@ -106,7 +111,7 @@ function CanisterCard({
           )}
           <span className="truncate">{latestDeploy.commit_message || "No message"}</span>
           <span className="ml-auto whitespace-nowrap">{timeAgo(latestDeploy.created_at)}</span>
-        </div>
+        </Link>
       )}
 
       {subdomainUrl && (
@@ -330,7 +335,7 @@ export default function ProjectDetail() {
       )}
 
       {/* Tabs */}
-      <Tabs defaultValue="canisters" className="pt-6">
+      <Tabs defaultValue="canisters">
         <TabsList>
           <TabsTrigger value="canisters">
             Canisters ({canisters.length})
@@ -353,6 +358,7 @@ export default function ProjectDetail() {
                 key={c.id}
                 canister={c}
                 projectSlug={project.slug}
+                projectId={project.id}
                 latestDeploy={deployments.find((d) => d.canister_name === c.name)}
               />
             ))

@@ -31,7 +31,7 @@ export default function NewProject() {
 
   const { data: installations, isLoading: installLoading } = useInstallations();
   const { data: repos, isLoading: reposLoading } = useGitHubRepos();
-  const { data: repoConfig, isLoading: configLoading } = useRepoConfig(
+  const { data: repoConfig, isLoading: configLoading, isFetching: configFetching, refetch: recheckConfig } = useRepoConfig(
     selectedRepo?.id ?? null
   );
 
@@ -116,9 +116,10 @@ export default function NewProject() {
           projectName={projectName}
           onProjectNameChange={setProjectName}
           config={repoConfig}
-          configLoading={configLoading}
+          configLoading={configLoading || configFetching}
           onBack={() => setStep("repo")}
           onCreate={handleCreate}
+          onRecheck={() => recheckConfig()}
         />
       )}
 
@@ -269,6 +270,7 @@ function ConfigureStep({
   configLoading,
   onBack,
   onCreate,
+  onRecheck,
 }: {
   repo: GitHubRepo;
   projectName: string;
@@ -277,8 +279,11 @@ function ConfigureStep({
   configLoading: boolean;
   onBack: () => void;
   onCreate: () => void;
+  onRecheck: () => void;
 }) {
   const canisters = extractCanisters(config?.config);
+  const hasConfig = !!config?.found && canisters.length > 0;
+  const missingConfig = config && !config.found;
 
   return (
     <div className="space-y-5">
@@ -312,7 +317,7 @@ function ConfigureStep({
             <Skeleton className="h-4 w-40" />
             <Skeleton className="h-4 w-52" />
           </div>
-        ) : config?.found && canisters.length > 0 ? (
+        ) : hasConfig ? (
           <div className="space-y-2">
             {canisters.map((c) => (
               <div key={c.name} className="flex items-center gap-2 text-sm">
@@ -327,13 +332,36 @@ function ConfigureStep({
               Detected from <span className="font-mono">icp.yaml</span>
             </p>
           </div>
+        ) : missingConfig ? (
+          <div className="space-y-3">
+            <div className="flex items-start gap-2 text-sm">
+              <AlertCircle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-medium text-foreground">No icp.yaml found</p>
+                <p className="text-muted-foreground mt-1">
+                  ICForge requires an <span className="font-mono">icp.yaml</span> in your repository root to know what to build.
+                </p>
+              </div>
+            </div>
+            <Card className="bg-popover border-border/50 p-4 font-mono text-xs text-left space-y-1">
+              <div className="text-muted-foreground/60"># icp.yaml — minimal example</div>
+              <div>canisters:</div>
+              <div className="pl-2">- name: backend</div>
+              <div className="pl-4">recipe: rust</div>
+              <div className="pl-2">- name: frontend</div>
+              <div className="pl-4">recipe: asset-canister</div>
+            </Card>
+            <p className="text-xs text-muted-foreground">
+              Add this file to the <span className="font-mono">{repo.default_branch}</span> branch, then recheck.
+            </p>
+            <Button variant="outline" size="sm" onClick={onRecheck} disabled={configLoading}>
+              {configLoading ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
+              Recheck
+            </Button>
+          </div>
         ) : (
           <div className="text-sm text-muted-foreground">
-            <p>
-              {config && !config.found
-                ? "No icp.yaml found in this repo. A default canister will be created."
-                : "A default canister will be created. Add an icp.yaml to configure build recipes."}
-            </p>
+            <p>Checking for icp.yaml...</p>
           </div>
         )}
       </Card>
@@ -343,7 +371,7 @@ function ConfigureStep({
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back
         </Button>
-        <Button onClick={onCreate} disabled={!projectName.trim()}>
+        <Button onClick={onCreate} disabled={!projectName.trim() || !hasConfig || configLoading}>
           Create Project
           <ArrowRight className="ml-2 h-4 w-4" />
         </Button>

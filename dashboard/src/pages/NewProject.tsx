@@ -243,28 +243,26 @@ function RepoStep({
           {repos.map((repo) => (
             <Card
               key={repo.id}
-              className={`flex items-center justify-between px-4 py-3 border-border/50 transition-all ${
+              className={`flex items-center gap-3 px-4 py-3 border-border/50 transition-all ${
                 repo.linked_project_id
                   ? "opacity-50 cursor-not-allowed"
                   : "hover:border-border hover:bg-card/80 cursor-pointer"
               }`}
               onClick={() => !repo.linked_project_id && onSelect(repo)}
             >
-              <div className="flex items-center gap-3 min-w-0 overflow-hidden">
-                <GitBranch className="h-4 w-4 text-muted-foreground shrink-0" />
-                <span className="font-mono text-sm truncate">
-                  {repo.full_name}
-                  {repo.linked_project_id && (
-                    <span className="text-xs text-muted-foreground/60 ml-2 font-sans">
-                      → {repo.linked_project_name}
-                    </span>
-                  )}
-                </span>
-              </div>
+              <GitBranch className="h-4 w-4 text-muted-foreground shrink-0" />
+              <span className="font-mono text-sm truncate flex-1 min-w-0">
+                {repo.full_name}
+                {repo.linked_project_id && (
+                  <span className="text-xs text-muted-foreground/60 ml-2 font-sans">
+                    → {repo.linked_project_name}
+                  </span>
+                )}
+              </span>
               {repo.linked_project_id ? (
-                <Check className="h-4 w-4 text-muted-foreground/40 shrink-0 ml-3" />
+                <Check className="h-4 w-4 text-muted-foreground/40 shrink-0" />
               ) : (
-                <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0 ml-3" />
+                <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
               )}
             </Card>
           ))}

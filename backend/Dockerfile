@@ -16,8 +16,8 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# Install icp-cli (pinned) — build worker delegates build/deploy to it
-RUN npm install -g @icp-sdk/icp-cli@0.2.2 @icp-sdk/ic-wasm@0.9.10
+# Install icp-cli (pinned), ic-wasm, and mops (Motoko package manager) — build worker needs all three
+RUN npm install -g @icp-sdk/icp-cli@0.2.2 @icp-sdk/ic-wasm@0.9.10 ic-mops
 
 # ── Stage 2: Build the Rust binary ──
 FROM rust:1.88-slim-bookworm AS builder

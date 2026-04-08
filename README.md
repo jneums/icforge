@@ -1,6 +1,7 @@
 # ☁️ ICForge
 
 > **Test PR** — Created via AI sandbox (Alice) from the agent environment.
+> **Branch Protection Test** — Verifying rules on main.
 
 **Deploy to the Internet Computer like Netlify/Vercel.**
 

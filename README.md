@@ -1,5 +1,7 @@
 # ☁️ ICForge
 
+> **Test PR** — Created via AI sandbox (Alice) from the agent environment.
+
 **Deploy to the Internet Computer like Netlify/Vercel.**
 
 ICForge abstracts away IC identity management, cycles, and canister operations so you can deploy with a single command. No crypto wallet needed.

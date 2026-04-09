@@ -197,7 +197,7 @@ function CanisterCostsCard() {
     <Card>
       <CardHeader>
         <CardTitle>Compute Costs by Canister</CardTitle>
-        <CardDescription>Cycles top-up costs per canister</CardDescription>
+        <CardDescription>Compute costs per canister</CardDescription>
       </CardHeader>
       <CardContent>
         <div className="space-y-2">

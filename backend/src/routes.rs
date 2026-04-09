@@ -1197,10 +1197,17 @@ pub async fn canister_env(
 // ============================================================
 
 /// GET /api/v1/canisters/:canister_id/cycles — Cycles balance + history
+#[derive(Debug, Deserialize)]
+pub struct CyclesQueryParams {
+    /// Time period: "1h", "6h", "24h", "7d", "30d" (default: "24h")
+    pub period: Option<String>,
+}
+
 pub async fn canister_cycles(
     State(state): State<AppState>,
     auth_user: AuthUser,
     Path(canister_id): Path<String>,
+    Query(params): Query<CyclesQueryParams>,
 ) -> Result<Json<Value>, AppError> {
     // canister_id here is the IC canister principal
     let canister: CanisterRecord = sqlx::query_as(
@@ -1213,18 +1220,29 @@ pub async fn canister_cycles(
     .map_err(AppError::Database)?
     .ok_or_else(|| AppError::NotFound("Canister not found or not owned by you".into()))?;
 
-    // Latest snapshots (last 30 days)
+    // Parse period into duration (default 24h)
+    let hours = match params.period.as_deref() {
+        Some("1h") => 1,
+        Some("6h") => 6,
+        Some("24h") | None => 24,
+        Some("7d") => 7 * 24,
+        Some("30d") => 30 * 24,
+        _ => 24,
+    };
+
+    let since = (chrono::Utc::now() - chrono::Duration::hours(hours))
+        .format("%Y-%m-%dT%H:%M:%SZ")
+        .to_string();
+
+    // Cap at 1500 points — for 1-minute polling this covers 25h without downsampling
     let snapshots: Vec<crate::models::CyclesSnapshot> = sqlx::query_as(
         r#"SELECT * FROM cycles_snapshots
            WHERE ic_canister_id = $1 AND recorded_at >= $2
-           ORDER BY recorded_at ASC"#,
+           ORDER BY recorded_at ASC
+           LIMIT 1500"#,
     )
     .bind(&canister_id)
-    .bind(
-        (chrono::Utc::now() - chrono::Duration::days(30))
-            .format("%Y-%m-%dT%H:%M:%SZ")
-            .to_string(),
-    )
+    .bind(&since)
     .fetch_all(&state.db)
     .await
     .map_err(AppError::Database)?;

@@ -417,10 +417,14 @@ pub async fn billing_webhook(
         "payment_intent.succeeded" => {
             let pi = &event["data"]["object"];
             let user_id = pi["metadata"]["user_id"].as_str();
+            let source = pi["metadata"]["source"].as_str();
             let amount = pi["amount"].as_i64().map(|a| a as i32);
             let pi_id = pi["id"].as_str();
 
-            if let (Some(uid), Some(cents)) = (user_id, amount) {
+            // Only credit for auto_topup — checkout purchases are handled by checkout.session.completed
+            if source != Some("auto_topup") {
+                tracing::debug!("payment_intent.succeeded skipped — not auto_topup");
+            } else if let (Some(uid), Some(cents)) = (user_id, amount) {
                 // Check if we already recorded this (idempotency)
                 let existing: Option<(String,)> = sqlx::query_as(
                     "SELECT id FROM compute_transactions WHERE stripe_payment_id = $1",

@@ -7,22 +7,17 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  ReferenceLine,
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { HealthBadge } from "@/components/health-badge";
-import { useCanisterCycles, useCyclesSettings, useManualTopup } from "@/hooks/use-canister-cycles";
-import { formatCycles, cyclesHealthLevel } from "@/lib/utils";
+import { useCanisterCompute } from "@/hooks/use-canister-cycles";
 import type { Canister } from "@/api/types";
-import type { CyclesPeriod } from "@/api/canisters";
-import { Zap, Shield, ArrowUpCircle, Flame, Timer } from "lucide-react";
+import type { ComputePeriod } from "@/api/canisters";
+import { Flame, Timer, DollarSign } from "lucide-react";
 
-const TRILLION = 1_000_000_000_000;
-
-const PERIOD_OPTIONS: { value: CyclesPeriod; label: string }[] = [
+const PERIOD_OPTIONS: { value: ComputePeriod; label: string }[] = [
   { value: "1h", label: "1H" },
   { value: "6h", label: "6H" },
   { value: "24h", label: "24H" },
@@ -35,8 +30,23 @@ function formatChartDate(dateStr: string): string {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-function formatChartBalance(val: number): string {
-  return `${(val / TRILLION).toFixed(1)}T`;
+/** Format cents as USD — e.g. 350 → "$3.50", 5 → "$0.05" */
+function formatUsd(cents: number): string {
+  return `$${(cents / 100).toFixed(2)}`;
+}
+
+/** Compact USD for chart axis — e.g. 1050 → "$10.50", 150 → "$1.50" */
+function formatChartUsd(cents: number): string {
+  if (cents >= 10000) return `$${(cents / 100).toFixed(0)}`;
+  return `$${(cents / 100).toFixed(2)}`;
+}
+
+/** Format runway in human-friendly units */
+function formatRunway(days: number | null): string {
+  if (days == null) return "—";
+  if (days > 365) return `${(days / 365).toFixed(1)}y`;
+  if (days > 30) return `${Math.round(days / 30)}mo`;
+  return `${Math.round(days)}d`;
 }
 
 interface CanisterHealthPanelProps {
@@ -45,11 +55,8 @@ interface CanisterHealthPanelProps {
 
 export function CanisterHealthPanel({ canister }: CanisterHealthPanelProps) {
   const canisterId = canister.canister_id;
-  const [period, setPeriod] = useState<CyclesPeriod>("24h");
-  const { data: cycles, isLoading, error } = useCanisterCycles(canisterId, period);
-  const settingsMutation = useCyclesSettings(canisterId ?? "");
-  const topupMutation = useManualTopup(canisterId ?? "");
-  const [topupAmount, setTopupAmount] = useState(2_000_000_000_000); // 2T default
+  const [period, setPeriod] = useState<ComputePeriod>("24h");
+  const { data: compute, isLoading, error } = useCanisterCompute(canisterId, period);
 
   if (!canisterId) {
     return (
@@ -66,24 +73,21 @@ export function CanisterHealthPanel({ canister }: CanisterHealthPanelProps) {
     return <Skeleton className="h-64 w-full rounded-lg" />;
   }
 
-  if (error || !cycles) {
+  if (error || !compute) {
     return (
       <Card className="p-4 border-border/50">
         <div className="flex items-center gap-2 text-sm text-destructive">
           <span className="font-semibold">{canister.name}</span>
-          <span>— Failed to load cycles data</span>
+          <span>— Failed to load compute data</span>
         </div>
       </Card>
     );
   }
 
-  const health = cyclesHealthLevel(cycles.current_balance);
-
-  // Prepare chart data
-  const chartData = cycles.history.map((h) => ({
+  // Prepare chart data — Y-axis is USD cents
+  const chartData = compute.history.map((h) => ({
     date: formatChartDate(h.recorded_at),
-    balance: h.balance,
-    memory: h.memory_size,
+    value: h.compute_value_cents,
   }));
 
   return (
@@ -92,55 +96,49 @@ export function CanisterHealthPanel({ canister }: CanisterHealthPanelProps) {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <CardTitle className="text-base">{canister.name}</CardTitle>
-            <HealthBadge health={health} />
+            <HealthBadge health={compute.health} />
           </div>
           <span className="font-mono text-xs text-muted-foreground">{canisterId}</span>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Balance + Quick Stats */}
-        <div className="grid grid-cols-5 gap-4">
+        {/* Compute Value + Quick Stats */}
+        <div className="grid grid-cols-4 gap-4">
           <div>
-            <div className="text-xs text-muted-foreground mb-1">Cycles Balance</div>
-            <div className="text-xl font-bold">{formatCycles(cycles.current_balance)}</div>
+            <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
+              <DollarSign className="h-3 w-3" /> Compute Value
+            </div>
+            <div className="text-xl font-bold">{formatUsd(compute.compute_value_cents)}</div>
           </div>
           <div>
             <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
               <Flame className="h-3 w-3" /> Burn Rate
             </div>
             <div className="text-sm font-medium">
-              {cycles.burn_rate_per_day != null
-                ? `${formatCycles(cycles.burn_rate_per_day)}/day`
+              {compute.burn_rate_cents_per_day != null
+                ? `${formatUsd(compute.burn_rate_cents_per_day)}/day`
                 : "—"}
             </div>
           </div>
           <div>
             <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
-              <Timer className="h-3 w-3" /> Time to Freeze
+              <Timer className="h-3 w-3" /> Runway
             </div>
             <div className="text-sm font-medium">
-              {cycles.time_to_freeze_days != null
-                ? cycles.time_to_freeze_days > 365
-                  ? `${(cycles.time_to_freeze_days / 365).toFixed(1)}y`
-                  : `${Math.round(cycles.time_to_freeze_days)}d`
-                : "—"}
+              {formatRunway(compute.runway_days)}
             </div>
-          </div>
-          <div>
-            <div className="text-xs text-muted-foreground mb-1">Alert Threshold</div>
-            <div className="text-sm font-medium">{formatCycles(cycles.alert_threshold)}</div>
           </div>
           <div>
             <div className="text-xs text-muted-foreground mb-1">Top-ups</div>
-            <div className="text-sm font-medium">{cycles.topups.length} recorded</div>
+            <div className="text-sm font-medium">{compute.topups.length} recorded</div>
           </div>
         </div>
 
-        {/* Cycles Chart */}
+        {/* Compute Value Chart */}
         {chartData.length > 1 && (
           <div>
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs text-muted-foreground">Cycles History</span>
+              <span className="text-xs text-muted-foreground">Compute Value Over Time</span>
               <div className="flex gap-1">
                 {PERIOD_OPTIONS.map((opt) => (
                   <button
@@ -158,52 +156,43 @@ export function CanisterHealthPanel({ canister }: CanisterHealthPanelProps) {
               </div>
             </div>
             <div className="h-48">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" className="stroke-border/30" />
-                <XAxis
-                  dataKey="date"
-                  tick={{ fontSize: 11 }}
-                  className="text-muted-foreground"
-                />
-                <YAxis
-                  tickFormatter={formatChartBalance}
-                  tick={{ fontSize: 11 }}
-                  className="text-muted-foreground"
-                  width={50}
-                />
-                <Tooltip
-                  formatter={(val) => [typeof val === "number" ? formatCycles(val) : String(val ?? ""), "Cycles"]}
-                  labelStyle={{ color: "var(--muted-foreground)" }}
-                  contentStyle={{
-                    backgroundColor: "var(--card)",
-                    border: "1px solid var(--border)",
-                    borderRadius: "6px",
-                    fontSize: "12px",
-                  }}
-                />
-                <ReferenceLine
-                  y={2_000_000_000_000}
-                  stroke="var(--warning)"
-                  strokeDasharray="4 4"
-                  label={{ value: "Warning", fill: "var(--warning)", fontSize: 10 }}
-                />
-                <ReferenceLine
-                  y={500_000_000_000}
-                  stroke="var(--destructive)"
-                  strokeDasharray="4 4"
-                  label={{ value: "Critical", fill: "var(--destructive)", fontSize: 10 }}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="balance"
-                  stroke="var(--primary)"
-                  strokeWidth={2}
-                  dot={false}
-                  activeDot={{ r: 3 }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-border/30" />
+                  <XAxis
+                    dataKey="date"
+                    tick={{ fontSize: 11 }}
+                    className="text-muted-foreground"
+                  />
+                  <YAxis
+                    tickFormatter={formatChartUsd}
+                    tick={{ fontSize: 11 }}
+                    className="text-muted-foreground"
+                    width={60}
+                  />
+                  <Tooltip
+                    formatter={(val) => [
+                      typeof val === "number" ? formatUsd(val) : String(val ?? ""),
+                      "Compute Value",
+                    ]}
+                    labelStyle={{ color: "var(--muted-foreground)" }}
+                    contentStyle={{
+                      backgroundColor: "var(--card)",
+                      border: "1px solid var(--border)",
+                      borderRadius: "6px",
+                      fontSize: "12px",
+                    }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="value"
+                    stroke="var(--primary)"
+                    strokeWidth={2}
+                    dot={false}
+                    activeDot={{ r: 3 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
             </div>
           </div>
         )}
@@ -214,67 +203,22 @@ export function CanisterHealthPanel({ canister }: CanisterHealthPanelProps) {
           </div>
         )}
 
-        {/* Controls: auto-topup toggle + manual topup */}
-        <div className="flex items-center justify-between gap-4 pt-2 border-t border-border/30">
-          <div className="flex items-center gap-3">
-            <Shield className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm">Auto top-up</span>
-            <Button
-              variant={cycles.auto_topup ? "default" : "outline"}
-              size="sm"
-              className="h-7 text-xs"
-              onClick={() =>
-                settingsMutation.mutate({ auto_topup: !cycles.auto_topup })
-              }
-              disabled={settingsMutation.isPending}
-            >
-              {cycles.auto_topup ? "Enabled" : "Disabled"}
-            </Button>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <Zap className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm">Top up:</span>
-            {[1, 2, 5].map((t) => (
-              <Button
-                key={t}
-                variant={topupAmount === t * TRILLION ? "default" : "outline"}
-                size="sm"
-                className="h-7 text-xs"
-                onClick={() => setTopupAmount(t * TRILLION)}
-              >
-                {t}T
-              </Button>
-            ))}
-            <Button
-              size="sm"
-              className="h-7 text-xs gap-1"
-              onClick={() => topupMutation.mutate(topupAmount)}
-              disabled={topupMutation.isPending}
-            >
-              <ArrowUpCircle className="h-3 w-3" />
-              {topupMutation.isPending ? "Sending…" : "Top Up"}
-            </Button>
-          </div>
-        </div>
-
         {/* Recent top-ups */}
-        {cycles.topups.length > 0 && (
+        {compute.topups.length > 0 && (
           <div className="pt-2 border-t border-border/30">
             <div className="text-xs font-semibold text-muted-foreground mb-2">Recent Top-ups</div>
             <div className="space-y-1.5">
-              {cycles.topups.slice(0, 5).map((t) => (
+              {compute.topups.slice(0, 5).map((t) => (
                 <div key={t.id} className="flex items-center justify-between text-xs">
                   <div className="flex items-center gap-2">
                     <Badge variant="outline" className="text-[10px]">
                       {t.source}
                     </Badge>
-                    <span>{formatCycles(t.cycles_amount)} cycles</span>
+                    <span>{formatUsd(t.cost_cents)}</span>
                   </div>
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <span>${(t.cost_cents / 100).toFixed(2)}</span>
-                    <span>{new Date(t.created_at).toLocaleDateString()}</span>
-                  </div>
+                  <span className="text-muted-foreground">
+                    {new Date(t.created_at).toLocaleDateString()}
+                  </span>
                 </div>
               ))}
             </div>

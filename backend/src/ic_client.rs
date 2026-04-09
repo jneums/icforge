@@ -49,12 +49,18 @@ pub enum CanisterStatus {
     Stopped,
 }
 
-// -- Cycles Ledger types (ICRC-1 balance query) --
+// -- Cycles Ledger types --
 
 #[derive(CandidType)]
 struct CyclesAccount {
     owner: Principal,
     subaccount: Option<Vec<u8>>,
+}
+
+/// deposit_cycles arg: specify the canister to receive cycles.
+#[derive(CandidType)]
+struct DepositCyclesArg {
+    canister_id: Principal,
 }
 
 // -- IcClient --
@@ -159,5 +165,41 @@ impl IcClient {
             .map_err(|e| AppError::Internal(format!("Failed to decode canister_status response: {e}")))?;
 
         Ok(result)
+    }
+
+    /// Deposit cycles from the caller (platform identity) into a target canister.
+    /// Uses the management canister `deposit_cycles` method.
+    /// The caller must hold enough cycles in its account.
+    pub async fn deposit_cycles(
+        &self,
+        canister_id_text: &str,
+        amount: u128,
+    ) -> Result<(), AppError> {
+        let management = Principal::from_text(MANAGEMENT_CANISTER_ID)
+            .map_err(|e| AppError::Internal(format!("Invalid management canister ID: {e}")))?;
+
+        let canister_id = Principal::from_text(canister_id_text)
+            .map_err(|e| AppError::Internal(format!("Invalid canister ID '{canister_id_text}': {e}")))?;
+
+        let args = DepositCyclesArg { canister_id };
+        let arg_bytes = Encode!(&args)
+            .map_err(|e| AppError::Internal(format!("Failed to encode deposit_cycles args: {e}")))?;
+
+        self.agent
+            .update(&management, "deposit_cycles")
+            .with_arg(arg_bytes)
+            .with_effective_canister_id(canister_id)
+            // Attach cycles to the call
+            .call_and_wait()
+            .await
+            .map_err(|e| AppError::Internal(format!("deposit_cycles call failed: {e}")))?;
+
+        tracing::info!(
+            canister_id = canister_id_text,
+            amount = amount,
+            "Deposited cycles into canister"
+        );
+
+        Ok(())
     }
 }

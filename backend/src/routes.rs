@@ -11,6 +11,7 @@ use crate::error::AppError;
 use crate::models::{
     TriggerDeployRequest,
     ApiToken, CanisterRecord, CreateProjectRequest, CreateTokenRequest, CreateTokenResponse,
+    CyclesSettingsRequest, ManualTopupRequest,
     DeploymentRecord, Project, ProjectWithCanisters,
 };
 use crate::AppState;
@@ -301,6 +302,8 @@ pub async fn create_project(
             cycles_balance: None,
             candid_interface: None,
             canister_type: Some(recipe.to_string()),
+            auto_topup: Some(false),
+            cycles_alert_threshold: None,
             created_at: now.clone(),
             updated_at: now.clone(),
         });
@@ -1187,4 +1190,254 @@ pub async fn canister_env(
         "canister_id": canister_id,
         "environment_variables": env_vars,
     })))
+}
+
+// ============================================================
+// Canister cycles / health endpoints
+// ============================================================
+
+/// GET /api/v1/canisters/:canister_id/cycles — Cycles balance + history
+pub async fn canister_cycles(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+    Path(canister_id): Path<String>,
+) -> Result<Json<Value>, AppError> {
+    // canister_id here is the IC canister principal
+    let canister: CanisterRecord = sqlx::query_as(
+        "SELECT c.* FROM canisters c JOIN projects p ON c.project_id = p.id WHERE c.canister_id = $1 AND p.user_id = $2",
+    )
+    .bind(&canister_id)
+    .bind(&auth_user.user.id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(AppError::Database)?
+    .ok_or_else(|| AppError::NotFound("Canister not found or not owned by you".into()))?;
+
+    // Latest snapshots (last 30 days)
+    let snapshots: Vec<crate::models::CyclesSnapshot> = sqlx::query_as(
+        r#"SELECT * FROM cycles_snapshots
+           WHERE ic_canister_id = $1 AND recorded_at >= $2
+           ORDER BY recorded_at ASC"#,
+    )
+    .bind(&canister_id)
+    .bind(
+        (chrono::Utc::now() - chrono::Duration::days(30))
+            .format("%Y-%m-%dT%H:%M:%SZ")
+            .to_string(),
+    )
+    .fetch_all(&state.db)
+    .await
+    .map_err(AppError::Database)?;
+
+    // Recent top-ups
+    let topups: Vec<crate::models::CanisterTopup> = sqlx::query_as(
+        "SELECT * FROM canister_topups WHERE ic_canister_id = $1 ORDER BY created_at DESC LIMIT 20",
+    )
+    .bind(&canister_id)
+    .fetch_all(&state.db)
+    .await
+    .map_err(AppError::Database)?;
+
+    let current_balance = canister.cycles_balance.unwrap_or(0);
+    let health = cycles_health_level(current_balance);
+
+    let history: Vec<Value> = snapshots
+        .iter()
+        .map(|s| {
+            json!({
+                "balance": s.cycles_balance,
+                "memory_size": s.memory_size,
+                "status": s.status,
+                "recorded_at": s.recorded_at,
+            })
+        })
+        .collect();
+
+    Ok(Json(json!({
+        "canister_id": canister_id,
+        "canister_name": canister.name,
+        "current_balance": current_balance,
+        "health": health,
+        "auto_topup": canister.auto_topup.unwrap_or(false),
+        "alert_threshold": canister.cycles_alert_threshold.unwrap_or(500_000_000_000),
+        "history": history,
+        "topups": topups,
+    })))
+}
+
+/// PUT /api/v1/canisters/:canister_id/cycles/settings — Update auto-topup and alert threshold
+pub async fn canister_cycles_settings(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+    Path(canister_id): Path<String>,
+    Json(req): Json<CyclesSettingsRequest>,
+) -> Result<Json<Value>, AppError> {
+    let canister: CanisterRecord = sqlx::query_as(
+        "SELECT c.* FROM canisters c JOIN projects p ON c.project_id = p.id WHERE c.canister_id = $1 AND p.user_id = $2",
+    )
+    .bind(&canister_id)
+    .bind(&auth_user.user.id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(AppError::Database)?
+    .ok_or_else(|| AppError::NotFound("Canister not found or not owned by you".into()))?;
+
+    let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+
+    if let Some(auto_topup) = req.auto_topup {
+        sqlx::query("UPDATE canisters SET auto_topup = $1, updated_at = $2 WHERE id = $3")
+            .bind(auto_topup)
+            .bind(&now)
+            .bind(&canister.id)
+            .execute(&state.db)
+            .await
+            .map_err(AppError::Database)?;
+    }
+
+    if let Some(threshold) = req.alert_threshold {
+        sqlx::query("UPDATE canisters SET cycles_alert_threshold = $1, updated_at = $2 WHERE id = $3")
+            .bind(threshold)
+            .bind(&now)
+            .bind(&canister.id)
+            .execute(&state.db)
+            .await
+            .map_err(AppError::Database)?;
+    }
+
+    Ok(Json(json!({ "ok": true })))
+}
+
+/// POST /api/v1/canisters/:canister_id/cycles/topup — Manual top-up
+pub async fn canister_cycles_topup(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+    Path(canister_id): Path<String>,
+    Json(req): Json<ManualTopupRequest>,
+) -> Result<Json<Value>, AppError> {
+    let canister: CanisterRecord = sqlx::query_as(
+        "SELECT c.* FROM canisters c JOIN projects p ON c.project_id = p.id WHERE c.canister_id = $1 AND p.user_id = $2",
+    )
+    .bind(&canister_id)
+    .bind(&auth_user.user.id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(AppError::Database)?
+    .ok_or_else(|| AppError::NotFound("Canister not found or not owned by you".into()))?;
+
+    if req.amount <= 0 {
+        return Err(AppError::BadRequest("Amount must be positive".into()));
+    }
+
+    let cycles = req.amount as u128;
+    let cost_cents = crate::compute_poller::cycles_to_cents(cycles, state.config.compute_margin);
+
+    // Debit user balance
+    crate::billing::debit_balance(
+        &state.db,
+        &auth_user.user.id,
+        cost_cents,
+        "execution",
+        &format!("Manual top-up {} ({}) — {} cycles", canister.name, canister_id, req.amount),
+    )
+    .await?;
+
+    // Deposit cycles to canister on IC
+    let pem = state
+        .config
+        .ic_identity_pem
+        .as_deref()
+        .ok_or_else(|| AppError::Internal("IC_IDENTITY_PEM not configured".into()))?;
+    let ic = crate::ic_client::IcClient::new(pem, &state.config.ic_url).await?;
+    ic.deposit_cycles(&canister_id, cycles).await?;
+
+    // Record the top-up
+    let topup_id = uuid::Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+
+    sqlx::query(
+        r#"INSERT INTO canister_topups (id, canister_id, ic_canister_id, user_id, cycles_amount, cost_cents, source, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, 'manual', $7)"#,
+    )
+    .bind(&topup_id)
+    .bind(&canister.id)
+    .bind(&canister_id)
+    .bind(&auth_user.user.id)
+    .bind(req.amount)
+    .bind(cost_cents)
+    .bind(&now)
+    .execute(&state.db)
+    .await
+    .map_err(AppError::Database)?;
+
+    Ok(Json(json!({
+        "ok": true,
+        "cycles_deposited": req.amount,
+        "cost_cents": cost_cents,
+        "topup_id": topup_id,
+    })))
+}
+
+/// GET /api/v1/projects/:project_id/health — Project-level health summary
+pub async fn project_health(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+    Path(project_id): Path<String>,
+) -> Result<Json<Value>, AppError> {
+    let _project: Project = sqlx::query_as(
+        "SELECT * FROM projects WHERE id = $1 AND user_id = $2",
+    )
+    .bind(&project_id)
+    .bind(&auth_user.user.id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(AppError::Database)?
+    .ok_or_else(|| AppError::NotFound("Project not found".into()))?;
+
+    let canisters: Vec<CanisterRecord> =
+        sqlx::query_as("SELECT * FROM canisters WHERE project_id = $1")
+            .bind(&project_id)
+            .fetch_all(&state.db)
+            .await
+            .map_err(AppError::Database)?;
+
+    let canister_health: Vec<Value> = canisters
+        .iter()
+        .map(|c| {
+            let balance = c.cycles_balance.unwrap_or(0);
+            json!({
+                "name": c.name,
+                "canister_id": c.canister_id,
+                "cycles_balance": balance,
+                "health": cycles_health_level(balance),
+                "auto_topup": c.auto_topup.unwrap_or(false),
+            })
+        })
+        .collect();
+
+    // Overall project health = worst canister health
+    let overall = canisters
+        .iter()
+        .map(|c| c.cycles_balance.unwrap_or(0))
+        .min()
+        .map(cycles_health_level)
+        .unwrap_or_else(|| "unknown".to_string());
+
+    Ok(Json(json!({
+        "project_id": project_id,
+        "overall_health": overall,
+        "canisters": canister_health,
+    })))
+}
+
+/// Map a cycles balance to a health level string.
+fn cycles_health_level(balance: i64) -> String {
+    if balance <= 0 {
+        "frozen".to_string()
+    } else if balance < 500_000_000_000 {
+        "critical".to_string()
+    } else if balance < 2_000_000_000_000 {
+        "warning".to_string()
+    } else {
+        "healthy".to_string()
+    }
 }

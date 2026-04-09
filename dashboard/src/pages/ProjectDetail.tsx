@@ -27,7 +27,9 @@ import {
 import { StatusBadge } from "@/components/status-badge";
 import { StatusDot } from "@/components/status-dot";
 import { CopyButton } from "@/components/copy-button";
-import { displayRecipe } from "@/lib/utils";
+import { HealthBadge } from "@/components/health-badge";
+import { CanisterHealthPanel } from "@/components/canister-health";
+import { displayRecipe, cyclesHealthLevel, formatCycles } from "@/lib/utils";
 import type { Canister, Deployment } from "@/api/types";
 
 const IN_PROGRESS_STATUSES = ["queued", "building", "deploying", "created"];
@@ -123,7 +125,18 @@ function CanisterCard({
         </Link>
       )}
 
-      {subdomainUrl && (
+        {canister.canister_id && (
+          <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+            {canister.cycles_balance != null && (
+              <>
+                <span>🔋 {formatCycles(canister.cycles_balance)}</span>
+                <HealthBadge health={cyclesHealthLevel(canister.cycles_balance)} />
+              </>
+            )}
+          </div>
+        )}
+
+        {subdomainUrl && (
         <div className="mt-2 flex items-center gap-1.5">
           <a
             href={subdomainUrl}
@@ -353,6 +366,9 @@ export default function ProjectDetail() {
           <TabsTrigger value="canisters">
             Canisters ({canisters.length})
           </TabsTrigger>
+          <TabsTrigger value="health">
+            Health
+          </TabsTrigger>
           <TabsTrigger value="deployments">
             Deployments ({deployments.length})
           </TabsTrigger>
@@ -374,6 +390,20 @@ export default function ProjectDetail() {
                 projectId={project.id}
                 latestDeploy={deployments.find((d) => d.canister_name === c.name)}
               />
+            ))
+          )}
+        </TabsContent>
+
+        <TabsContent value="health" className="space-y-3">
+          {canisters.length === 0 ? (
+            <Card className="p-8 text-center border-border/50">
+              <p className="text-sm text-muted-foreground">
+                No canisters to monitor yet.
+              </p>
+            </Card>
+          ) : (
+            canisters.map((c) => (
+              <CanisterHealthPanel key={c.id} canister={c} />
             ))
           )}
         </TabsContent>

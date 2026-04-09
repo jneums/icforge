@@ -147,3 +147,57 @@ export interface AutoTopupSettings {
   threshold_cents?: number;
   amount_cents?: number;
 }
+
+// Canister cycles / health
+
+export interface CyclesHistoryPoint {
+  balance: number;
+  memory_size: number;
+  status: string;
+  recorded_at: string;
+}
+
+export interface CanisterTopupRecord {
+  id: string;
+  canister_id: string;
+  ic_canister_id: string;
+  user_id: string;
+  cycles_amount: number;
+  cost_cents: number;
+  source: 'auto' | 'manual';
+  created_at: string;
+}
+
+export interface CanisterCyclesInfo {
+  canister_id: string;
+  canister_name: string;
+  current_balance: number;
+  health: 'healthy' | 'warning' | 'critical' | 'frozen' | 'unknown';
+  auto_topup: boolean;
+  alert_threshold: number;
+  history: CyclesHistoryPoint[];
+  topups: CanisterTopupRecord[];
+}
+
+export interface CanisterHealthEntry {
+  name: string;
+  canister_id: string | null;
+  cycles_balance: number;
+  health: 'healthy' | 'warning' | 'critical' | 'frozen' | 'unknown';
+  auto_topup: boolean;
+}
+
+export interface ProjectHealth {
+  project_id: string;
+  overall_health: 'healthy' | 'warning' | 'critical' | 'frozen' | 'unknown';
+  canisters: CanisterHealthEntry[];
+}
+
+export interface CyclesSettingsUpdate {
+  auto_topup?: boolean;
+  alert_threshold?: number;
+}
+
+export interface ManualTopupParams {
+  amount: number;
+}

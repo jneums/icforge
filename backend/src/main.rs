@@ -12,6 +12,7 @@ use tracing_subscriber::EnvFilter;
 
 mod auth;
 mod billing;
+mod compute_poller;
 mod deploy_worker;
 mod cloudflare;
 mod config;
@@ -62,7 +63,10 @@ async fn main() {
     };
 
     // Start the background build worker
-    deploy_worker::spawn_worker(pool, config, state.log_channels.clone());
+    deploy_worker::spawn_worker(pool.clone(), config.clone(), state.log_channels.clone());
+
+    // Start the background cycles poller (checks every 6h)
+    compute_poller::spawn_poller(pool, config);
 
     let app = Router::new()
         .route("/health", get(health))
@@ -79,6 +83,11 @@ async fn main() {
         .route("/api/v1/cycles/balance", get(routes::cycles_balance))
         // Canister details
         .route("/api/v1/canisters/{canister_id}/env", get(routes::canister_env))
+        .route("/api/v1/canisters/{canister_id}/cycles", get(routes::canister_cycles))
+        .route("/api/v1/canisters/{canister_id}/cycles/settings", put(routes::canister_cycles_settings))
+        .route("/api/v1/canisters/{canister_id}/cycles/topup", post(routes::canister_cycles_topup))
+        // Project health
+        .route("/api/v1/projects/{project_id}/health", get(routes::project_health))
         // API tokens
         .route("/api/v1/tokens", get(routes::list_api_tokens))
         .route("/api/v1/tokens", post(routes::create_api_token))

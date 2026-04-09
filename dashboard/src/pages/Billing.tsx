@@ -169,6 +169,55 @@ function AutoTopupCard() {
   );
 }
 
+function CanisterCostsCard() {
+  const { data: transactions, isLoading } = useTransactions();
+
+  if (isLoading) return <Skeleton className="h-36 w-full rounded-lg" />;
+  if (!transactions || transactions.length === 0) return null;
+
+  // Extract canister costs from debit transactions that have "top-up" or "cycles" in description
+  const canisterCosts = new Map<string, number>();
+  for (const tx of transactions) {
+    if (tx.type !== "debit") continue;
+    const desc = tx.description ?? "";
+    // Match "Manual top-up <name> (<canister_id>)" or "Auto top-up <name> (<canister_id>)"
+    const match = desc.match(/top-up\s+(\S+)\s+\(/i);
+    if (match) {
+      const name = match[1];
+      canisterCosts.set(name, (canisterCosts.get(name) ?? 0) + tx.amount_cents);
+    }
+  }
+
+  if (canisterCosts.size === 0) return null;
+
+  const entries = Array.from(canisterCosts.entries()).sort((a, b) => b[1] - a[1]);
+  const totalCanisterCents = entries.reduce((sum, [, c]) => sum + c, 0);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Compute Costs by Canister</CardTitle>
+        <CardDescription>Cycles top-up costs per canister</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-2">
+          {entries.map(([name, cents]) => (
+            <div key={name} className="flex justify-between text-sm">
+              <span className="font-mono text-muted-foreground">{name}</span>
+              <span>{formatCents(cents)}</span>
+            </div>
+          ))}
+          <Separator />
+          <div className="flex justify-between text-sm font-semibold">
+            <span>Total Compute</span>
+            <span>{formatCents(totalCanisterCents)}</span>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function TransactionsCard() {
   const { data: transactions, isLoading } = useTransactions();
 
@@ -224,6 +273,7 @@ export default function Billing() {
       </div>
 
       <AutoTopupCard />
+      <CanisterCostsCard />
       <TransactionsCard />
     </div>
   );

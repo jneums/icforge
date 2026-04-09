@@ -1,6 +1,6 @@
 # ICForge — Stripe Billing
 
-**Status:** Draft v0.1
+**Status:** Implemented v1.0
 **Parent:** 001-architecture.md
 **Milestone:** v0.3
 
@@ -8,175 +8,228 @@
 
 ## 1. Goal
 
-Monetize ICForge with a tiered billing model. Users pay a monthly subscription for higher limits, and ICForge covers their cycles costs from the platform pool.
+Monetize ICForge with a prepaid compute credits model. Users buy credit packs via Stripe Checkout and spend them on deploys, hosting, and canister operations. ICForge covers IC cycles costs from the platform pool — users never see or manage cycles directly.
 
 ## 2. Pricing Model
 
-### Tiers
+### Prepaid Credit Packs
 
-| Plan | Price | Canisters | Deploys/mo | Cycles Pool | Support |
-|------|-------|-----------|------------|-------------|---------|
-| **Free** | $0 | 3 | 50 | 1T shared | Community |
-| **Pro** | $20/mo | 25 | Unlimited | 10T dedicated | Email |
-| **Team** | $50/mo | 100 | Unlimited | 50T dedicated | Priority |
+| Pack | Price | Credits |
+|------|-------|---------|
+| **Starter** | $5 | $5.00 |
+| **Builder** | $10 | $10.00 |
+| **Pro** | $25 | $25.00 |
 
 Notes:
-- "Cycles Pool" = how many cycles ICForge allocates from the platform pool per billing period
-- If a user exhausts their pool, deploys are paused until next billing cycle (or they upgrade)
-- Overages: option to enable pay-as-you-go at $1 per 1T cycles
+- Credits are denominated in USD cents internally (e.g. $5.00 = 500 cents)
+- Credits never expire
+- Free tier: users start with $0.00 balance (no free credits yet — TBD)
+- Auto top-up available: when balance drops below a threshold, charge saved card automatically
 
 ### What users are paying for
 
-Users are NOT buying cycles directly (that's what cycles.express is for). They're paying for:
+Users are NOT buying IC cycles directly. They're paying for:
 1. **Managed deployment infrastructure** — the platform that automates IC deploys
-2. **Cycles subsidy** — ICForge fronts the cycles from its pool
+2. **Compute credits** — a clean USD abstraction over IC cycles costs
 3. **Convenience** — no need to manage IC identities, acquire cycles, or deal with canister lifecycle
+
+### Pricing mapping (internal)
+
+ICForge converts compute credit debits to IC cycles costs behind the scenes. The user-facing pricing is per-operation:
+
+| Operation | Credit Cost | Notes |
+|-----------|-------------|-------|
+| Deploy (build + install) | TBD | Based on canister size + compute |
+| Hosting (per canister/month) | TBD | Based on cycles burn rate |
+| Canister creation | TBD | One-time cost |
+
+The platform buys cycles in bulk and marks them up to cover infrastructure costs + margin.
 
 ## 3. Stripe Integration
 
-### 3.1 Products & Prices
-
-Create in Stripe:
-- Product: "ICForge Pro" → Price: $20/month (recurring)
-- Product: "ICForge Team" → Price: $50/month (recurring)
-- Free tier has no Stripe product (default)
-
-### 3.2 Checkout Flow
+### 3.1 Checkout Flow
 
 ```
-User clicks "Upgrade" in dashboard
+User clicks "Buy Credits" in dashboard
     │
     ▼
-POST /api/v1/billing/checkout
-    │ Creates Stripe Checkout Session
+POST /api/v1/billing/checkout { pack: "starter" | "builder" | "pro" }
+    │ Creates Stripe Checkout Session (mode: payment, not subscription)
+    │ Sets setup_future_usage=off_session to save card
     ▼
 Redirect to Stripe Checkout
     │ User enters card details
     ▼
 Stripe webhook: checkout.session.completed
-    │ Backend updates user plan
+    │ Backend credits user's compute balance
     ▼
-Redirect back to dashboard
+Redirect back to dashboard /billing?session_id=...
 ```
 
-### 3.3 Webhook Events to Handle
+### 3.2 Auto Top-Up Flow
+
+```
+debit_balance() called (deploy charge, hosting, etc.)
+    │
+    ▼
+Balance drops below auto_topup_threshold_cents?
+    │ Yes + auto_topup_enabled
+    ▼
+maybe_auto_topup()
+    │ Finds saved payment method on Stripe customer
+    │ Creates PaymentIntent (off_session, confirm=true)
+    ▼
+Stripe webhook: payment_intent.succeeded
+    │ metadata.source = "auto_topup"
+    │ Backend credits user's compute balance
+    ▼
+If payment fails → webhook disables auto_topup_enabled
+```
+
+### 3.3 Webhook Events Handled
 
 | Event | Action |
 |-------|--------|
-| `checkout.session.completed` | Set user plan to Pro/Team, record Stripe customer ID |
-| `invoice.paid` | Renew plan, reset monthly cycles pool |
-| `invoice.payment_failed` | Flag account, send warning, grace period (7 days) |
-| `customer.subscription.deleted` | Downgrade to Free tier |
-| `customer.subscription.updated` | Handle plan changes (upgrade/downgrade) |
+| `checkout.session.completed` | Credit user's compute balance for the purchased pack |
+| `payment_intent.succeeded` | Credit balance (for auto top-ups via metadata.source) |
+| `payment_intent.payment_failed` | Disable auto-topup, log warning |
 
 ### 3.4 API Endpoints
 
 ```
 POST /api/v1/billing/checkout
-  Body: { plan: "pro" | "team" }
+  Body: { pack: "starter" | "builder" | "pro" }
   Returns: { checkout_url: "https://checkout.stripe.com/..." }
 
 GET /api/v1/billing/portal
   Returns: { portal_url: "https://billing.stripe.com/..." }
-  (Stripe Customer Portal for self-service plan management)
+  (Stripe Customer Portal for payment method management)
 
-GET /api/v1/billing/usage
+GET /api/v1/billing/balance
   Returns: {
-    plan: "pro",
-    cycles_used: 3_200_000_000_000,
-    cycles_limit: 10_000_000_000_000,
-    deploys_this_month: 42,
-    deploys_limit: null,
-    billing_period_end: "2025-02-15T00:00:00Z"
+    balance_cents: 1500,
+    auto_topup_enabled: true,
+    auto_topup_threshold_cents: 200,
+    auto_topup_amount_cents: 1000
   }
-```
 
-### 3.5 Webhook Endpoint
+PUT /api/v1/billing/auto-topup
+  Body: {
+    enabled: true,
+    threshold_cents: 200,
+    amount_cents: 1000
+  }
 
-```
-POST /api/v1/billing/webhook
+GET /api/v1/billing/transactions
+  Query: ?limit=20&offset=0
+  Returns: {
+    transactions: [
+      { id, type: "credit"|"debit", amount_cents, category, source, description, created_at }
+    ],
+    total: 42
+  }
+
+POST /api/v1/webhooks/stripe
   (Stripe signature verification via STRIPE_WEBHOOK_SECRET)
 ```
 
-## 4. Database Changes
+## 4. Database Schema
 
-### New table: `subscriptions`
+### Table: `compute_balances`
 
 ```sql
-CREATE TABLE subscriptions (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL REFERENCES users(id),
-  stripe_customer_id TEXT NOT NULL,
-  stripe_subscription_id TEXT,
-  plan TEXT NOT NULL DEFAULT 'free',
-  status TEXT NOT NULL DEFAULT 'active',  -- active, past_due, canceled
-  cycles_used BIGINT NOT NULL DEFAULT 0,
-  current_period_start TEXT,
-  current_period_end TEXT,
+CREATE TABLE compute_balances (
+  user_id TEXT PRIMARY KEY REFERENCES users(id),
+  balance_cents INTEGER NOT NULL DEFAULT 0,
+  auto_topup_enabled BOOLEAN NOT NULL DEFAULT false,
+  auto_topup_threshold_cents INTEGER,
+  auto_topup_amount_cents INTEGER,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
 ```
 
-### Users table changes
+### Table: `compute_transactions`
 
-Add `stripe_customer_id TEXT` column to users table.
+```sql
+CREATE TABLE compute_transactions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  type TEXT NOT NULL,           -- 'credit' or 'debit'
+  amount_cents INTEGER NOT NULL,
+  category TEXT NOT NULL,       -- 'purchase', 'auto_topup', 'deploy', 'hosting', etc.
+  source TEXT NOT NULL,         -- 'stripe_checkout', 'auto_topup', 'deploy', etc.
+  description TEXT,
+  stripe_session_id TEXT,       -- for idempotency on credits
+  stripe_payment_intent_id TEXT,
+  created_at TEXT NOT NULL
+);
+```
+
+### Users table
+
+`stripe_customer_id TEXT` column on users table.
 
 ## 5. Enforcement
 
-### Deploy-time checks
+### Deploy-time checks (TODO)
 
 Before processing a deploy:
-1. Check user's plan limits (canister count, deploys/month)
-2. Check cycles pool balance (platform pool allocation for this user)
-3. If over limit → reject with clear error message and upgrade link
+1. Check user's compute credit balance
+2. If balance < estimated deploy cost → reject with clear error
+3. After deploy succeeds → debit_balance() with actual cost
 
-### CLI error:
+### CLI error (planned):
 
 ```
-Error: Deploy limit reached (50/50 this month)
+Error: Insufficient compute credits ($0.00 balance)
 
-  Upgrade to Pro ($20/mo) for unlimited deploys:
-  https://app.icforge.dev/settings/billing
+  Buy credits to continue deploying:
+  https://app.icforge.dev/billing
 ```
 
 ## 6. Config / Environment
 
 ```
-STRIPE_SECRET_KEY=sk_live_...
-STRIPE_WEBHOOK_SECRET=whsec_...
-STRIPE_PRO_PRICE_ID=price_...
-STRIPE_TEAM_PRICE_ID=price_...
+STRIPE_SECRET_KEY=***
+STRIPE_WEBHOOK_SECRET=***
 ```
 
-## 7. Implementation Checklist
+## 7. Implementation Status
 
 ### Backend
-- [ ] Add `stripe` crate dependency (or use raw HTTP — Stripe's API is REST)
-- [ ] Create `subscriptions` table migration
-- [ ] Add `stripe_customer_id` to users table migration
-- [ ] Implement `POST /api/v1/billing/checkout` — create Checkout Session
-- [ ] Implement `GET /api/v1/billing/portal` — create Customer Portal session
-- [ ] Implement `GET /api/v1/billing/usage` — return plan + usage stats
-- [ ] Implement `POST /api/v1/billing/webhook` — handle Stripe events
-- [ ] Add plan limit enforcement in deploy pipeline
-- [ ] Track cycles usage per user per billing period
-- [ ] Reset cycles_used on `invoice.paid`
+- [x] `compute_balances` table + lazy init
+- [x] `compute_transactions` table + ledger
+- [x] `get_or_create_balance()` — auto-creates $0 balance
+- [x] `credit_balance()` — add credits + record transaction
+- [x] `debit_balance()` — deduct credits + trigger auto-topup
+- [x] `maybe_auto_topup()` — off-session PaymentIntent with saved card
+- [x] `POST /api/v1/billing/checkout` — Stripe Checkout (payment mode)
+- [x] `GET /api/v1/billing/portal` — Stripe Customer Portal
+- [x] `GET /api/v1/billing/balance` — credit balance + auto-topup settings
+- [x] `PUT /api/v1/billing/auto-topup` — toggle auto-topup
+- [x] `GET /api/v1/billing/transactions` — paginated history
+- [x] `POST /api/v1/webhooks/stripe` — webhook handler with idempotency
+- [x] `setup_future_usage=off_session` — saves card on first purchase
+- [ ] Wire `debit_balance()` into deploy pipeline
+- [ ] Wire `debit_balance()` into hosting usage metering
+- [ ] Define per-operation pricing (deploy cost, hosting cost)
 
 ### Dashboard
-- [ ] Billing/Settings page with current plan display
-- [ ] "Upgrade" button → Stripe Checkout redirect
-- [ ] "Manage Billing" button → Stripe Customer Portal
-- [ ] Usage bar (cycles used / limit, deploys used / limit)
+- [x] Billing page — balance display, buy credits, transaction history
+- [x] `api/billing.ts` — HTTP layer
+- [x] `hooks/use-billing.ts` — TanStack Query hooks
+- [ ] Auto-topup settings UI on billing page
+- [ ] Low balance warning banner
 
 ### Stripe Setup
-- [ ] Create Stripe account
-- [ ] Create Products + Prices
-- [ ] Configure webhook endpoint
-- [ ] Set up Customer Portal branding
+- [x] Stripe account created
+- [x] Checkout Sessions configured (payment mode, not subscription)
+- [x] Webhook endpoint configured
+- [ ] Customer Portal branding
 
-## 8. Open Questions
+## 8. Design Decisions
 
-1. **Cycles pricing vs. subscription:** Should we offer a pure pay-as-you-go option (no subscription, just buy cycles at markup)? Simpler billing but less predictable revenue.
-2. **Free tier abuse:** Rate limit canister creation on free tier (max 1 per day?). Monitor for spam.
-3. **Cycle pool refill:** If a user exhausts their 10T pool mid-month, should they be able to buy a one-time top-up? Or just wait for renewal?
+1. **Prepaid credits over subscriptions.** Simpler for users, no recurring billing complexity. Users buy what they need. Can always add subscription tiers later as a "credits included per month" model.
+2. **USD abstraction over cycles.** Users never see IC cycles. The platform handles cycles acquisition and management. This keeps the UX clean and avoids exposing blockchain internals.
+3. **Auto top-up via saved cards.** First Checkout purchase saves the card (setup_future_usage). Auto top-up creates off-session PaymentIntents. Failed charges auto-disable the feature.

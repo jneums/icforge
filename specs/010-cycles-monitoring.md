@@ -1,164 +1,212 @@
-# ICForge — Cycles Monitoring + Auto Top-Up
+# ICForge — Compute Monitoring + Canister Health
 
-**Status:** Draft v0.1
-**Parent:** 001-architecture.md
+**Status:** Draft v1.0
+**Parent:** 001-architecture.md, 007-stripe-billing.md
 **Milestone:** v0.3
 
 ---
 
 ## 1. Goal
 
-Monitor cycles balance on all user canisters and alert when running low. Optionally auto top-up from the platform cycles pool.
+Monitor canister health and compute usage across the platform. Automatically top up canisters from the platform cycles pool and debit users' compute credit balances. Users see compute costs in USD — never IC cycles.
 
 ## 2. Why This Matters
 
-Canisters that run out of cycles get frozen and eventually deleted. Users who deploy and forget will lose their apps. ICForge should prevent this for managed canisters.
+Canisters that run out of cycles get frozen and eventually deleted. ICForge manages this entirely — users should never think about cycles. The platform must:
+
+1. Keep canisters alive by monitoring and topping them up automatically
+2. Track compute costs and debit users' credit balances accordingly
+3. Alert users when their compute balance is running low (not canister cycles — that's our problem)
 
 ## 3. Architecture
 
-### 3.1 Background poller
+### 3.1 Background Poller
 
-A background task on the backend that periodically checks canister cycles balances:
+A background task on the backend that periodically checks canister health:
 
 ```
 Every 6 hours:
   For each canister in DB where status = 'running':
     1. Call canister_status() via IC management canister
-    2. Record cycles balance in DB
-    3. If balance < threshold → trigger alert
-    4. If auto top-up enabled → top up from pool
+    2. Record cycles balance + memory usage in snapshots table
+    3. If cycles < platform threshold → top up from platform pool
+    4. Calculate compute cost for the period → debit user's credit balance
 ```
 
-### 3.2 Thresholds
+### 3.2 Platform Thresholds (Internal — Never Exposed to Users)
 
-| Level | Threshold | Action |
-|-------|-----------|--------|
-| **Healthy** | > 2T cycles | None |
-| **Warning** | 0.5T – 2T | Email alert + dashboard badge |
-| **Critical** | < 0.5T | Email alert + auto top-up (if enabled) |
-| **Frozen** | 0 | Canister is frozen by IC, alert user |
+| Level | Threshold | Platform Action |
+|-------|-----------|-----------------|
+| **Healthy** | > 2T cycles | No action |
+| **Low** | 0.5T – 2T | Auto top-up from platform pool |
+| **Critical** | < 0.5T | Urgent top-up + internal alert |
+| **Frozen** | 0 | Canister frozen by IC — attempt recovery |
 
-### 3.3 Auto top-up
+These are operational thresholds for the platform team, not user-facing.
 
-When enabled, ICForge automatically transfers cycles from the platform pool to the canister:
+### 3.3 Canister Top-Up (Platform-Side)
 
-1. Check user's plan allows auto top-up (Pro/Team only)
-2. Check user hasn't exhausted their cycles pool allocation
-3. Call `IcClient::top_up_canister()` (already implemented) with 2T cycles
-4. Record the top-up in the DB
-5. Deduct from user's cycles pool allocation
+When a canister needs cycles:
+1. Platform calls `IcClient::top_up_canister()` with cycles from the platform pool
+2. Record the top-up amount in `canister_topups` table
+3. Convert cycles cost to USD using platform pricing rate
+4. Call `debit_balance()` on the user's compute credits
 
-Users can enable/disable auto top-up per canister in the dashboard.
+The user sees: "Hosting — canister backend (my-dapp): -$0.12" in their transaction history.
+
+### 3.4 Compute Cost Calculation
+
+The platform converts IC cycles to USD compute credits at a fixed rate with margin:
+
+```
+Platform cycles cost: ~$1.32 per 1T cycles (IC rate)
+ICForge markup: TBD (covers infra + margin)
+User-facing rate: TBD per canister/month based on usage
+```
+
+Pricing categories:
+- **Hosting**: ongoing cycles burn for running canisters (metered per period)
+- **Deploy**: one-time compute cost for build + install
+- **Storage**: memory usage component (if we want to break it out)
+
+All show up as simple USD line items in the user's transaction history.
 
 ## 4. Data Model
 
-### New table: `cycles_snapshots`
+### New table: `canister_snapshots`
 
 ```sql
-CREATE TABLE cycles_snapshots (
+CREATE TABLE canister_snapshots (
   id TEXT PRIMARY KEY,
-  canister_id TEXT NOT NULL,  -- DB canister record ID
-  ic_canister_id TEXT NOT NULL,  -- actual IC canister ID
+  canister_id TEXT NOT NULL,        -- DB canister record ID
+  ic_canister_id TEXT NOT NULL,     -- actual IC canister ID
   cycles_balance BIGINT NOT NULL,
   memory_size BIGINT NOT NULL,
-  status TEXT NOT NULL,  -- running, stopping, stopped
+  status TEXT NOT NULL,             -- running, stopping, stopped
   recorded_at TEXT NOT NULL
 );
 
-CREATE INDEX idx_cycles_snapshots_canister ON cycles_snapshots(canister_id, recorded_at);
+CREATE INDEX idx_canister_snapshots_lookup
+  ON canister_snapshots(canister_id, recorded_at);
 ```
 
-### New table: `cycles_topups`
+### New table: `canister_topups`
 
 ```sql
-CREATE TABLE cycles_topups (
+CREATE TABLE canister_topups (
   id TEXT PRIMARY KEY,
   canister_id TEXT NOT NULL,
   user_id TEXT NOT NULL,
-  amount BIGINT NOT NULL,
-  source TEXT NOT NULL,  -- 'auto' or 'manual'
+  cycles_amount BIGINT NOT NULL,    -- IC cycles transferred
+  credit_cost_cents INTEGER NOT NULL, -- USD cost debited from user
+  source TEXT NOT NULL,             -- 'auto' or 'manual_platform'
   created_at TEXT NOT NULL
 );
 ```
 
-### Canisters table updates
-
-```sql
-ALTER TABLE canisters ADD COLUMN auto_topup BOOLEAN DEFAULT false;
-ALTER TABLE canisters ADD COLUMN cycles_alert_threshold BIGINT DEFAULT 500000000000;  -- 0.5T
-```
+Note: `canister_topups` tracks the platform-side cycles transfer. The user-facing
+debit appears in `compute_transactions` (from spec 007) with category = 'hosting'.
 
 ## 5. API Endpoints
 
+### Platform health (internal / admin)
+
 ```
-GET /api/v1/canisters/:id/cycles
-  Returns: {
-    current_balance: 3_500_000_000_000,
-    history: [{ balance, recorded_at }, ...],  -- last 30 days
-    auto_topup: true,
-    alert_threshold: 500_000_000_000,
-    status: "healthy"
-  }
-
-PUT /api/v1/canisters/:id/cycles/settings
-  Body: { auto_topup: true, alert_threshold: 1_000_000_000_000 }
-
-POST /api/v1/canisters/:id/cycles/topup
-  Body: { amount: 2_000_000_000_000 }
-  (Manual top-up from user's pool allocation)
-
 GET /api/v1/cycles/balance
-  (Already exists — returns platform pool balance)
+  (Already exists — returns platform IC cycles pool balance)
 ```
 
-## 6. Alerts
-
-### Email alerts
-
-Send via a transactional email service (Resend, Postmark, or SES):
+### User-facing compute usage
 
 ```
-Subject: ⚠️ Low cycles on canister "backend" (my-dapp)
-
-Your canister "backend" (xh5m6-qyaaa-aaaaj-qrsla-cai) has 
-450B cycles remaining. It will freeze when it reaches 0.
-
-Auto top-up is [enabled/disabled].
-
-[View in Dashboard] [Top Up Now]
+GET /api/v1/billing/usage
+  Returns: {
+    balance_cents: 1500,
+    current_period: {
+      start: "2025-02-01T00:00:00Z",
+      end: "2025-03-01T00:00:00Z",
+      hosting_cost_cents: 340,
+      deploy_cost_cents: 120,
+      total_cost_cents: 460
+    },
+    canisters: [
+      {
+        name: "backend",
+        project: "my-dapp",
+        status: "healthy",
+        monthly_cost_cents: 12
+      }
+    ]
+  }
 ```
 
-### Dashboard alerts
+Users see compute costs per canister in USD. They never see cycles numbers.
 
-Badge on project card: "⚠️ Low Cycles" when any canister is in warning/critical state.
+### Canister health (user-facing, abstracted)
+
+```
+GET /api/v1/projects/:id/health
+  Returns: {
+    status: "healthy",           -- healthy, degraded, stopped
+    canisters: [
+      { name: "backend", status: "running", last_checked: "..." },
+      { name: "frontend", status: "running", last_checked: "..." }
+    ]
+  }
+```
+
+No cycles numbers exposed. Just health status.
+
+## 6. User Alerts
+
+### Low Compute Balance (Email)
+
+```
+Subject: Your ICForge compute balance is running low
+
+Your compute balance is $1.50. Based on current usage, this covers
+approximately 12 more days of hosting.
+
+[Buy Credits] [Manage Auto Top-Up]
+```
+
+### Low Compute Balance (Dashboard)
+
+Banner on dashboard: "Low balance — $1.50 remaining. Buy credits to keep your apps running."
+
+### Canister Health Issues (Dashboard Only)
+
+If a canister enters a degraded state (platform couldn't top it up, etc.),
+show on project detail: "⚠️ Canister health issue — contact support"
+
+This should be rare since the platform handles cycles automatically.
 
 ## 7. Implementation Checklist
 
 ### Backend
 - [ ] Background poller task (tokio interval, runs every 6h)
-- [ ] `cycles_snapshots` table + migration
-- [ ] `cycles_topups` table + migration
-- [ ] Canister table updates (auto_topup, alert_threshold) + migration
-- [ ] `GET /api/v1/canisters/:id/cycles` endpoint
-- [ ] `PUT /api/v1/canisters/:id/cycles/settings` endpoint
-- [ ] `POST /api/v1/canisters/:id/cycles/topup` endpoint
-- [ ] Auto top-up logic (check plan, check pool, call top_up_canister)
-- [ ] Email alert integration (pick a service: Resend recommended)
-- [ ] Deduct top-up amounts from user's plan allocation
+- [ ] `canister_snapshots` table + migration
+- [ ] `canister_topups` table + migration
+- [ ] Snapshot recording logic (query IC, store results)
+- [ ] Auto top-up logic (platform pool → canister, debit user credits)
+- [ ] `GET /api/v1/billing/usage` — compute usage breakdown
+- [ ] `GET /api/v1/projects/:id/health` — canister health status
+- [ ] Define compute pricing rates (cycles → USD conversion + margin)
+- [ ] Wire `debit_balance()` into the poller for hosting charges
+- [ ] Email alert integration for low compute balance (Resend)
 
 ### Dashboard
-- [ ] Cycles chart on ProjectDetail (sparkline or line chart of balance over time)
-- [ ] Auto top-up toggle per canister
-- [ ] Alert threshold setting
-- [ ] Manual top-up button
-- [ ] Low cycles badge on Projects list
+- [ ] Compute usage section on Billing page (cost breakdown per canister)
+- [ ] Health status indicators on project cards
+- [ ] Health detail on project detail page
+- [ ] Low balance warning banner
 
 ### CLI
-- [ ] `icforge status` shows cycles balance per canister (already planned in spec 005)
-- [ ] `icforge cycles topup <canister> <amount>` command
+- [ ] `icforge status` shows canister health (not cycles)
 
-## 8. Open Questions
+## 8. Design Decisions
 
-1. **Polling frequency:** 6 hours is a balance between freshness and IC query costs. Adjust based on usage patterns — high-traffic canisters burn cycles faster.
-2. **Email service:** Resend is cheapest and simplest for transactional email. Free tier: 3000 emails/month. Good enough for alerts.
-3. **Cycles pool accounting:** Need to carefully track how much of a user's pool allocation has been used for top-ups vs. canister creation. This ties into the billing spec (007).
+1. **Users never see cycles.** All compute costs are in USD. The platform handles cycles acquisition, monitoring, and top-ups internally.
+2. **No per-canister billing controls.** Users don't toggle auto-topup per canister — the platform keeps all their canisters alive as long as they have compute credits. Simpler UX.
+3. **Platform absorbs cycles volatility.** If IC cycles pricing changes, the platform adjusts its internal rates. Users see stable USD pricing.
+4. **Health, not metrics.** Users see "healthy/degraded/stopped" — not cycles charts. We're a PaaS, not an infrastructure dashboard.

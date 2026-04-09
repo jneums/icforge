@@ -77,12 +77,12 @@ npx icforge deploy    # Ship it 🚀
 │                └────┬─────┘                                      │
 │                     │                                            │
 │  ┌─────────────────┐│  ┌──────────────────────────────────────┐  │
-│  │  Cycles Pool    ││  │  Database (PostgreSQL)                │  │
+│  │  Platform Pool  ││  │  Database (PostgreSQL)                │  │
 │  │                 ││  │                                      │  │
-│  │  Bulk ICP buy   ││  │  - Users & auth tokens               │  │
-│  │  ICP → cycles   ├┘  │  - Projects & canister mappings      │  │
-│  │  Auto top-up    │   │  - Deployments & logs                │  │
-│  │  Balance track  │   │  - Billing records                   │  │
+│  │  IC cycles mgmt ││  │  - Users & auth tokens               │  │
+│  │  Auto top-up    ├┘  │  - Projects & canister mappings      │  │
+│  │  (internal)     │   │  - Deployments & logs                │  │
+│  │  Balance track  │   │  - Compute balances & transactions   │  │
 │  └────────┬────────┘   └──────────────────────────────────────┘  │
 │           │                                                      │
 └───────────┼──────────────────────────────────────────────────────┘
@@ -236,7 +236,7 @@ ICForge detects canister types from recipes: `asset-canister` → frontend,
 1. Receive .wasm + .did + assets from CLI
 2. Validate artifacts (wasm magic bytes, size limits)
 3. Use platform IC identity (single identity for all deploys)
-4. Check cycles pool balance, auto-top-up if needed
+4. Check user's compute credit balance, reject if insufficient
 5. If new canister:
    a. Call management canister: create_canister()
    b. Record canister ID in database
@@ -264,21 +264,23 @@ ICForge uses a **single platform IC identity** for all canister operations. User
 - User now has full self-custody — ICForge can no longer manage those canisters
 - This is a one-way operation; re-linking requires `icforge link`
 
-### 5.4 Cycles Pool
+### 5.4 Compute Credits & Platform Cycles Pool
 
-ICForge maintains a pool of cycles funded by bulk ICP purchases.
+ICForge uses a prepaid compute credits model (see spec 007). Users buy credits in USD and spend them on deploys, hosting, and canister operations. The platform manages IC cycles internally.
 
-**Economics:**
-- Buy ICP in bulk (OTC or exchange) at market rate
-- Convert to cycles via cycles ledger
-- 1T cycles ≈ $1.35 USD (pegged to XDR)
-- Charge users monthly subscription that covers typical usage + margin
+**User-facing:** Compute credits in USD. Users never see IC cycles.
 
-**Auto Top-up:**
-- Background job monitors all managed canisters
-- When cycles balance < threshold → top up from pool
-- Threshold = 2x estimated monthly burn rate
-- Alert user if burn rate exceeds plan limits
+**Platform-internal:**
+- Maintain a pool of IC cycles funded by ICP purchases
+- Background job monitors all managed canisters (see spec 010)
+- When canister cycles are low → top up from platform pool
+- Convert cycles cost to USD → debit from user's compute balance
+- 1T cycles ≈ $1.32 USD (pegged to XDR, subject to change)
+
+**Auto Top-up (Stripe):**
+- Users can enable auto top-up on their compute balance
+- When credit balance drops below threshold → charge saved card
+- See spec 007 for implementation details
 
 ### 5.5 Dashboard (`dashboard/`)
 
@@ -401,7 +403,7 @@ Several current design decisions anticipate Cloud Engine support:
 }
 ```
 
-4. **Billing model fork:** Public subnet deployments use ICForge's cycles pool (current model). Cloud Engine deployments bill differently — the engine owner funds cycles directly via the 80/20 node provider model. ICForge would charge a platform/management fee rather than reselling cycles.
+4. **Billing model fork:** Public subnet deployments use ICForge's compute credits model (users pay USD, platform covers cycles). Cloud Engine deployments bill differently — the engine owner funds cycles directly via the 80/20 node provider model. ICForge would charge a platform/management fee rather than marking up cycles.
 
 ### Strategic Position
 
@@ -492,7 +494,7 @@ The progression is natural: start free on shared infra, graduate to your own Clo
 - [ ] Cloud Engine targeting — deploy to a specific engine via `.icforge` config or dashboard
 - [ ] Engine discovery — list available Cloud Engines the user has access to
 - [ ] Engine-aware authorization — register ICForge platform identity with target engine
-- [ ] Dual billing model — cycles pool for public subnets, platform fee for Cloud Engine deploys
+- [ ] Dual billing model — compute credits for public subnets, platform fee for Cloud Engine deploys
 - [ ] Region/jurisdiction display — show node geography and compliance metadata in dashboard
 - [ ] Migration path — move existing project from public subnet to Cloud Engine without redeploying from scratch
 

@@ -158,7 +158,7 @@ export function CanisterHealthPanel({ canister }: CanisterHealthPanelProps) {
 
         {chartData.length <= 1 && (
           <div className="h-24 flex items-center justify-center text-sm text-muted-foreground border border-dashed border-border/50 rounded-md">
-            Not enough data for a chart yet — snapshots are taken every 6 hours
+            Not enough data for a chart yet — snapshots are taken every 30 minutes
           </div>
         )}
 

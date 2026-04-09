@@ -1,4 +1,4 @@
-//! Background poller: checks canister cycles balances every 6 hours,
+//! Background poller: checks canister cycles balances every 30 minutes,
 //! records snapshots, and auto-tops-up low canisters.
 
 use sqlx::PgPool;
@@ -18,13 +18,13 @@ const AUTO_TOPUP_AMOUNT: u128 = 2_000_000_000_000; // 2T cycles per top-up
 /// Current market: ~1T cycles ≈ $0.50 at cost, with platform margin applied.
 const CYCLES_PER_DOLLAR_CENT: u128 = 20_000_000_000; // 20B cycles = $0.01  (=> 2T cycles ≈ $1.00)
 
-/// Spawn the background poller task. Runs every 6 hours.
+/// Spawn the background poller task. Runs every 30 minutes.
 pub fn spawn_poller(db: PgPool, config: AppConfig) {
     tokio::spawn(async move {
         // Wait 30s after boot to let everything settle
         tokio::time::sleep(Duration::from_secs(30)).await;
 
-        let mut tick = interval(Duration::from_secs(6 * 60 * 60)); // 6 hours
+        let mut tick = interval(Duration::from_secs(30 * 60)); // 30 minutes
 
         loop {
             tick.tick().await;

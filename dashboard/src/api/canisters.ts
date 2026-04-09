@@ -8,8 +8,10 @@ export async function fetchCanisterEnv(canisterId: string): Promise<EnvironmentV
   return data.environment_variables ?? [];
 }
 
-export async function fetchCanisterCycles(canisterId: string): Promise<CanisterCyclesInfo> {
-  return apiFetch<CanisterCyclesInfo>(`/api/v1/canisters/${canisterId}/cycles`);
+export type CyclesPeriod = '1h' | '6h' | '24h' | '7d' | '30d';
+
+export async function fetchCanisterCycles(canisterId: string, period: CyclesPeriod = '24h'): Promise<CanisterCyclesInfo> {
+  return apiFetch<CanisterCyclesInfo>(`/api/v1/canisters/${canisterId}/cycles?period=${period}`);
 }
 
 export async function updateCyclesSettings(

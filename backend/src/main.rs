@@ -1,6 +1,6 @@
 use axum::{
     extract::DefaultBodyLimit,
-    routing::{delete, get, post},
+    routing::{delete, get, post, put},
     Json, Router,
 };
 use dashmap::DashMap;
@@ -11,6 +11,7 @@ use tower_http::cors::CorsLayer;
 use tracing_subscriber::EnvFilter;
 
 mod auth;
+mod billing;
 mod deploy_worker;
 mod cloudflare;
 mod config;
@@ -92,8 +93,15 @@ async fn main() {
         .route("/api/v1/github/repos", get(routes::list_github_repos))
         .route("/api/v1/github/repos/{repo_id}/config", get(routes::fetch_repo_config))
         .route("/api/v1/github/link", post(routes::link_repo))
+        // Billing
+        .route("/api/v1/billing/checkout", post(billing::billing_checkout))
+        .route("/api/v1/billing/portal", get(billing::billing_portal))
+        .route("/api/v1/billing/balance", get(billing::billing_balance))
+        .route("/api/v1/billing/auto-topup", put(billing::billing_auto_topup))
+        .route("/api/v1/billing/transactions", get(billing::billing_transactions))
         // Webhooks (no auth — signature-verified)
         .route("/api/v1/webhooks/github", post(webhooks::handle_webhook))
+        .route("/api/v1/webhooks/stripe", post(billing::billing_webhook))
         .layer(DefaultBodyLimit::max(50 * 1024 * 1024)) // 50MB for wasm + assets
         .layer(CorsLayer::permissive())
         .with_state(state);

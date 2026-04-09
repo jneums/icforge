@@ -7,3 +7,4 @@ export * from './canisters';
 export * from './auth';
 export * from './tokens';
 export * from './github';
+export * from './billing';

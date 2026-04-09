@@ -119,6 +119,19 @@ pub async fn auth_callback(
         .await
         .map_err(AppError::Database)?;
 
+        // Credit signup bonus
+        if state.config.signup_bonus_cents > 0 {
+            crate::billing::credit_balance(
+                &state.db,
+                &user_id,
+                state.config.signup_bonus_cents,
+                "signup_bonus",
+                None,
+                &format!("Welcome bonus ${:.2}", state.config.signup_bonus_cents as f64 / 100.0),
+            )
+            .await?;
+        }
+
         (user_id, github_user.login)
     };
 
@@ -442,6 +455,19 @@ pub async fn dev_token(State(state): State<AppState>) -> Result<Json<Value>, App
         .execute(&state.db)
         .await
         .map_err(AppError::Database)?;
+
+        // Credit signup bonus for dev user too
+        if state.config.signup_bonus_cents > 0 {
+            crate::billing::credit_balance(
+                &state.db,
+                &user_id,
+                state.config.signup_bonus_cents,
+                "signup_bonus",
+                None,
+                &format!("Welcome bonus ${:.2}", state.config.signup_bonus_cents as f64 / 100.0),
+            )
+            .await?;
+        }
 
         tracing::info!("Created dev user");
     }

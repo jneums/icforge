@@ -110,3 +110,40 @@ export interface RepoConfig {
   canisters?: Record<string, unknown>[];
   raw: string | null;
 }
+
+// Billing
+
+export interface UsageBreakdown {
+  total_cents: number;
+  execution_cents: number;
+  builds_cents: number;
+  storage_cents: number;
+  bandwidth_cents: number;
+}
+
+export interface BillingBalance {
+  compute_balance_cents: number;
+  auto_topup_enabled: boolean;
+  auto_topup_threshold_cents: number | null;
+  auto_topup_amount_cents: number | null;
+  credits_expire_at: string | null;
+  usage_this_month: UsageBreakdown;
+}
+
+export interface ComputeTransaction {
+  id: string;
+  user_id: string;
+  type: 'credit' | 'debit';
+  amount_cents: number;
+  category: string | null;
+  source: string | null;
+  stripe_payment_id: string | null;
+  description: string | null;
+  created_at: string;
+}
+
+export interface AutoTopupSettings {
+  enabled: boolean;
+  threshold_cents?: number;
+  amount_cents?: number;
+}

@@ -19,6 +19,12 @@ pub struct AppConfig {
     pub github_app_id: Option<String>,
     pub github_app_private_key: Option<String>,
     pub github_webhook_secret: Option<String>,
+    // Stripe billing
+    pub stripe_secret_key: Option<String>,
+    pub stripe_webhook_secret: Option<String>,
+    pub signup_bonus_cents: i32,
+    pub min_purchase_cents: i32,
+    pub compute_margin: f64,
     pub dev_mode: bool,
     pub port: u16,
 }
@@ -47,6 +53,20 @@ impl AppConfig {
             github_app_id: env::var("GITHUB_APP_ID").ok(),
             github_app_private_key: env::var("GITHUB_APP_PRIVATE_KEY").ok(),
             github_webhook_secret: env::var("GITHUB_WEBHOOK_SECRET").ok(),
+            stripe_secret_key: env::var("STRIPE_SECRET_KEY").ok(),
+            stripe_webhook_secret: env::var("STRIPE_WEBHOOK_SECRET").ok(),
+            signup_bonus_cents: env::var("SIGNUP_BONUS_CENTS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(500),
+            min_purchase_cents: env::var("MIN_PURCHASE_CENTS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(500),
+            compute_margin: env::var("COMPUTE_MARGIN")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(1.3),
             dev_mode: env::var("DEV_MODE")
                 .map(|v| v == "1" || v.to_lowercase() == "true")
                 .unwrap_or(false),

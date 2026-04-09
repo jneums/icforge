@@ -155,6 +155,19 @@ export interface CyclesHistoryPoint {
   memory_size: number;
   status: string;
   recorded_at: string;
+  idle_cycles_burned_per_day: number | null;
+  reserved_cycles: number | null;
+  reserved_cycles_limit: number | null;
+  compute_allocation: number | null;
+  memory_allocation: number | null;
+  freezing_threshold: number | null;
+  module_hash: string | null;
+  query_num_calls: number | null;
+  query_num_instructions: number | null;
+  query_request_payload_bytes: number | null;
+  query_response_payload_bytes: number | null;
+  wasm_memory_limit: number | null;
+  wasm_memory_threshold: number | null;
 }
 
 export interface CanisterTopupRecord {
@@ -175,6 +188,8 @@ export interface CanisterCyclesInfo {
   health: 'healthy' | 'warning' | 'critical' | 'frozen' | 'unknown';
   auto_topup: boolean;
   alert_threshold: number;
+  burn_rate_per_day: number | null;
+  time_to_freeze_days: number | null;
   history: CyclesHistoryPoint[];
   topups: CanisterTopupRecord[];
 }

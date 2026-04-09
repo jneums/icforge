@@ -4,10 +4,17 @@
 use sqlx::PgPool;
 use tokio::time::{interval, Duration};
 
+use candid::Nat;
+
 use crate::billing;
 use crate::config::AppConfig;
 use crate::ic_client::IcClient;
 use crate::models::CanisterRecord;
+
+/// Convert a candid Nat to i64, clamping to i64::MAX on overflow.
+fn nat_to_i64(n: &Nat) -> i64 {
+    i64::try_from(n.0.clone()).unwrap_or(i64::MAX)
+}
 
 /// Cycles thresholds (in cycles, not USD).
 const THRESHOLD_HEALTHY: u128 = 2_000_000_000_000; // 2T
@@ -104,6 +111,21 @@ async fn poll_single_canister(
     let memory_size: i64 = i64::try_from(status.memory_size.0.clone()).unwrap_or(0);
     let status_str = format!("{:?}", status.status).to_lowercase();
 
+    // Extract extended fields
+    let idle_burned: i64 = nat_to_i64(&status.idle_cycles_burned_per_day);
+    let reserved: i64 = nat_to_i64(&status.reserved_cycles);
+    let reserved_limit: i64 = nat_to_i64(&status.settings.reserved_cycles_limit);
+    let compute_alloc: i64 = nat_to_i64(&status.settings.compute_allocation);
+    let memory_alloc: i64 = nat_to_i64(&status.settings.memory_allocation);
+    let freezing_thresh: i64 = nat_to_i64(&status.settings.freezing_threshold);
+    let module_hash_hex: Option<String> = status.module_hash.as_ref().map(|h| hex::encode(h));
+    let q_calls: i64 = nat_to_i64(&status.query_stats.num_calls_total);
+    let q_instr: i64 = nat_to_i64(&status.query_stats.num_instructions_total);
+    let q_req_bytes: i64 = nat_to_i64(&status.query_stats.request_payload_bytes_total);
+    let q_resp_bytes: i64 = nat_to_i64(&status.query_stats.response_payload_bytes_total);
+    let wasm_mem_limit: i64 = nat_to_i64(&status.settings.wasm_memory_limit);
+    let wasm_mem_thresh: i64 = nat_to_i64(&status.settings.wasm_memory_threshold);
+
     // Record snapshot
     let snap_id = uuid::Uuid::new_v4().to_string();
     let now = chrono::Utc::now()
@@ -111,8 +133,15 @@ async fn poll_single_canister(
         .to_string();
 
     sqlx::query(
-        r#"INSERT INTO cycles_snapshots (id, canister_id, ic_canister_id, cycles_balance, memory_size, status, recorded_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)"#,
+        r#"INSERT INTO cycles_snapshots (
+               id, canister_id, ic_canister_id, cycles_balance, memory_size, status, recorded_at,
+               idle_cycles_burned_per_day, reserved_cycles, reserved_cycles_limit,
+               compute_allocation, memory_allocation, freezing_threshold, module_hash,
+               query_num_calls, query_num_instructions,
+               query_request_payload_bytes, query_response_payload_bytes,
+               wasm_memory_limit, wasm_memory_threshold
+           )
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)"#,
     )
     .bind(&snap_id)
     .bind(&canister.id)
@@ -121,6 +150,19 @@ async fn poll_single_canister(
     .bind(memory_size)
     .bind(&status_str)
     .bind(&now)
+    .bind(idle_burned)
+    .bind(reserved)
+    .bind(reserved_limit)
+    .bind(compute_alloc)
+    .bind(memory_alloc)
+    .bind(freezing_thresh)
+    .bind(&module_hash_hex)
+    .bind(q_calls)
+    .bind(q_instr)
+    .bind(q_req_bytes)
+    .bind(q_resp_bytes)
+    .bind(wasm_mem_limit)
+    .bind(wasm_mem_thresh)
     .execute(db)
     .await?;
 

@@ -18,7 +18,7 @@ export function displayRecipe(recipe: string): string {
 export type HealthLevel = "healthy" | "warning" | "critical" | "frozen" | "unknown";
 
 /**
- * Derive a health level from a cycles balance.
+ * Derive a health level from a raw compute balance.
  * Matches the backend's cycles_health_level() thresholds.
  * Used for quick inline badges when the full health endpoint isn't loaded.
  */

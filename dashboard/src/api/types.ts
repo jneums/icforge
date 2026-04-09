@@ -148,71 +148,41 @@ export interface AutoTopupSettings {
   amount_cents?: number;
 }
 
-// Canister cycles / health
+// Canister compute / health
 
-export interface CyclesHistoryPoint {
-  balance: number;
+export interface ComputeHistoryPoint {
+  compute_value_cents: number;
   memory_size: number;
   status: string;
   recorded_at: string;
-  idle_cycles_burned_per_day: number | null;
-  reserved_cycles: number | null;
-  reserved_cycles_limit: number | null;
-  compute_allocation: number | null;
-  memory_allocation: number | null;
-  freezing_threshold: number | null;
-  module_hash: string | null;
-  query_num_calls: number | null;
-  query_num_instructions: number | null;
-  query_request_payload_bytes: number | null;
-  query_response_payload_bytes: number | null;
-  wasm_memory_limit: number | null;
-  wasm_memory_threshold: number | null;
 }
 
-export interface CanisterTopupRecord {
+export interface ComputeTopupRecord {
   id: string;
-  canister_id: string;
-  ic_canister_id: string;
-  user_id: string;
-  cycles_amount: number;
   cost_cents: number;
   source: 'auto' | 'manual';
   created_at: string;
 }
 
-export interface CanisterCyclesInfo {
+export interface CanisterComputeInfo {
   canister_id: string;
   canister_name: string;
-  current_balance: number;
   health: 'healthy' | 'warning' | 'critical' | 'frozen' | 'unknown';
-  auto_topup: boolean;
-  alert_threshold: number;
-  burn_rate_per_day: number | null;
-  time_to_freeze_days: number | null;
-  history: CyclesHistoryPoint[];
-  topups: CanisterTopupRecord[];
+  compute_value_cents: number;
+  burn_rate_cents_per_day: number | null;
+  runway_days: number | null;
+  history: ComputeHistoryPoint[];
+  topups: ComputeTopupRecord[];
 }
 
 export interface CanisterHealthEntry {
   name: string;
   canister_id: string | null;
-  cycles_balance: number;
   health: 'healthy' | 'warning' | 'critical' | 'frozen' | 'unknown';
-  auto_topup: boolean;
 }
 
 export interface ProjectHealth {
   project_id: string;
   overall_health: 'healthy' | 'warning' | 'critical' | 'frozen' | 'unknown';
   canisters: CanisterHealthEntry[];
-}
-
-export interface CyclesSettingsUpdate {
-  auto_topup?: boolean;
-  alert_threshold?: number;
-}
-
-export interface ManualTopupParams {
-  amount: number;
 }

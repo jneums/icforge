@@ -6,7 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { StatusDot } from "@/components/status-dot";
 import { HealthBadge } from "@/components/health-badge";
 import { Folder, AlertCircle, GitCommit, Clock, Plus, Box } from "lucide-react";
-import { cyclesHealthLevel } from "@/lib/utils";
+import { healthFromCycles } from "@/lib/utils";
 import type { Project } from "@/api/types";
 
 function getProjectStatus(project: Project): string {
@@ -31,7 +31,7 @@ function timeAgo(dateStr: string): string {
 function getProjectHealth(project: Project): "healthy" | "warning" | "critical" | "frozen" | "unknown" {
   const canisters = project.canisters ?? [];
   if (canisters.length === 0) return "unknown";
-  const levels = canisters.map((c) => cyclesHealthLevel(c.cycles_balance));
+  const levels = canisters.map((c) => healthFromCycles(c.cycles_balance));
   const priority: Record<string, number> = { frozen: 0, critical: 1, warning: 2, unknown: 3, healthy: 4 };
   levels.sort((a, b) => (priority[a] ?? 5) - (priority[b] ?? 5));
   return levels[0];

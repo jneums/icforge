@@ -8,6 +8,7 @@ use candid::Nat;
 
 use crate::billing;
 use crate::config::AppConfig;
+use crate::exchange_rate::ExchangeRateCache;
 use crate::ic_client::IcClient;
 use crate::models::CanisterRecord;
 
@@ -21,12 +22,8 @@ const THRESHOLD_HEALTHY: u128 = 2_000_000_000_000; // 2T
 const THRESHOLD_WARNING: u128 = 500_000_000_000; // 0.5T
 const AUTO_TOPUP_AMOUNT: u128 = 2_000_000_000_000; // 2T cycles per top-up
 
-/// Cycles-to-USD conversion rate.  
-/// Current market: ~1T cycles ≈ $0.50 at cost, with platform margin applied.
-const CYCLES_PER_DOLLAR_CENT: u128 = 20_000_000_000; // 20B cycles = $0.01  (=> 2T cycles ≈ $1.00)
-
 /// Spawn the background poller task. Runs every 60 seconds.
-pub fn spawn_poller(db: PgPool, config: AppConfig) {
+pub fn spawn_poller(db: PgPool, config: AppConfig, rate_cache: ExchangeRateCache) {
     tokio::spawn(async move {
         // Wait 30s after boot to let everything settle
         tokio::time::sleep(Duration::from_secs(30)).await;
@@ -37,7 +34,7 @@ pub fn spawn_poller(db: PgPool, config: AppConfig) {
             tick.tick().await;
             tracing::info!("Compute poller: starting cycles check");
 
-            if let Err(e) = run_poll_cycle(&db, &config).await {
+            if let Err(e) = run_poll_cycle(&db, &config, &rate_cache).await {
                 tracing::error!("Compute poller error: {e}");
             }
 
@@ -59,6 +56,7 @@ pub fn spawn_poller(db: PgPool, config: AppConfig) {
 async fn run_poll_cycle(
     db: &PgPool,
     config: &AppConfig,
+    rate_cache: &ExchangeRateCache,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Build an IcClient (needs identity PEM)
     let pem = match &config.ic_identity_pem {
@@ -91,7 +89,7 @@ async fn run_poll_cycle(
             None => continue,
         };
 
-        match poll_single_canister(db, config, &ic, canister, ic_id).await {
+        match poll_single_canister(db, config, &ic, canister, ic_id, rate_cache).await {
             Ok(()) => {}
             Err(e) => {
                 tracing::warn!(
@@ -112,6 +110,7 @@ async fn poll_single_canister(
     ic: &IcClient,
     canister: &CanisterRecord,
     ic_id: &str,
+    rate_cache: &ExchangeRateCache,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Query canister status from IC
     let status = ic
@@ -200,7 +199,7 @@ async fn poll_single_canister(
 
         // Auto top-up if enabled on this canister
         if canister.auto_topup.unwrap_or(false) {
-            if let Err(e) = auto_topup_canister(db, config, ic, canister, ic_id).await {
+            if let Err(e) = auto_topup_canister(db, config, ic, canister, ic_id, rate_cache).await {
                 tracing::error!(
                     canister_id = ic_id,
                     "Auto top-up failed: {e}"
@@ -224,6 +223,7 @@ async fn auto_topup_canister(
     ic: &IcClient,
     canister: &CanisterRecord,
     ic_id: &str,
+    rate_cache: &ExchangeRateCache,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Find the project owner
     let user_id: String = sqlx::query_scalar(
@@ -233,8 +233,10 @@ async fn auto_topup_canister(
     .fetch_one(db)
     .await?;
 
-    // Calculate cost in cents (with margin)
-    let cost_cents = cycles_to_cents(AUTO_TOPUP_AMOUNT, config.compute_margin);
+    // Calculate cost in cents (with margin) using live XDR→USD rate
+    let cost_cents = rate_cache
+        .cycles_to_credit_cents(AUTO_TOPUP_AMOUNT, config.compute_margin)
+        .await;
 
     // Check user has enough balance
     let balance = billing::get_or_create_balance(db, &user_id)
@@ -298,10 +300,4 @@ async fn auto_topup_canister(
     );
 
     Ok(())
-}
-
-/// Convert cycles amount to USD cents, with platform margin.
-pub fn cycles_to_cents(cycles: u128, margin: f64) -> i32 {
-    let base_cents = (cycles / CYCLES_PER_DOLLAR_CENT) as f64;
-    (base_cents * margin).ceil() as i32
 }

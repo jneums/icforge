@@ -15,13 +15,14 @@ export function displayRecipe(recipe: string): string {
   return recipe.replace(/^@dfinity\//, "");
 }
 
-/**
- * Derive a health level string from a cycles balance (in cycles).
- * Matches the backend's cycles_health_level() thresholds.
- */
 export type HealthLevel = "healthy" | "warning" | "critical" | "frozen" | "unknown";
 
-export function cyclesHealthLevel(balance: number | null | undefined): HealthLevel {
+/**
+ * Derive a health level from a cycles balance.
+ * Matches the backend's cycles_health_level() thresholds.
+ * Used for quick inline badges when the full health endpoint isn't loaded.
+ */
+export function healthFromCycles(balance: number | null | undefined): HealthLevel {
   if (balance == null) return "unknown";
   if (balance <= 0) return "frozen";
   if (balance < 500_000_000_000) return "critical";
@@ -30,12 +31,14 @@ export function cyclesHealthLevel(balance: number | null | undefined): HealthLev
 }
 
 /**
- * Format cycles for human display (e.g. 3.5T, 450B, 12M).
+ * Convert raw cycles to a USD string for display purposes.
+ * 1 trillion cycles = 1 XDR ≈ $1.37 USD (fetched live on backend).
+ * This uses a default XDR/USD rate for quick display — the backend
+ * provides exact compute_value_cents for billing-critical views.
  */
-export function formatCycles(cycles: number): string {
-  if (cycles >= 1_000_000_000_000) return `${(cycles / 1_000_000_000_000).toFixed(1)}T`;
-  if (cycles >= 1_000_000_000) return `${(cycles / 1_000_000_000).toFixed(0)}B`;
-  if (cycles >= 1_000_000) return `${(cycles / 1_000_000).toFixed(0)}M`;
-  if (cycles >= 1_000) return `${(cycles / 1_000).toFixed(0)}K`;
-  return `${cycles}`;
+const DEFAULT_XDR_USD = 1.37; // fallback; backend refreshes every 6h
+
+export function cyclesToUsd(cycles: number, xdrUsd: number = DEFAULT_XDR_USD): string {
+  const usd = (cycles / 1_000_000_000_000) * xdrUsd;
+  return `$${usd.toFixed(2)}`;
 }

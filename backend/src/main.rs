@@ -19,6 +19,7 @@ mod config;
 mod db;
 mod deploy;
 mod error;
+mod exchange_rate;
 mod github;
 mod ic_client;
 mod models;
@@ -39,6 +40,8 @@ pub struct AppState {
     pub config: config::AppConfig,
     /// Per-deployment broadcast channels for real-time log streaming.
     pub log_channels: Arc<DashMap<String, broadcast::Sender<LogEvent>>>,
+    /// Live XDR→USD exchange rate for cycles pricing.
+    pub exchange_rate: exchange_rate::ExchangeRateCache,
 }
 
 #[tokio::main]
@@ -56,17 +59,21 @@ async fn main() {
     let pool = db::init_pool(&config.database_url).await;
     db::run_migrations(&pool).await;
 
+    let exchange_rate = exchange_rate::ExchangeRateCache::new();
+    exchange_rate::spawn_rate_refresher(exchange_rate.clone());
+
     let state = AppState {
         db: pool.clone(),
         config: config.clone(),
         log_channels: Arc::new(DashMap::new()),
+        exchange_rate,
     };
 
     // Start the background build worker
     deploy_worker::spawn_worker(pool.clone(), config.clone(), state.log_channels.clone());
 
     // Start the background cycles poller (checks every 6h)
-    compute_poller::spawn_poller(pool, config);
+    compute_poller::spawn_poller(pool, config, state.exchange_rate.clone());
 
     let app = Router::new()
         .route("/health", get(health))

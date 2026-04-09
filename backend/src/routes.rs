@@ -1258,36 +1258,33 @@ pub async fn canister_cycles(
 
     let current_balance = canister.cycles_balance.unwrap_or(0);
     let health = cycles_health_level(current_balance);
+    let margin = state.config.compute_margin;
+    let xdr_usd = state.exchange_rate.get().await.xdr_usd;
 
+    // Convert cycles to USD cents for user-facing values
+    let compute_value_cents = crate::exchange_rate::cycles_to_credit_cents(current_balance as u128, xdr_usd, margin);
+
+    // History: convert each snapshot to USD compute value
     let history: Vec<Value> = snapshots
         .iter()
         .map(|s| {
+            let value_cents = crate::exchange_rate::cycles_to_credit_cents(s.cycles_balance as u128, xdr_usd, margin);
             json!({
-                "balance": s.cycles_balance,
+                "compute_value_cents": value_cents,
                 "memory_size": s.memory_size,
                 "status": s.status,
                 "recorded_at": s.recorded_at,
-                "idle_cycles_burned_per_day": s.idle_cycles_burned_per_day,
-                "reserved_cycles": s.reserved_cycles,
-                "reserved_cycles_limit": s.reserved_cycles_limit,
-                "compute_allocation": s.compute_allocation,
-                "memory_allocation": s.memory_allocation,
-                "freezing_threshold": s.freezing_threshold,
-                "module_hash": s.module_hash,
-                "query_num_calls": s.query_num_calls,
-                "query_num_instructions": s.query_num_instructions,
-                "query_request_payload_bytes": s.query_request_payload_bytes,
-                "query_response_payload_bytes": s.query_response_payload_bytes,
-                "wasm_memory_limit": s.wasm_memory_limit,
-                "wasm_memory_threshold": s.wasm_memory_threshold,
             })
         })
         .collect();
 
-    // Derive burn_rate and time_to_freeze from latest snapshot
+    // Derive burn rate in USD cents/day and runway from latest snapshot
     let latest = snapshots.last();
     let burn_rate_per_day: Option<i64> = latest.and_then(|s| s.idle_cycles_burned_per_day);
-    let time_to_freeze_days: Option<f64> = burn_rate_per_day.and_then(|rate| {
+    let burn_rate_cents_per_day: Option<i32> = burn_rate_per_day.map(|rate| {
+        crate::exchange_rate::cycles_to_credit_cents(rate as u128, xdr_usd, margin)
+    });
+    let runway_days: Option<f64> = burn_rate_per_day.and_then(|rate| {
         if rate > 0 {
             Some(current_balance as f64 / rate as f64)
         } else {
@@ -1295,17 +1292,30 @@ pub async fn canister_cycles(
         }
     });
 
+    // Top-ups: show only USD cost, not raw cycles
+    let topups_usd: Vec<Value> = topups
+        .iter()
+        .map(|t| {
+            json!({
+                "id": t.id,
+                "cost_cents": t.cost_cents,
+                "source": t.source,
+                "created_at": t.created_at,
+            })
+        })
+        .collect();
+
     Ok(Json(json!({
         "canister_id": canister_id,
         "canister_name": canister.name,
-        "current_balance": current_balance,
         "health": health,
-        "auto_topup": canister.auto_topup.unwrap_or(false),
-        "alert_threshold": canister.cycles_alert_threshold.unwrap_or(500_000_000_000),
-        "burn_rate_per_day": burn_rate_per_day,
-        "time_to_freeze_days": time_to_freeze_days,
+        "compute_value_cents": compute_value_cents,
+        "burn_rate_cents_per_day": burn_rate_cents_per_day,
+        "runway_days": runway_days,
         "history": history,
-        "topups": topups,
+        "topups": topups_usd,
+        "xdr_usd_rate": xdr_usd,
+        "compute_margin": margin,
     })))
 }
 
@@ -1373,7 +1383,8 @@ pub async fn canister_cycles_topup(
     }
 
     let cycles = req.amount as u128;
-    let cost_cents = crate::compute_poller::cycles_to_cents(cycles, state.config.compute_margin);
+    let xdr_usd = state.exchange_rate.get().await.xdr_usd;
+    let cost_cents = crate::exchange_rate::cycles_to_credit_cents(cycles, xdr_usd, state.config.compute_margin);
 
     // Debit user balance
     crate::billing::debit_balance(
@@ -1452,9 +1463,7 @@ pub async fn project_health(
             json!({
                 "name": c.name,
                 "canister_id": c.canister_id,
-                "cycles_balance": balance,
                 "health": cycles_health_level(balance),
-                "auto_topup": c.auto_topup.unwrap_or(false),
             })
         })
         .collect();

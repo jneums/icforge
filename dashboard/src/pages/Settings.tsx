@@ -2,7 +2,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { Card } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
+
 import { Skeleton } from "@/components/ui/skeleton";
 
 function SettingsSection({ title, description, children }: {
@@ -58,16 +58,6 @@ export default function Settings() {
             <span className="text-xs text-muted-foreground">Member Since</span>
             <div className="mt-0.5">{new Date(user.created_at + "Z").toLocaleDateString()}</div>
           </div>
-        </div>
-      </SettingsSection>
-
-      <SettingsSection title="Plan">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="font-semibold capitalize">{user.plan} Plan</div>
-            <div className="text-sm text-muted-foreground mt-0.5">Up to 3 projects</div>
-          </div>
-          <Badge variant="outline">{user.plan}</Badge>
         </div>
       </SettingsSection>
     </div>

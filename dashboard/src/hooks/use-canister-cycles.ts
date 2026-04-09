@@ -5,13 +5,15 @@ import {
   manualTopup,
   fetchProjectHealth,
 } from '@/api';
-import type { CyclesSettingsUpdate } from '@/api';
+import type { CyclesSettingsUpdate, CyclesPeriod } from '@/api';
 
-export function useCanisterCycles(canisterId: string | null | undefined, enabled = true) {
+export function useCanisterCycles(canisterId: string | null | undefined, period: CyclesPeriod = '24h', enabled = true) {
   return useQuery({
-    queryKey: ['canister-cycles', canisterId],
-    queryFn: () => fetchCanisterCycles(canisterId!),
+    queryKey: ['canister-cycles', canisterId, period],
+    queryFn: () => fetchCanisterCycles(canisterId!, period),
     enabled: !!canisterId && enabled,
+    // Poll every 60s to match backend poller interval
+    refetchInterval: 60_000,
   });
 }
 

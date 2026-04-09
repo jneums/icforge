@@ -1,4 +1,4 @@
-//! Background poller: checks canister cycles balances every 30 minutes,
+//! Background poller: checks canister cycles balances every 60 seconds,
 //! records snapshots, and auto-tops-up low canisters.
 
 use sqlx::PgPool;
@@ -25,13 +25,13 @@ const AUTO_TOPUP_AMOUNT: u128 = 2_000_000_000_000; // 2T cycles per top-up
 /// Current market: ~1T cycles ≈ $0.50 at cost, with platform margin applied.
 const CYCLES_PER_DOLLAR_CENT: u128 = 20_000_000_000; // 20B cycles = $0.01  (=> 2T cycles ≈ $1.00)
 
-/// Spawn the background poller task. Runs every 30 minutes.
+/// Spawn the background poller task. Runs every 60 seconds.
 pub fn spawn_poller(db: PgPool, config: AppConfig) {
     tokio::spawn(async move {
         // Wait 30s after boot to let everything settle
         tokio::time::sleep(Duration::from_secs(30)).await;
 
-        let mut tick = interval(Duration::from_secs(30 * 60)); // 30 minutes
+        let mut tick = interval(Duration::from_secs(60)); // 60 seconds
 
         loop {
             tick.tick().await;
@@ -39,6 +39,18 @@ pub fn spawn_poller(db: PgPool, config: AppConfig) {
 
             if let Err(e) = run_poll_cycle(&db, &config).await {
                 tracing::error!("Compute poller error: {e}");
+            }
+
+            // Retention: delete snapshots older than 30 days
+            let cutoff = (chrono::Utc::now() - chrono::Duration::days(30))
+                .format("%Y-%m-%dT%H:%M:%SZ")
+                .to_string();
+            if let Err(e) = sqlx::query("DELETE FROM cycles_snapshots WHERE recorded_at < $1")
+                .bind(&cutoff)
+                .execute(&db)
+                .await
+            {
+                tracing::warn!("Snapshot retention cleanup error: {e}");
             }
         }
     });

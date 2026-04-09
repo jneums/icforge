@@ -17,9 +17,18 @@ import { HealthBadge } from "@/components/health-badge";
 import { useCanisterCycles, useCyclesSettings, useManualTopup } from "@/hooks/use-canister-cycles";
 import { formatCycles, cyclesHealthLevel } from "@/lib/utils";
 import type { Canister } from "@/api/types";
+import type { CyclesPeriod } from "@/api/canisters";
 import { Zap, Shield, ArrowUpCircle, Flame, Timer } from "lucide-react";
 
 const TRILLION = 1_000_000_000_000;
+
+const PERIOD_OPTIONS: { value: CyclesPeriod; label: string }[] = [
+  { value: "1h", label: "1H" },
+  { value: "6h", label: "6H" },
+  { value: "24h", label: "24H" },
+  { value: "7d", label: "7D" },
+  { value: "30d", label: "30D" },
+];
 
 function formatChartDate(dateStr: string): string {
   const d = new Date(dateStr);
@@ -36,7 +45,8 @@ interface CanisterHealthPanelProps {
 
 export function CanisterHealthPanel({ canister }: CanisterHealthPanelProps) {
   const canisterId = canister.canister_id;
-  const { data: cycles, isLoading, error } = useCanisterCycles(canisterId);
+  const [period, setPeriod] = useState<CyclesPeriod>("24h");
+  const { data: cycles, isLoading, error } = useCanisterCycles(canisterId, period);
   const settingsMutation = useCyclesSettings(canisterId ?? "");
   const topupMutation = useManualTopup(canisterId ?? "");
   const [topupAmount, setTopupAmount] = useState(2_000_000_000_000); // 2T default
@@ -128,7 +138,26 @@ export function CanisterHealthPanel({ canister }: CanisterHealthPanelProps) {
 
         {/* Cycles Chart */}
         {chartData.length > 1 && (
-          <div className="h-48">
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs text-muted-foreground">Cycles History</span>
+              <div className="flex gap-1">
+                {PERIOD_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => setPeriod(opt.value)}
+                    className={`px-2 py-0.5 text-xs rounded ${
+                      period === opt.value
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted text-muted-foreground hover:bg-muted/80"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="h-48">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" className="stroke-border/30" />
@@ -175,12 +204,13 @@ export function CanisterHealthPanel({ canister }: CanisterHealthPanelProps) {
                 />
               </LineChart>
             </ResponsiveContainer>
+            </div>
           </div>
         )}
 
         {chartData.length <= 1 && (
           <div className="h-24 flex items-center justify-center text-sm text-muted-foreground border border-dashed border-border/50 rounded-md">
-            Not enough data for a chart yet — snapshots are taken every 30 minutes
+            Not enough data for a chart yet — snapshots are taken every 60 seconds
           </div>
         )}
 

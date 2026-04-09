@@ -15,7 +15,7 @@ Support team and organization accounts where multiple GitHub users collaborate o
 
 IC dapps are typically built by teams, not individuals. A team needs:
 - Shared project ownership (any member can deploy)
-- Shared cycles pool (team pays, members deploy)
+- Shared compute balance (team pays, members deploy)
 - Role-based permissions (owner vs. member vs. viewer)
 - GitHub org integration (import team from GitHub org)
 

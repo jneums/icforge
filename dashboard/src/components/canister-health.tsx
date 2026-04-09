@@ -25,8 +25,14 @@ const PERIOD_OPTIONS: { value: ComputePeriod; label: string }[] = [
   { value: "30d", label: "30D" },
 ];
 
-function formatChartDate(dateStr: string): string {
+function formatChartDate(dateStr: string, period: ComputePeriod): string {
   const d = new Date(dateStr);
+  if (period === "1h" || period === "6h" || period === "24h") {
+    return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  }
+  if (period === "7d") {
+    return d.toLocaleDateString("en-US", { weekday: "short", hour: "numeric" });
+  }
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
@@ -86,7 +92,7 @@ export function CanisterHealthPanel({ canister }: CanisterHealthPanelProps) {
 
   // Prepare chart data — Y-axis is USD cents
   const chartData = compute.history.map((h) => ({
-    date: formatChartDate(h.recorded_at),
+    date: formatChartDate(h.recorded_at, period),
     value: h.compute_value_cents,
   }));
 

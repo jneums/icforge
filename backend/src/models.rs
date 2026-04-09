@@ -11,6 +11,7 @@ pub struct User {
     pub ic_identity_pem: Option<String>,
     pub ic_principal: Option<String>,
     pub plan: String,
+    pub stripe_customer_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -171,4 +172,59 @@ pub struct CreateTokenResponse {
     pub id: String,
     pub name: String,
     pub expires_at: Option<String>,
+}
+
+// ============================================================
+// Billing models
+// ============================================================
+
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct ComputeBalance {
+    pub id: String,
+    pub user_id: String,
+    pub balance_cents: i32,
+    pub auto_topup_enabled: bool,
+    pub auto_topup_threshold_cents: Option<i32>,
+    pub auto_topup_amount_cents: Option<i32>,
+    pub credits_expire_at: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct ComputeTransaction {
+    pub id: String,
+    pub user_id: String,
+    #[sqlx(rename = "type")]
+    #[serde(rename = "type")]
+    pub tx_type: String,
+    pub amount_cents: i32,
+    pub category: Option<String>,
+    pub source: Option<String>,
+    pub stripe_payment_id: Option<String>,
+    pub description: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct CyclesSnapshot {
+    pub id: String,
+    pub canister_id: String,
+    pub ic_canister_id: String,
+    pub cycles_balance: i64,
+    pub memory_size: i64,
+    pub status: String,
+    pub recorded_at: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CheckoutRequest {
+    pub amount: i32, // dollar amount, min $5
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AutoTopupRequest {
+    pub enabled: bool,
+    pub threshold_cents: Option<i32>,
+    pub amount_cents: Option<i32>,
 }

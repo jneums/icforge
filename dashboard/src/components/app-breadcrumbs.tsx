@@ -48,6 +48,22 @@ export function AppBreadcrumbs() {
     );
   }
 
+  if (pathname === "/settings/billing") {
+    return (
+      <Breadcrumb>
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbLink asChild><Link to="/settings">Settings</Link></BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbPage>Billing</BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
+    );
+  }
+
   if (pathname === "/projects") {
     return (
       <Breadcrumb>

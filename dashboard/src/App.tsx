@@ -12,6 +12,7 @@ import ProjectDetail from "./pages/ProjectDetail";
 import DeployDetail from "./pages/DeployDetail";
 
 import Settings from "./pages/Settings";
+import Billing from "./pages/Billing";
 import NewProject from "./pages/NewProject";
 import NotFound from "./pages/NotFound";
 
@@ -29,6 +30,7 @@ export default function App() {
               <Route path="/projects/:id" element={<RequireAuth><ProjectDetail /></RequireAuth>} />
               <Route path="/projects/:id/deploys/:deployId" element={<RequireAuth><DeployDetail /></RequireAuth>} />
                 <Route path="/settings" element={<RequireAuth><Settings /></RequireAuth>} />
+                <Route path="/settings/billing" element={<RequireAuth><Billing /></RequireAuth>} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </AppShell>

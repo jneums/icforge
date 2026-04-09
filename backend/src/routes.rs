@@ -1249,9 +1249,33 @@ pub async fn canister_cycles(
                 "memory_size": s.memory_size,
                 "status": s.status,
                 "recorded_at": s.recorded_at,
+                "idle_cycles_burned_per_day": s.idle_cycles_burned_per_day,
+                "reserved_cycles": s.reserved_cycles,
+                "reserved_cycles_limit": s.reserved_cycles_limit,
+                "compute_allocation": s.compute_allocation,
+                "memory_allocation": s.memory_allocation,
+                "freezing_threshold": s.freezing_threshold,
+                "module_hash": s.module_hash,
+                "query_num_calls": s.query_num_calls,
+                "query_num_instructions": s.query_num_instructions,
+                "query_request_payload_bytes": s.query_request_payload_bytes,
+                "query_response_payload_bytes": s.query_response_payload_bytes,
+                "wasm_memory_limit": s.wasm_memory_limit,
+                "wasm_memory_threshold": s.wasm_memory_threshold,
             })
         })
         .collect();
+
+    // Derive burn_rate and time_to_freeze from latest snapshot
+    let latest = snapshots.last();
+    let burn_rate_per_day: Option<i64> = latest.and_then(|s| s.idle_cycles_burned_per_day);
+    let time_to_freeze_days: Option<f64> = burn_rate_per_day.and_then(|rate| {
+        if rate > 0 {
+            Some(current_balance as f64 / rate as f64)
+        } else {
+            None
+        }
+    });
 
     Ok(Json(json!({
         "canister_id": canister_id,
@@ -1260,6 +1284,8 @@ pub async fn canister_cycles(
         "health": health,
         "auto_topup": canister.auto_topup.unwrap_or(false),
         "alert_threshold": canister.cycles_alert_threshold.unwrap_or(500_000_000_000),
+        "burn_rate_per_day": burn_rate_per_day,
+        "time_to_freeze_days": time_to_freeze_days,
         "history": history,
         "topups": topups,
     })))
@@ -1334,6 +1360,7 @@ pub async fn canister_cycles_topup(
     // Debit user balance
     crate::billing::debit_balance(
         &state.db,
+        state.config.stripe_secret_key.as_deref(),
         &auth_user.user.id,
         cost_cents,
         "execution",

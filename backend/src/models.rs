@@ -217,6 +217,20 @@ pub struct CyclesSnapshot {
     pub memory_size: i64,
     pub status: String,
     pub recorded_at: String,
+    // Extended fields (migration 015)
+    pub idle_cycles_burned_per_day: Option<i64>,
+    pub reserved_cycles: Option<i64>,
+    pub reserved_cycles_limit: Option<i64>,
+    pub compute_allocation: Option<i64>,
+    pub memory_allocation: Option<i64>,
+    pub freezing_threshold: Option<i64>,
+    pub module_hash: Option<String>,
+    pub query_num_calls: Option<i64>,
+    pub query_num_instructions: Option<i64>,
+    pub query_request_payload_bytes: Option<i64>,
+    pub query_response_payload_bytes: Option<i64>,
+    pub wasm_memory_limit: Option<i64>,
+    pub wasm_memory_threshold: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]

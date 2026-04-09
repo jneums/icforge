@@ -17,7 +17,7 @@ import { HealthBadge } from "@/components/health-badge";
 import { useCanisterCycles, useCyclesSettings, useManualTopup } from "@/hooks/use-canister-cycles";
 import { formatCycles, cyclesHealthLevel } from "@/lib/utils";
 import type { Canister } from "@/api/types";
-import { Zap, Shield, ArrowUpCircle } from "lucide-react";
+import { Zap, Shield, ArrowUpCircle, Flame, Timer } from "lucide-react";
 
 const TRILLION = 1_000_000_000_000;
 
@@ -89,10 +89,32 @@ export function CanisterHealthPanel({ canister }: CanisterHealthPanelProps) {
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Balance + Quick Stats */}
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-5 gap-4">
           <div>
             <div className="text-xs text-muted-foreground mb-1">Cycles Balance</div>
             <div className="text-xl font-bold">{formatCycles(cycles.current_balance)}</div>
+          </div>
+          <div>
+            <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
+              <Flame className="h-3 w-3" /> Burn Rate
+            </div>
+            <div className="text-sm font-medium">
+              {cycles.burn_rate_per_day != null
+                ? `${formatCycles(cycles.burn_rate_per_day)}/day`
+                : "—"}
+            </div>
+          </div>
+          <div>
+            <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
+              <Timer className="h-3 w-3" /> Time to Freeze
+            </div>
+            <div className="text-sm font-medium">
+              {cycles.time_to_freeze_days != null
+                ? cycles.time_to_freeze_days > 365
+                  ? `${(cycles.time_to_freeze_days / 365).toFixed(1)}y`
+                  : `${Math.round(cycles.time_to_freeze_days)}d`
+                : "—"}
+            </div>
           </div>
           <div>
             <div className="text-xs text-muted-foreground mb-1">Alert Threshold</div>

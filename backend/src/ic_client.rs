@@ -22,12 +22,23 @@ pub struct EnvironmentVariableResult {
 }
 
 #[derive(CandidType, Deserialize, Debug)]
+pub struct QueryStats {
+    pub num_calls_total: Nat,
+    pub num_instructions_total: Nat,
+    pub request_payload_bytes_total: Nat,
+    pub response_payload_bytes_total: Nat,
+}
+
+#[derive(CandidType, Deserialize, Debug)]
 pub struct CanisterStatusResult {
     pub status: CanisterStatus,
+    pub settings: CanisterStatusSettings,
     pub module_hash: Option<Vec<u8>>,
     pub memory_size: Nat,
     pub cycles: Nat,
-    pub settings: CanisterStatusSettings,
+    pub reserved_cycles: Nat,
+    pub idle_cycles_burned_per_day: Nat,
+    pub query_stats: QueryStats,
 }
 
 #[derive(CandidType, Deserialize, Debug)]
@@ -36,7 +47,21 @@ pub struct CanisterStatusSettings {
     pub compute_allocation: Nat,
     pub memory_allocation: Nat,
     pub freezing_threshold: Nat,
+    pub reserved_cycles_limit: Nat,
+    pub wasm_memory_limit: Nat,
+    pub wasm_memory_threshold: Nat,
+    pub log_visibility: CandidLogVisibility,
     pub environment_variables: Option<Vec<EnvironmentVariableResult>>,
+}
+
+#[derive(CandidType, Deserialize, Debug)]
+pub enum CandidLogVisibility {
+    #[serde(rename = "controllers")]
+    Controllers,
+    #[serde(rename = "public")]
+    Public,
+    #[serde(rename = "allowed_viewers")]
+    AllowedViewers(Vec<Principal>),
 }
 
 #[derive(CandidType, Deserialize, Debug)]

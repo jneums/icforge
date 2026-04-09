@@ -328,8 +328,6 @@ export default function ProjectDetail() {
     const latestStatus =
     latestDeploy?.status ?? project.canisters?.[0]?.status ?? "queued";
   const canisters = project.canisters ?? [];
-  const vanityUrl = `https://${project.slug}.icforge.dev`;
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -338,25 +336,9 @@ export default function ProjectDetail() {
           <h1 className="text-2xl font-semibold tracking-tight">
             {project.name}
           </h1>
-          <div className="flex items-center gap-2 mt-1">
-            <a
-              href={vanityUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-sm font-mono text-muted-foreground hover:text-primary inline-flex items-center gap-1 transition-colors"
-            >
-              {project.slug}.icforge.dev
-              <ExternalLink className="h-3 w-3" />
-            </a>
-          </div>
         </div>
         <div className="flex items-center gap-3">
           <StatusBadge status={latestStatus} />
-          <Button asChild size="sm">
-            <a href={vanityUrl} target="_blank" rel="noopener noreferrer">
-              Visit <ExternalLink className="h-3.5 w-3.5 ml-1" />
-            </a>
-          </Button>
         </div>
       </div>
 

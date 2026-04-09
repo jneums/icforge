@@ -46,6 +46,8 @@ pub struct CanisterRecord {
     #[sqlx(rename = "type")]
     #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
     pub canister_type: Option<String>,
+    pub auto_topup: Option<bool>,
+    pub cycles_alert_threshold: Option<i64>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -217,6 +219,18 @@ pub struct CyclesSnapshot {
     pub recorded_at: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct CanisterTopup {
+    pub id: String,
+    pub canister_id: String,
+    pub ic_canister_id: String,
+    pub user_id: String,
+    pub cycles_amount: i64,
+    pub cost_cents: i32,
+    pub source: String,
+    pub created_at: String,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct CheckoutRequest {
     pub amount: i32, // dollar amount, min $5
@@ -227,4 +241,16 @@ pub struct AutoTopupRequest {
     pub enabled: bool,
     pub threshold_cents: Option<i32>,
     pub amount_cents: Option<i32>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CyclesSettingsRequest {
+    pub auto_topup: Option<bool>,
+    pub alert_threshold: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ManualTopupRequest {
+    /// Cycles amount to deposit (e.g. 2_000_000_000_000 = 2T)
+    pub amount: i64,
 }

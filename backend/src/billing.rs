@@ -102,6 +102,192 @@ pub async fn credit_balance(
     Ok(())
 }
 
+/// Debit compute credits from a user's balance. Returns Err if insufficient funds.
+/// Automatically triggers auto-topup if balance drops below threshold.
+pub async fn debit_balance(
+    db: &crate::db::DbPool,
+    stripe_key: Option<&str>,
+    user_id: &str,
+    amount_cents: i32,
+    category: &str,
+    description: &str,
+) -> Result<(), AppError> {
+    let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    let tx_id = uuid::Uuid::new_v4().to_string();
+
+    let bal = get_or_create_balance(db, user_id).await?;
+
+    if bal.balance_cents < amount_cents {
+        return Err(AppError::BadRequest("Insufficient compute balance".into()));
+    }
+
+    // Debit the balance
+    sqlx::query(
+        "UPDATE compute_balances SET balance_cents = balance_cents - $1, updated_at = $2 WHERE user_id = $3",
+    )
+    .bind(amount_cents)
+    .bind(&now)
+    .bind(user_id)
+    .execute(db)
+    .await
+    .map_err(AppError::Database)?;
+
+    // Record the transaction
+    sqlx::query(
+        r#"INSERT INTO compute_transactions (id, user_id, type, amount_cents, category, source, description, created_at)
+           VALUES ($1, $2, 'debit', $3, $4, $5, $6, $7)"#,
+    )
+    .bind(&tx_id)
+    .bind(user_id)
+    .bind(amount_cents)
+    .bind(category)
+    .bind(category) // source = category for debits
+    .bind(description)
+    .bind(&now)
+    .execute(db)
+    .await
+    .map_err(AppError::Database)?;
+
+    // Check if auto-topup should fire
+    let new_balance = bal.balance_cents - amount_cents;
+    if bal.auto_topup_enabled {
+        let threshold = bal.auto_topup_threshold_cents.unwrap_or(200);
+        if new_balance < threshold {
+            if let Some(key) = stripe_key {
+                maybe_auto_topup(db, key, user_id, &bal).await;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Trigger an auto-topup charge via Stripe. Logs errors but does not fail the parent operation.
+async fn maybe_auto_topup(
+    db: &crate::db::DbPool,
+    stripe_key: &str,
+    user_id: &str,
+    bal: &ComputeBalance,
+) {
+    let amount_cents = bal.auto_topup_amount_cents.unwrap_or(1000);
+
+    // Look up stripe customer id
+    let customer_id: Option<(Option<String>,)> = sqlx::query_as(
+        "SELECT stripe_customer_id FROM users WHERE id = $1",
+    )
+    .bind(user_id)
+    .fetch_optional(db)
+    .await
+    .ok()
+    .flatten();
+
+    let customer_id = match customer_id.and_then(|r| r.0) {
+        Some(cid) => cid,
+        None => {
+            tracing::warn!(user_id, "Auto-topup skipped — no Stripe customer");
+            return;
+        }
+    };
+
+    // Get customer's default payment method
+    let client = reqwest::Client::new();
+    let customer_resp = client
+        .get(&format!("https://api.stripe.com/v1/customers/{customer_id}"))
+        .basic_auth(stripe_key, None::<&str>)
+        .send()
+        .await;
+
+    let payment_method = match customer_resp {
+        Ok(resp) => {
+            let body: Value = match resp.json().await {
+                Ok(v) => v,
+                Err(e) => {
+                    tracing::error!(user_id, error = %e, "Auto-topup: failed to parse customer");
+                    return;
+                }
+            };
+            // Try invoice_settings.default_payment_method first, then default_source
+            body["invoice_settings"]["default_payment_method"]
+                .as_str()
+                .or_else(|| body["default_source"].as_str())
+                .map(|s| s.to_string())
+        }
+        Err(e) => {
+            tracing::error!(user_id, error = %e, "Auto-topup: failed to fetch customer");
+            return;
+        }
+    };
+
+    let payment_method = match payment_method {
+        Some(pm) => pm,
+        None => {
+            // Try listing payment methods as fallback
+            let pm_resp = client
+                .get("https://api.stripe.com/v1/payment_methods")
+                .basic_auth(stripe_key, None::<&str>)
+                .query(&[("customer", &customer_id), ("type", &"card".to_string()), ("limit", &"1".to_string())])
+                .send()
+                .await;
+
+            match pm_resp {
+                Ok(resp) => {
+                    let body: Value = match resp.json().await {
+                        Ok(v) => v,
+                        Err(_) => { return; }
+                    };
+                    match body["data"][0]["id"].as_str() {
+                        Some(pm_id) => pm_id.to_string(),
+                        None => {
+                            tracing::warn!(user_id, "Auto-topup skipped — no payment method on file");
+                            return;
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::error!(user_id, error = %e, "Auto-topup: failed to list payment methods");
+                    return;
+                }
+            }
+        }
+    };
+
+    // Create and confirm a PaymentIntent off-session
+    let params = vec![
+        ("amount", amount_cents.to_string()),
+        ("currency", "usd".to_string()),
+        ("customer", customer_id),
+        ("payment_method", payment_method),
+        ("off_session", "true".to_string()),
+        ("confirm", "true".to_string()),
+        ("metadata[user_id]", user_id.to_string()),
+        ("metadata[source]", "auto_topup".to_string()),
+        ("description", format!("ICForge auto top-up ${:.2}", amount_cents as f64 / 100.0)),
+    ];
+
+    match client
+        .post("https://api.stripe.com/v1/payment_intents")
+        .basic_auth(stripe_key, None::<&str>)
+        .form(&params)
+        .send()
+        .await
+    {
+        Ok(resp) => {
+            let body: Value = resp.json().await.unwrap_or_default();
+            let status = body["status"].as_str().unwrap_or("unknown");
+            if status == "succeeded" {
+                tracing::info!(user_id, amount_cents, "Auto-topup PaymentIntent succeeded (credit via webhook)");
+            } else if status == "requires_action" {
+                tracing::warn!(user_id, "Auto-topup requires customer action (3D Secure) — Stripe will notify them");
+            } else {
+                tracing::error!(user_id, status, "Auto-topup PaymentIntent unexpected status: {}", body);
+            }
+        }
+        Err(e) => {
+            tracing::error!(user_id, error = %e, "Auto-topup: failed to create PaymentIntent");
+        }
+    }
+}
+
 /// Get or create a Stripe customer for a user. Returns the customer ID.
 async fn ensure_stripe_customer(
     db: &crate::db::DbPool,
@@ -197,6 +383,7 @@ pub async fn billing_checkout(
         ("metadata[user_id]", auth_user.user.id.clone()),
         ("metadata[amount_cents]", amount_cents.to_string()),
         ("payment_intent_data[metadata][user_id]", auth_user.user.id.clone()),
+        ("payment_intent_data[setup_future_usage]", "off_session".to_string()),
     ];
 
     let client = reqwest::Client::new();

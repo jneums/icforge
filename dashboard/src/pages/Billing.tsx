@@ -89,10 +89,8 @@ function UsageCard() {
 
   const { usage_this_month: u } = balance;
   const rows = [
-    { label: "Execution", cents: u.execution_cents },
-    { label: "Builds", cents: u.builds_cents },
-    { label: "Storage", cents: u.storage_cents },
-    { label: "Bandwidth", cents: u.bandwidth_cents },
+    { label: "Cycles", cents: u.cycles_cents },
+    { label: "Provisioning", cents: u.provision_cents },
   ];
 
   return (
@@ -129,15 +127,17 @@ function AutoTopupCard() {
   const threshold = balance.auto_topup_threshold_cents ?? 200;
   const topupAmount = balance.auto_topup_amount_cents ?? 1000;
 
+  const amountOptions = [1000, 2500, 5000, 10000]; // $10, $25, $50, $100
+
   return (
     <Card>
       <CardHeader>
         <CardTitle>Auto Top-Up</CardTitle>
         <CardDescription>
-          Automatically add credits when your balance drops below a threshold
+          Automatically add credits when your balance drops below {formatCents(threshold)}
         </CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
         <div className="flex items-center justify-between">
           <div className="text-sm">
             {enabled ? (
@@ -164,6 +164,31 @@ function AutoTopupCard() {
             {enabled ? "Disable" : "Enable"}
           </Button>
         </div>
+
+        {enabled && (
+          <div className="space-y-2">
+            <span className="text-sm text-muted-foreground">Top-up amount</span>
+            <div className="flex gap-2">
+              {amountOptions.map((cents) => (
+                <Button
+                  key={cents}
+                  variant={topupAmount === cents ? "default" : "outline"}
+                  size="sm"
+                  onClick={() =>
+                    autoTopup.mutate({
+                      enabled: true,
+                      threshold_cents: threshold,
+                      amount_cents: cents,
+                    })
+                  }
+                  disabled={autoTopup.isPending}
+                >
+                  {formatCents(cents)}
+                </Button>
+              ))}
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

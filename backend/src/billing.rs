@@ -478,16 +478,18 @@ pub async fn billing_balance(
 
     let mut cycles_cents: i64 = 0;
     let mut provision_cents: i64 = 0;
+    let mut builds_cents: i64 = 0;
 
     for (cat, total) in &usage_rows {
         match cat.as_deref() {
             Some("execution") => cycles_cents += *total,
             Some("provision") => provision_cents += *total,
+            Some("builds") => builds_cents += *total,
             _ => {}
         }
     }
 
-    let total_cents = cycles_cents + provision_cents;
+    let total_cents = cycles_cents + provision_cents + builds_cents;
 
     Ok(Json(json!({
         "compute_balance_cents": bal.balance_cents,
@@ -499,6 +501,7 @@ pub async fn billing_balance(
             "total_cents": total_cents,
             "cycles_cents": cycles_cents,
             "provision_cents": provision_cents,
+            "builds_cents": builds_cents,
         }
     })))
 }

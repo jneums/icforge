@@ -25,6 +25,8 @@ pub struct AppConfig {
     pub signup_bonus_cents: i32,
     pub min_purchase_cents: i32,
     pub compute_margin: f64,
+    /// Cost per build-minute in cents (default: 1 = $0.01/min)
+    pub build_cost_cents_per_min: i32,
     pub dev_mode: bool,
     pub port: u16,
 }
@@ -67,6 +69,10 @@ impl AppConfig {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(1.3),
+            build_cost_cents_per_min: env::var("BUILD_COST_CENTS_PER_MIN")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(1),
             dev_mode: env::var("DEV_MODE")
                 .map(|v| v == "1" || v.to_lowercase() == "true")
                 .unwrap_or(false),

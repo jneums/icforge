@@ -296,6 +296,7 @@ async fn execute_deploy(
     tx: &broadcast::Sender<LogEvent>,
     rate_cache: &ExchangeRateCache,
 ) -> Result<(), String> {
+    let build_start = Instant::now();
     let work_dir = format!("/tmp/icforge-deploys/{}", job.id);
 
     // Phase: clone
@@ -669,6 +670,60 @@ async fn execute_deploy(
             tx,
         )
         .await;
+    }
+
+    // --- Debit build time ---
+    let build_duration_secs = build_start.elapsed().as_secs_f64();
+    let build_minutes = build_duration_secs / 60.0;
+    // Round up to nearest 0.1 minute so even short builds have a minimum charge
+    let billable_minutes = (build_minutes * 10.0).ceil() / 10.0;
+    let build_cost_cents = (billable_minutes * config.build_cost_cents_per_min as f64).ceil() as i32;
+
+    if build_cost_cents > 0 {
+        let stripe_key = config.stripe_secret_key.as_deref();
+        match billing::debit_balance(
+            pool,
+            stripe_key,
+            &project_user_id,
+            build_cost_cents,
+            "builds",
+            &format!(
+                "Build '{}' ({:.1}s, {:.1} min @ {}¢/min)",
+                job.canister_name,
+                build_duration_secs,
+                billable_minutes,
+                config.build_cost_cents_per_min,
+            ),
+        )
+        .await
+        {
+            Ok(()) => {
+                log_deploy(
+                    pool,
+                    &job.id,
+                    "info",
+                    "billing",
+                    &format!(
+                        "Build cost: {}¢ ({:.1}s, {:.1} min @ {}¢/min)",
+                        build_cost_cents,
+                        build_duration_secs,
+                        billable_minutes,
+                        config.build_cost_cents_per_min,
+                    ),
+                    tx,
+                )
+                .await;
+            }
+            Err(e) => {
+                // Build already succeeded — log but don't fail the deploy
+                tracing::warn!(
+                    user_id = %project_user_id,
+                    build_cost_cents = build_cost_cents,
+                    error = %e,
+                    "Failed to debit build cost (deploy succeeded anyway)"
+                );
+            }
+        }
     }
 
     // Cleanup

@@ -13,28 +13,31 @@ import {
 // Parse route segments from pathname instead.
 function parseRoute(pathname: string) {
   const segments = pathname.split("/").filter(Boolean);
-  // /projects/:id/deploys/:deployId
-  if (segments[0] === "projects" && segments[2] === "deploys" && segments[3]) {
-    return { id: segments[1], deployId: segments[3], buildId: undefined };
+  // /projects/:id/canisters/:canisterId
+  if (segments[0] === "projects" && segments[2] === "canisters" && segments[3]) {
+    return { id: segments[1], canisterId: segments[3], deployId: undefined };
   }
   // /projects/:id/deploys/:deployId
   if (segments[0] === "projects" && segments[2] === "deploys" && segments[3]) {
-    return { id: segments[1], deployId: undefined, buildId: segments[3] };
+    return { id: segments[1], canisterId: undefined, deployId: segments[3] };
   }
   // /projects/:id
   if (segments[0] === "projects" && segments[1]) {
-    return { id: segments[1], deployId: undefined, buildId: undefined };
+    return { id: segments[1], canisterId: undefined, deployId: undefined };
   }
-  return { id: undefined, deployId: undefined, buildId: undefined };
+  return { id: undefined, canisterId: undefined, deployId: undefined };
 }
 
 export function AppBreadcrumbs() {
   const { pathname } = useLocation();
-  const { id, deployId, buildId } = parseRoute(pathname);
+  const { id, canisterId, deployId } = parseRoute(pathname);
 
   // Only fetch project if we're on a project-related route
   const { data } = useProject(id ?? "");
   const projectName = data?.project?.name;
+  const canisterName = canisterId
+    ? data?.project?.canisters?.find((c) => c.id === canisterId)?.name
+    : undefined;
 
   if (pathname === "/billing") {
     return (
@@ -60,6 +63,31 @@ export function AppBreadcrumbs() {
     );
   }
 
+  // /projects/:id/canisters/:canisterId
+  if (id && canisterId) {
+    return (
+      <Breadcrumb>
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbLink asChild>
+              <Link to="/projects">Projects</Link>
+            </BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbLink asChild>
+              <Link to={`/projects/${id}`}>{projectName ?? "Project"}</Link>
+            </BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbPage>{canisterName ?? "Canister"}</BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
+    );
+  }
+
   // /projects/:id/deploys/:deployId
   if (id && deployId) {
     return (
@@ -79,31 +107,6 @@ export function AppBreadcrumbs() {
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbPage>Deploy #{deployId.slice(0, 8)}</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-    );
-  }
-
-  // /projects/:id/deploys/:deployId
-  if (id && buildId) {
-    return (
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link to="/projects">Projects</Link>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link to={`/projects/${id}`}>{projectName ?? "Project"}</Link>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>Deploy #{buildId.slice(0, 8)}</BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>

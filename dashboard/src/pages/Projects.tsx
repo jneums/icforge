@@ -1,10 +1,8 @@
 import { Link } from "react-router-dom";
 import { useProjects } from "@/hooks/use-projects";
-import { useBillingBalance } from "@/hooks/use-billing";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { StatusBadge } from "@/components/status-badge";
 import { HealthBadge } from "@/components/health-badge";
 import {
@@ -14,7 +12,6 @@ import {
   Clock,
   Plus,
   Box,
-  CreditCard,
   ExternalLink,
 } from "lucide-react";
 import { displayRecipe, healthFromCycles } from "@/lib/utils";
@@ -48,11 +45,6 @@ function getProjectHealth(project: Project): "healthy" | "warning" | "critical" 
   return levels[0];
 }
 
-/** Format cents as USD — e.g. 350 → "$3.50" */
-function formatUsd(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
-}
-
 function ProjectCard({ project }: { project: Project }) {
   const status = getProjectStatus(project);
   const health = getProjectHealth(project);
@@ -64,8 +56,11 @@ function ProjectCard({ project }: { project: Project }) {
   const assetCanister = canisters.find(
     (c) => c.canister_id && c.recipe?.includes("asset")
   );
-  const liveUrl = assetCanister
-    ? `https://${slug}-${assetCanister.name}.icforge.dev`
+  const canisterSlug = assetCanister
+    ? `${slug}-${assetCanister.name}`
+    : null;
+  const liveUrl = canisterSlug
+    ? `https://${canisterSlug}.icforge.dev`
     : null;
 
   return (
@@ -127,7 +122,7 @@ function ProjectCard({ project }: { project: Project }) {
                 }}
               >
                 <ExternalLink className="h-3 w-3" />
-                <span className="font-mono">{slug}.icforge.dev</span>
+                <span className="font-mono">{canisterSlug}.icforge.dev</span>
               </span>
             )}
             {latestDeploy && (
@@ -210,28 +205,13 @@ function ProjectListError({ error, onRetry }: { error: string; onRetry: () => vo
   );
 }
 
-/** Low-balance threshold: show banner when under $1.00 */
-const LOW_BALANCE_CENTS = 100;
-
 export default function Projects() {
   const { data: projects, isLoading, error, refetch } = useProjects();
-  const { data: billing } = useBillingBalance();
-
-  const showLowBalance =
-    billing != null && billing.compute_balance_cents < LOW_BALANCE_CENTS;
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <h1 className="text-2xl font-semibold tracking-tight">Projects</h1>
-          {billing != null && (
-            <Link to="/billing" className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
-              <CreditCard className="h-3.5 w-3.5" />
-              {formatUsd(billing.compute_balance_cents)}
-            </Link>
-          )}
-        </div>
+        <h1 className="text-2xl font-semibold tracking-tight">Projects</h1>
         <div className="flex items-center gap-3">
           {!!projects?.length && (
             <span className="text-sm text-muted-foreground">
@@ -246,19 +226,6 @@ export default function Projects() {
           </Button>
         </div>
       </div>
-
-      {showLowBalance && (
-        <Alert className="border-yellow-500/50 bg-yellow-500/10">
-          <AlertCircle className="h-4 w-4 text-yellow-500" />
-          <AlertDescription>
-            Your compute balance is low ({formatUsd(billing!.compute_balance_cents)}).
-            Canisters may not be auto-topped up.{" "}
-            <Link to="/billing" className="underline font-medium text-yellow-500 hover:text-yellow-400">
-              Add credits
-            </Link>
-          </AlertDescription>
-        </Alert>
-      )}
 
       {isLoading ? (
         <ProjectListSkeleton />

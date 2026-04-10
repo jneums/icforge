@@ -10,6 +10,7 @@ import Login from "./pages/Login";
 import Projects from "./pages/Projects";
 import ProjectDetail from "./pages/ProjectDetail";
 import DeployDetail from "./pages/DeployDetail";
+import CanisterDetail from "./pages/CanisterDetail";
 
 import Billing from "./pages/Billing";
 import NewProject from "./pages/NewProject";
@@ -27,6 +28,7 @@ export default function App() {
               <Route path="/projects" element={<RequireAuth><Projects /></RequireAuth>} />
               <Route path="/projects/new" element={<RequireAuth><NewProject /></RequireAuth>} />
               <Route path="/projects/:id" element={<RequireAuth><ProjectDetail /></RequireAuth>} />
+              <Route path="/projects/:id/canisters/:canisterId" element={<RequireAuth><CanisterDetail /></RequireAuth>} />
               <Route path="/projects/:id/deploys/:deployId" element={<RequireAuth><DeployDetail /></RequireAuth>} />
               <Route path="/billing" element={<RequireAuth><Billing /></RequireAuth>} />
               <Route path="*" element={<NotFound />} />

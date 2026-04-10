@@ -302,7 +302,6 @@ pub async fn create_project(
             cycles_balance: None,
             candid_interface: None,
             canister_type: Some(recipe.to_string()),
-            auto_topup: Some(false),
             cycles_alert_threshold: None,
             created_at: now.clone(),
             updated_at: now.clone(),
@@ -1338,16 +1337,6 @@ pub async fn canister_cycles_settings(
 
     let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
-    if let Some(auto_topup) = req.auto_topup {
-        sqlx::query("UPDATE canisters SET auto_topup = $1, updated_at = $2 WHERE id = $3")
-            .bind(auto_topup)
-            .bind(&now)
-            .bind(&canister.id)
-            .execute(&state.db)
-            .await
-            .map_err(AppError::Database)?;
-    }
-
     if let Some(threshold) = req.alert_threshold {
         sqlx::query("UPDATE canisters SET cycles_alert_threshold = $1, updated_at = $2 WHERE id = $3")
             .bind(threshold)
@@ -1476,10 +1465,39 @@ pub async fn project_health(
         .map(cycles_health_level)
         .unwrap_or_else(|| "unknown".to_string());
 
+    // Check if any canisters need topping up and whether the user can afford it
+    let warning_threshold = crate::compute_poller::THRESHOLD_WARNING as i64;
+    let healthy_target = crate::compute_poller::THRESHOLD_HEALTHY as i64;
+
+    let total_topup_cycles_needed: u128 = canisters
+        .iter()
+        .filter_map(|c| {
+            let bal = c.cycles_balance.unwrap_or(0);
+            if bal < warning_threshold {
+                Some((healthy_target - bal) as u128)
+            } else {
+                None
+            }
+        })
+        .sum();
+
+    let topup_blocked = if total_topup_cycles_needed > 0 {
+        let cost_cents = state.exchange_rate
+            .cycles_to_credit_cents(total_topup_cycles_needed, state.config.compute_margin)
+            .await;
+        let balance = crate::billing::get_or_create_balance(&state.db, &auth_user.user.id)
+            .await
+            .map_err(|e| AppError::Internal(format!("balance check failed: {e}")))?;
+        balance.balance_cents < cost_cents
+    } else {
+        false
+    };
+
     Ok(Json(json!({
         "project_id": project_id,
         "overall_health": overall,
         "canisters": canister_health,
+        "topup_blocked": topup_blocked,
     })))
 }
 

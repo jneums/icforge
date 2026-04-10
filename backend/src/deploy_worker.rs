@@ -17,7 +17,7 @@ use crate::LogEvent;
 ///
 /// Total cycles sent to the cycles ledger per canister provision: flat 4T.
 /// The ledger deducts the 0.5T creation fee, leaving the canister with 3.5T.
-/// Auto-topup kicks in at 3T, adding 1T to bring it back to ~4T.
+/// Auto-topup kicks in below 3T, topping up the difference to 4T.
 const PROVISION_CYCLES: u128 = 4_000_000_000_000; // 4T cycles
 
 /// Shared map of per-deployment broadcast channels for SSE log streaming.

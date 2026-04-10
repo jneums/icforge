@@ -10,9 +10,11 @@ import {
   XCircle,
   Ban,
   Loader2,
+  AlertCircle,
 } from "lucide-react";
 import { useProject } from "@/hooks/use-project";
 import { useCanisterEnv } from "@/hooks/use-canister-env";
+import { useProjectHealth } from "@/hooks/use-canister-cycles";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -29,6 +31,7 @@ import { StatusDot } from "@/components/status-dot";
 import { CopyButton } from "@/components/copy-button";
 import { HealthBadge } from "@/components/health-badge";
 import { CanisterHealthPanel } from "@/components/canister-health";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { displayRecipe, healthFromCycles } from "@/lib/utils";
 import type { Canister, Deployment } from "@/api/types";
 
@@ -315,6 +318,7 @@ function ProjectDetailSkeleton() {
 export default function ProjectDetail() {
   const { id } = useParams();
   const { data, isLoading, error } = useProject(id ?? "");
+  const { data: healthData } = useProjectHealth(id);
 
   if (isLoading) return <ProjectDetailSkeleton />;
 
@@ -349,6 +353,19 @@ export default function ProjectDetail() {
           <StatusBadge status={latestStatus} />
         </div>
       </div>
+
+      {/* Low Balance Banner */}
+      {healthData?.topup_blocked && (
+        <Alert className="border-yellow-500/50 bg-yellow-500/10">
+          <AlertCircle className="h-4 w-4 text-yellow-500" />
+          <AlertDescription>
+            Insufficient compute balance — some canisters can&apos;t be auto-topped up.{" "}
+            <Link to="/settings" className="underline font-medium text-yellow-500 hover:text-yellow-400">
+              Add credits
+            </Link>
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Latest Push Card */}
       {latestDeploy && (

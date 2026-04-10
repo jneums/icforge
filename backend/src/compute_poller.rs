@@ -18,9 +18,8 @@ fn nat_to_i64(n: &Nat) -> i64 {
 }
 
 /// Cycles thresholds (in cycles, not USD).
-const THRESHOLD_HEALTHY: u128 = 4_000_000_000_000; // 4T — target level
-const THRESHOLD_WARNING: u128 = 3_000_000_000_000; // 3T — low watermark
-const AUTO_TOPUP_AMOUNT: u128 = 1_000_000_000_000; // 1T cycles per top-up (3T → 4T)
+pub const THRESHOLD_HEALTHY: u128 = 4_000_000_000_000; // 4T — target level
+pub const THRESHOLD_WARNING: u128 = 3_000_000_000_000; // 3T — low watermark
 
 /// Spawn the background poller task. Runs every 60 seconds.
 pub fn spawn_poller(db: PgPool, config: AppConfig, rate_cache: ExchangeRateCache) {
@@ -197,14 +196,13 @@ async fn poll_single_canister(
             "Canister cycles low"
         );
 
-        // Auto top-up if enabled on this canister
-        if canister.auto_topup.unwrap_or(false) {
-            if let Err(e) = auto_topup_canister(db, config, ic, canister, ic_id, rate_cache).await {
-                tracing::error!(
-                    canister_id = ic_id,
-                    "Auto top-up failed: {e}"
-                );
-            }
+        // Top up the difference to bring canister back to THRESHOLD_HEALTHY
+        let topup_amount = THRESHOLD_HEALTHY - bal;
+        if let Err(e) = auto_topup_canister(db, config, ic, canister, ic_id, rate_cache, topup_amount).await {
+            tracing::error!(
+                canister_id = ic_id,
+                "Auto top-up failed: {e}"
+            );
         }
     } else if bal < THRESHOLD_HEALTHY {
         tracing::info!(
@@ -224,6 +222,7 @@ async fn auto_topup_canister(
     canister: &CanisterRecord,
     ic_id: &str,
     rate_cache: &ExchangeRateCache,
+    topup_amount: u128,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Find the project owner
     let user_id: String = sqlx::query_scalar(
@@ -235,7 +234,7 @@ async fn auto_topup_canister(
 
     // Calculate cost in cents (with margin) using live XDR→USD rate
     let cost_cents = rate_cache
-        .cycles_to_credit_cents(AUTO_TOPUP_AMOUNT, config.compute_margin)
+        .cycles_to_credit_cents(topup_amount, config.compute_margin)
         .await;
 
     // Check user has enough balance
@@ -260,16 +259,16 @@ async fn auto_topup_canister(
         cost_cents,
         "execution",
         &format!(
-            "Auto top-up {} ({}) — {:.0}T cycles",
+            "Auto top-up {} ({}) — {:.1}T cycles",
             canister.name, ic_id,
-            AUTO_TOPUP_AMOUNT as f64 / 1_000_000_000_000.0
+            topup_amount as f64 / 1_000_000_000_000.0
         ),
     )
     .await
     .map_err(|e| format!("debit_balance failed: {e}"))?;
 
     // Deposit cycles to the canister
-    ic.deposit_cycles(ic_id, AUTO_TOPUP_AMOUNT)
+    ic.deposit_cycles(ic_id, topup_amount)
         .await
         .map_err(|e| format!("deposit_cycles failed: {e}"))?;
 
@@ -287,7 +286,7 @@ async fn auto_topup_canister(
     .bind(&canister.id)
     .bind(ic_id)
     .bind(&user_id)
-    .bind(AUTO_TOPUP_AMOUNT as i64)
+    .bind(topup_amount as i64)
     .bind(cost_cents)
     .bind(&now)
     .execute(db)
@@ -297,6 +296,7 @@ async fn auto_topup_canister(
         canister_id = ic_id,
         user_id,
         cost_cents,
+        topup_cycles = %topup_amount,
         "Auto top-up completed"
     );
 

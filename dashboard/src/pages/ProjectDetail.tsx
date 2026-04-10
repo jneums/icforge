@@ -69,7 +69,7 @@ function CanisterCard({
   const cancelled = latestDeploy?.status === "cancelled";
 
   return (
-    <Link to={`/projects/${projectId}/canisters/${canister.id}`}>
+    <Link to={`/projects/${projectId}/canisters/${canister.id}`} className="block">
       <Card className="p-4 border-border/50 hover:border-border transition-colors">
         <div className="flex items-center gap-3">
           {succeeded ? (

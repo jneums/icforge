@@ -1,11 +1,18 @@
 import { type ReactNode } from "react"
-import { useLocation } from "react-router-dom"
+import { useLocation, Link } from "react-router-dom"
 import { useAuth } from "@/hooks/use-auth"
+import { useBillingBalance } from "@/hooks/use-billing"
 import { Separator } from "@/components/ui/separator"
 import { Spinner } from "@/components/ui/spinner"
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
 import { AppSidebar } from "./app-sidebar"
 import { AppBreadcrumbs } from "./app-breadcrumbs"
+import { CreditCard } from "lucide-react"
+
+/** Format cents as USD — e.g. 350 → "$3.50" */
+function formatUsd(cents: number): string {
+  return `$${(cents / 100).toFixed(2)}`;
+}
 
 export function AppShell({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
@@ -27,6 +34,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
 
   // Authenticated routes: sidebar + breadcrumbs
+  const { data: billing } = useBillingBalance();
+
   return (
     <SidebarProvider>
       <AppSidebar />
@@ -35,6 +44,17 @@ export function AppShell({ children }: { children: ReactNode }) {
           <SidebarTrigger className="-ml-1" />
           <Separator orientation="vertical" className="mr-2 h-4" />
           <AppBreadcrumbs />
+          <div className="ml-auto flex items-center gap-3">
+            {billing != null && (
+              <Link
+                to="/billing"
+                className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <CreditCard className="h-3.5 w-3.5" />
+                {formatUsd(billing.compute_balance_cents)}
+              </Link>
+            )}
+          </div>
         </header>
         <main className="flex-1 p-6">
           <div className="mx-auto max-w-[var(--content-max-width)]">

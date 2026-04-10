@@ -30,15 +30,4 @@ export function healthFromCycles(balance: number | null | undefined): HealthLeve
   return "healthy";
 }
 
-/**
- * Convert raw cycles to a USD string for display purposes.
- * 1 trillion cycles = 1 XDR ≈ $1.37 USD (fetched live on backend).
- * This uses a default XDR/USD rate for quick display — the backend
- * provides exact compute_value_cents for billing-critical views.
- */
-const DEFAULT_XDR_USD = 1.37; // fallback; backend refreshes every 6h
 
-export function cyclesToUsd(cycles: number, xdrUsd: number = DEFAULT_XDR_USD): string {
-  const usd = (cycles / 1_000_000_000_000) * xdrUsd;
-  return `$${usd.toFixed(2)}`;
-}

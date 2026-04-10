@@ -104,7 +104,13 @@ function CanisterCard({
         </div>
 
         {latestDeploy && (
-          <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+          <div
+            className="mt-2 flex items-center gap-2 text-xs text-muted-foreground hover:text-primary transition-colors"
+            onClick={(e) => {
+              e.stopPropagation();
+              navigate(`/projects/${projectId}/deploys/${latestDeploy.id}`);
+            }}
+          >
             {latestDeploy.commit_sha && (
               <>
                 <GitCommit className="h-3 w-3" />

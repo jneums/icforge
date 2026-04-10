@@ -15,8 +15,7 @@ import {
   Clock,
   Plus,
   Box,
-  ExternalLink,
-  Wallet,
+  CreditCard,
 } from "lucide-react";
 import { displayRecipe, healthFromCycles } from "@/lib/utils";
 import type { Project } from "@/api/types";
@@ -78,15 +77,6 @@ function ProjectCard({ project }: { project: Project }) {
   const health = getProjectHealth(project);
   const latestDeploy = project.latest_deployment;
   const canisters = project.canisters ?? [];
-  const slug = project.slug ?? project.name;
-
-  // Build subdomain URL for first asset canister if deployed
-  const assetCanister = canisters.find(
-    (c) => c.canister_id && c.recipe?.includes("asset")
-  );
-  const liveUrl = assetCanister
-    ? `https://${slug}-${assetCanister.name}.icforge.dev`
-    : null;
 
   return (
     <Link to={`/projects/${project.id}`} className="block group">
@@ -141,18 +131,6 @@ function ProjectCard({ project }: { project: Project }) {
             <span className="italic text-muted-foreground/50">No deployments yet</span>
           )}
           <div className="flex items-center gap-3 shrink-0 ml-4">
-            {liveUrl && (
-              <span
-                className="flex items-center gap-1 text-primary/70 group-hover:text-primary transition-colors"
-                onClick={(e) => {
-                  e.preventDefault();
-                  window.open(liveUrl, "_blank");
-                }}
-              >
-                <ExternalLink className="h-3 w-3" />
-                <span className="font-mono">{slug}.icforge.dev</span>
-              </span>
-            )}
             {latestDeploy && (
               <span className="flex items-center gap-1">
                 <Clock className="h-3 w-3" />
@@ -251,7 +229,7 @@ export default function Projects() {
           <h1 className="text-2xl font-semibold tracking-tight">Projects</h1>
           {billing != null && (
             <Link to="/settings" className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
-              <Wallet className="h-3.5 w-3.5" />
+              <CreditCard className="h-3.5 w-3.5" />
               {formatUsd(billing.compute_balance_cents)}
             </Link>
           )}

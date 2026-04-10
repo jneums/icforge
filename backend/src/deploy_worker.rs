@@ -4,23 +4,33 @@ use std::time::Instant;
 use dashmap::DashMap;
 use tokio::sync::broadcast;
 
+use crate::billing;
 use crate::config::AppConfig;
 use crate::db::DbPool;
+use crate::exchange_rate::ExchangeRateCache;
 use crate::github::{self, GitHubNotifier};
 use crate::models::DeploymentRecord;
 use crate::LogEvent;
+
+/// Canister creation fee on IC: 0.5T cycles, deducted by the cycles ledger
+/// from the amount sent. See: https://docs.internetcomputer.org/building-apps/essentials/gas-cost
+///
+/// Total cycles sent to the cycles ledger per canister provision: flat 4T.
+/// The ledger deducts the 0.5T creation fee, leaving the canister with 3.5T.
+/// Auto-topup kicks in at 3T, adding 1T to bring it back to ~4T.
+const PROVISION_CYCLES: u128 = 4_000_000_000_000; // 4T cycles
 
 /// Shared map of per-deployment broadcast channels for SSE log streaming.
 pub type LogChannels = Arc<DashMap<String, broadcast::Sender<LogEvent>>>;
 
 /// Spawn the background deploy worker that polls for queued jobs.
-pub fn spawn_worker(pool: DbPool, config: AppConfig, log_channels: LogChannels) {
+pub fn spawn_worker(pool: DbPool, config: AppConfig, log_channels: LogChannels, rate_cache: ExchangeRateCache) {
     tokio::spawn(async move {
         tracing::info!("Deploy worker started — polling for jobs every 5s");
         let notifier = GitHubNotifier::new();
 
         loop {
-            match claim_and_run(&pool, &config, &notifier, &log_channels).await {
+            match claim_and_run(&pool, &config, &notifier, &log_channels, &rate_cache).await {
                 Ok(true) => {
                     // Processed a job — immediately check for more
                     continue;
@@ -43,6 +53,7 @@ async fn claim_and_run(
     config: &AppConfig,
     notifier: &GitHubNotifier,
     log_channels: &LogChannels,
+    rate_cache: &ExchangeRateCache,
 ) -> Result<bool, String> {
     // Atomic claim: grab the oldest queued job with FOR UPDATE SKIP LOCKED
     let job: Option<DeploymentRecord> = sqlx::query_as(
@@ -126,7 +137,7 @@ async fn claim_and_run(
 
     // Run the actual build
     let start = Instant::now();
-    let result = execute_deploy(pool, config, &job, &token, &tx).await;
+    let result = execute_deploy(pool, config, &job, &token, &tx, rate_cache).await;
     let duration_ms = start.elapsed().as_millis() as i32;
 
     match result {
@@ -283,6 +294,7 @@ async fn execute_deploy(
     job: &DeploymentRecord,
     token: &str,
     tx: &broadcast::Sender<LogEvent>,
+    rate_cache: &ExchangeRateCache,
 ) -> Result<(), String> {
     let work_dir = format!("/tmp/icforge-deploys/{}", job.id);
 
@@ -318,12 +330,14 @@ async fn execute_deploy(
         return Err("No icp.yaml found in repository root. ICForge requires icp-cli projects.".into());
     }
 
-    // Fetch project slug for per-canister subdomain routing
-    let project_slug: String = sqlx::query_scalar("SELECT slug FROM projects WHERE id = $1")
-        .bind(&job.project_id)
-        .fetch_one(pool)
-        .await
-        .map_err(|e| format!("Failed to fetch project slug: {e}"))?;
+    // Fetch project slug and owner for per-canister subdomain routing + billing
+    let (project_slug, project_user_id): (String, String) = sqlx::query_as(
+        "SELECT slug, user_id FROM projects WHERE id = $1",
+    )
+    .bind(&job.project_id)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| format!("Failed to fetch project: {e}"))?;
 
     // Phase: setup icp-cli identity
     log_deploy(pool, &job.id, "info", "setup", "Setting up icp-cli identity...", tx).await;
@@ -398,7 +412,66 @@ async fn execute_deploy(
                 .await;
             }
             Some((db_id, None)) => {
-                // DB record exists but no canister ID — create on IC via icp-cli
+                // DB record exists but no canister ID — create on IC via icp-cli.
+                // This is the FIRST provision of this canister — charge the user.
+
+                // --- Compute provisioning cost ---
+                let provision_cost_cents = rate_cache
+                    .cycles_to_credit_cents(PROVISION_CYCLES, config.compute_margin)
+                    .await;
+
+                log_deploy(
+                    pool,
+                    &job.id,
+                    "info",
+                    "billing",
+                    &format!(
+                        "Provisioning canister '{canister_name}' — estimated cost: {}¢ ({:.2}T cycles)",
+                        provision_cost_cents,
+                        PROVISION_CYCLES as f64 / 1_000_000_000_000.0,
+                    ),
+                    tx,
+                )
+                .await;
+
+                // --- Debit user BEFORE creating canister (fail-fast if insufficient) ---
+                let stripe_key = config.stripe_secret_key.as_deref();
+                if let Err(_e) = billing::debit_balance(
+                    pool,
+                    stripe_key,
+                    &project_user_id,
+                    provision_cost_cents,
+                    "provision",
+                    &format!(
+                        "Canister '{}' provisioning ({:.2}T cycles)",
+                        canister_name,
+                        PROVISION_CYCLES as f64 / 1_000_000_000_000.0,
+                    ),
+                )
+                .await
+                {
+                    let msg = format!(
+                        "Insufficient compute balance to provision canister '{}'. \
+                         Required: {}¢ (~${:.2}). Please add credits at Settings → Billing.",
+                        canister_name,
+                        provision_cost_cents,
+                        provision_cost_cents as f64 / 100.0,
+                    );
+                    log_deploy(pool, &job.id, "error", "billing", &msg, tx).await;
+                    return Err(msg);
+                }
+
+                log_deploy(
+                    pool,
+                    &job.id,
+                    "info",
+                    "billing",
+                    &format!("Debited {}¢ from compute balance for canister '{canister_name}'", provision_cost_cents),
+                    tx,
+                )
+                .await;
+
+                // --- Create canister on IC ---
                 log_deploy(
                     pool,
                     &job.id,
@@ -409,12 +482,54 @@ async fn execute_deploy(
                 )
                 .await;
 
-                let output = run_cmd(
+                let create_result = run_cmd(
                     &work_dir,
-                    &["icp", "canister", "create", canister_name, "-e", "ic", "--identity", "icforge"],
+                    &[
+                        "icp", "canister", "create", canister_name,
+                        "-e", "ic",
+                        "--identity", "icforge",
+                        "--cycles", &PROVISION_CYCLES.to_string(),
+                    ],
                 )
-                .await
-                .map_err(|e| format!("Failed to create canister '{canister_name}': {e}"))?;
+                .await;
+
+                let output = match create_result {
+                    Ok(out) => out,
+                    Err(e) => {
+                        // Canister creation failed — refund the user
+                        let refund_desc = format!(
+                            "Refund: canister '{}' provisioning failed",
+                            canister_name,
+                        );
+                        log_deploy(
+                            pool,
+                            &job.id,
+                            "warn",
+                            "billing",
+                            &format!("Canister creation failed — refunding {}¢ to user", provision_cost_cents),
+                            tx,
+                        )
+                        .await;
+                        if let Err(refund_err) = billing::credit_balance(
+                            pool,
+                            &project_user_id,
+                            provision_cost_cents,
+                            "refund",
+                            None,
+                            &refund_desc,
+                        )
+                        .await
+                        {
+                            tracing::error!(
+                                user_id = %project_user_id,
+                                amount_cents = provision_cost_cents,
+                                error = %refund_err,
+                                "CRITICAL: Failed to refund provisioning cost after canister creation failure"
+                            );
+                        }
+                        return Err(format!("Failed to create canister '{canister_name}': {e}"));
+                    }
+                };
 
                 // Parse canister ID from icp-cli output
                 let cid = parse_canister_id_from_output(&output)

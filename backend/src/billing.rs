@@ -378,8 +378,8 @@ pub async fn billing_checkout(
         ("line_items[0][price_data][product_data][name]", "ICForge Compute Credits".to_string()),
         ("line_items[0][price_data][unit_amount]", amount_cents.to_string()),
         ("line_items[0][quantity]", "1".to_string()),
-        ("success_url", format!("{frontend_url}/settings/billing?session_id={{CHECKOUT_SESSION_ID}}")),
-        ("cancel_url", format!("{frontend_url}/settings/billing")),
+        ("success_url", format!("{frontend_url}/billing?session_id={{CHECKOUT_SESSION_ID}}")),
+        ("cancel_url", format!("{frontend_url}/billing")),
         ("metadata[user_id]", auth_user.user.id.clone()),
         ("metadata[amount_cents]", amount_cents.to_string()),
         ("payment_intent_data[metadata][user_id]", auth_user.user.id.clone()),
@@ -426,7 +426,7 @@ pub async fn billing_portal(
     let frontend_url = &state.config.frontend_url;
     let params = vec![
         ("customer", customer_id),
-        ("return_url", format!("{frontend_url}/settings/billing")),
+        ("return_url", format!("{frontend_url}/billing")),
     ];
 
     let client = reqwest::Client::new();

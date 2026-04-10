@@ -58,7 +58,7 @@ impl AppConfig {
             signup_bonus_cents: env::var("SIGNUP_BONUS_CENTS")
                 .ok()
                 .and_then(|v| v.parse().ok())
-                .unwrap_or(500),
+                .unwrap_or(1000),
             min_purchase_cents: env::var("MIN_PURCHASE_CENTS")
                 .ok()
                 .and_then(|v| v.parse().ok())

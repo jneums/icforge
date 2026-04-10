@@ -1,4 +1,4 @@
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import {
   ExternalLink,
   GitCommit,
@@ -68,9 +68,15 @@ function CanisterCard({
   const failed = latestDeploy && (latestDeploy.status === "failed" || latestDeploy.status === "error");
   const cancelled = latestDeploy?.status === "cancelled";
 
+  const navigate = useNavigate();
+  const detailUrl = `/projects/${projectId}/canisters/${canister.id}`;
+
   return (
-    <Link to={`/projects/${projectId}/canisters/${canister.id}`} className="block">
-      <Card className="p-4 border-border/50 hover:border-border transition-colors">
+    <div className="block">
+      <Card
+        className="p-4 border-border/50 hover:border-border transition-colors cursor-pointer"
+        onClick={() => navigate(detailUrl)}
+      >
         <div className="flex items-center gap-3">
           {succeeded ? (
             <CheckCircle2 className="h-4 w-4 shrink-0 text-success" />
@@ -88,17 +94,23 @@ function CanisterCard({
             {displayRecipe(canister.recipe)}
           </Badge>
           {canister.canister_id && (
-            <>
-              <span className="ml-auto font-mono text-xs text-muted-foreground">
+            <div className="ml-auto flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+              <span className="font-mono text-xs text-muted-foreground">
                 {canister.canister_id}
               </span>
               <CopyButton text={canister.canister_id} />
-            </>
+            </div>
           )}
         </div>
 
         {latestDeploy && (
-          <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+          <div
+            className="mt-2 flex items-center gap-2 text-xs text-muted-foreground hover:text-primary transition-colors"
+            onClick={(e) => {
+              e.stopPropagation();
+              navigate(`/projects/${projectId}/deploys/${latestDeploy.id}`);
+            }}
+          >
             {latestDeploy.commit_sha && (
               <>
                 <GitCommit className="h-3 w-3" />
@@ -117,15 +129,20 @@ function CanisterCard({
         )}
 
         {subdomainUrl && (
-          <div className="mt-2 flex items-center gap-1.5">
-            <span className="text-xs font-mono text-muted-foreground inline-flex items-center gap-1">
+          <div className="mt-2 flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+            <a
+              href={subdomainUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs font-mono text-muted-foreground hover:text-primary inline-flex items-center gap-1"
+            >
               {projectSlug}-{canister.name}.icforge.dev
               <ExternalLink className="h-3 w-3" />
-            </span>
+            </a>
           </div>
         )}
       </Card>
-    </Link>
+    </div>
   );
 }
 

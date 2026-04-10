@@ -6,6 +6,7 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { useBillingBalance, useTransactions, useCheckout, useBillingPortal, useAutoTopup } from "@/hooks/use-billing";
+import { useProjects } from "@/hooks/use-projects";
 import type { ComputeTransaction } from "@/api";
 
 function formatCents(cents: number): string {
@@ -170,21 +171,34 @@ function AutoTopupCard() {
 }
 
 function CanisterCostsCard() {
-  const { data: transactions, isLoading } = useTransactions();
+  const { data: transactions, isLoading: txLoading } = useTransactions();
+  const { data: projects, isLoading: projLoading } = useProjects();
 
-  if (isLoading) return <Skeleton className="h-36 w-full rounded-lg" />;
+  if (txLoading || projLoading) return <Skeleton className="h-36 w-full rounded-lg" />;
   if (!transactions || transactions.length === 0) return null;
 
-  // Extract canister costs from debit transactions that have "top-up" or "cycles" in description
+  // Build a lookup: IC canister_id → "project / canister"
+  const canisterLabels = new Map<string, string>();
+  if (projects) {
+    for (const p of projects) {
+      for (const c of p.canisters) {
+        if (c.canister_id) {
+          canisterLabels.set(c.canister_id, `${p.name} / ${c.name}`);
+        }
+      }
+    }
+  }
+
+  // Extract canister costs from debit transactions, keyed by canister_id
   const canisterCosts = new Map<string, number>();
   for (const tx of transactions) {
     if (tx.type !== "debit") continue;
     const desc = tx.description ?? "";
     // Match "Manual top-up <name> (<canister_id>)" or "Auto top-up <name> (<canister_id>)"
-    const match = desc.match(/top-up\s+(\S+)\s+\(/i);
+    const match = desc.match(/top-up\s+\S+\s+\(([^)]+)\)/i);
     if (match) {
-      const name = match[1];
-      canisterCosts.set(name, (canisterCosts.get(name) ?? 0) + tx.amount_cents);
+      const canisterId = match[1];
+      canisterCosts.set(canisterId, (canisterCosts.get(canisterId) ?? 0) + tx.amount_cents);
     }
   }
 
@@ -201,9 +215,9 @@ function CanisterCostsCard() {
       </CardHeader>
       <CardContent>
         <div className="space-y-2">
-          {entries.map(([name, cents]) => (
-            <div key={name} className="flex justify-between text-sm">
-              <span className="font-mono text-muted-foreground">{name}</span>
+          {entries.map(([canisterId, cents]) => (
+            <div key={canisterId} className="flex justify-between text-sm">
+              <span className="font-mono text-muted-foreground">{canisterLabels.get(canisterId) ?? canisterId}</span>
               <span>{formatCents(cents)}</span>
             </div>
           ))}

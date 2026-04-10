@@ -70,7 +70,7 @@ async fn main() {
     };
 
     // Start the background build worker
-    deploy_worker::spawn_worker(pool.clone(), config.clone(), state.log_channels.clone());
+    deploy_worker::spawn_worker(pool.clone(), config.clone(), state.log_channels.clone(), state.exchange_rate.clone());
 
     // Start the background cycles poller (checks every 6h)
     compute_poller::spawn_poller(pool, config, state.exchange_rate.clone());

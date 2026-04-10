@@ -18,9 +18,9 @@ fn nat_to_i64(n: &Nat) -> i64 {
 }
 
 /// Cycles thresholds (in cycles, not USD).
-const THRESHOLD_HEALTHY: u128 = 2_000_000_000_000; // 2T
-const THRESHOLD_WARNING: u128 = 500_000_000_000; // 0.5T
-const AUTO_TOPUP_AMOUNT: u128 = 2_000_000_000_000; // 2T cycles per top-up
+const THRESHOLD_HEALTHY: u128 = 4_000_000_000_000; // 4T — target level
+const THRESHOLD_WARNING: u128 = 3_000_000_000_000; // 3T — low watermark
+const AUTO_TOPUP_AMOUNT: u128 = 1_000_000_000_000; // 1T cycles per top-up (3T → 4T)
 
 /// Spawn the background poller task. Runs every 60 seconds.
 pub fn spawn_poller(db: PgPool, config: AppConfig, rate_cache: ExchangeRateCache) {
@@ -260,8 +260,9 @@ async fn auto_topup_canister(
         cost_cents,
         "execution",
         &format!(
-            "Auto top-up {} ({}) — 2T cycles",
-            canister.name, ic_id
+            "Auto top-up {} ({}) — {:.0}T cycles",
+            canister.name, ic_id,
+            AUTO_TOPUP_AMOUNT as f64 / 1_000_000_000_000.0
         ),
     )
     .await

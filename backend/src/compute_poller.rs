@@ -197,14 +197,12 @@ async fn poll_single_canister(
             "Canister cycles low"
         );
 
-        // Auto top-up if enabled on this canister
-        if canister.auto_topup.unwrap_or(false) {
-            if let Err(e) = auto_topup_canister(db, config, ic, canister, ic_id, rate_cache).await {
-                tracing::error!(
-                    canister_id = ic_id,
-                    "Auto top-up failed: {e}"
-                );
-            }
+        // Auto top-up any canister that drops below the warning threshold
+        if let Err(e) = auto_topup_canister(db, config, ic, canister, ic_id, rate_cache).await {
+            tracing::error!(
+                canister_id = ic_id,
+                "Auto top-up failed: {e}"
+            );
         }
     } else if bal < THRESHOLD_HEALTHY {
         tracing::info!(

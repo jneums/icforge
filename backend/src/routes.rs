@@ -302,7 +302,7 @@ pub async fn create_project(
             cycles_balance: None,
             candid_interface: None,
             canister_type: Some(recipe.to_string()),
-            auto_topup: Some(false),
+            auto_topup: Some(true),
             cycles_alert_threshold: None,
             created_at: now.clone(),
             updated_at: now.clone(),

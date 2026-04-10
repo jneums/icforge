@@ -18,8 +18,8 @@ fn nat_to_i64(n: &Nat) -> i64 {
 }
 
 /// Cycles thresholds (in cycles, not USD).
-const THRESHOLD_HEALTHY: u128 = 4_000_000_000_000; // 4T — target level
-const THRESHOLD_WARNING: u128 = 3_000_000_000_000; // 3T — low watermark
+pub const THRESHOLD_HEALTHY: u128 = 4_000_000_000_000; // 4T — target level
+pub const THRESHOLD_WARNING: u128 = 3_000_000_000_000; // 3T — low watermark
 
 /// Spawn the background poller task. Runs every 60 seconds.
 pub fn spawn_poller(db: PgPool, config: AppConfig, rate_cache: ExchangeRateCache) {

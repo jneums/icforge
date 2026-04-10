@@ -185,4 +185,5 @@ export interface ProjectHealth {
   project_id: string;
   overall_health: 'healthy' | 'warning' | 'critical' | 'frozen' | 'unknown';
   canisters: CanisterHealthEntry[];
+  topup_blocked: boolean;
 }

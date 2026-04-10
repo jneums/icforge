@@ -340,6 +340,25 @@ async fn execute_deploy(
     .await
     .map_err(|e| format!("Failed to fetch project: {e}"))?;
 
+    // --- Pre-flight billing check: require minimum balance for build ---
+    let min_build_cents = config.build_cost_cents_per_min; // 1 minute minimum
+    let bal = billing::get_or_create_balance(pool, &project_user_id)
+        .await
+        .map_err(|e| format!("Failed to check billing balance: {e}"))?;
+    if bal.balance_cents < min_build_cents {
+        let msg = format!(
+            "Insufficient compute balance to start build. \
+             Current balance: {}¢ (${}). Minimum required: {}¢ (${}). \
+             Please add credits at Settings → Billing.",
+            bal.balance_cents,
+            bal.balance_cents as f64 / 100.0,
+            min_build_cents,
+            min_build_cents as f64 / 100.0,
+        );
+        log_deploy(pool, &job.id, "error", "billing", &msg, tx).await;
+        return Err(msg);
+    }
+
     // Phase: setup icp-cli identity
     log_deploy(pool, &job.id, "info", "setup", "Setting up icp-cli identity...", tx).await;
 

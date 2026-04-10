@@ -151,7 +151,7 @@ pub async fn debit_balance(
     // Check if auto-topup should fire
     let new_balance = bal.balance_cents - amount_cents;
     if bal.auto_topup_enabled {
-        let threshold = bal.auto_topup_threshold_cents.unwrap_or(200);
+        let threshold = bal.auto_topup_threshold_cents.unwrap_or(1000);
         if new_balance < threshold {
             if let Some(key) = stripe_key {
                 maybe_auto_topup(db, key, user_id, &bal).await;
@@ -526,7 +526,7 @@ pub async fn billing_auto_topup(
            WHERE user_id = $5"#,
     )
     .bind(req.enabled)
-    .bind(req.threshold_cents.unwrap_or(200))
+    .bind(req.threshold_cents.unwrap_or(1000))
     .bind(req.amount_cents.unwrap_or(1000))
     .bind(&now)
     .bind(&auth_user.user.id)

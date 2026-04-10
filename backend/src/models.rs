@@ -46,7 +46,6 @@ pub struct CanisterRecord {
     #[sqlx(rename = "type")]
     #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
     pub canister_type: Option<String>,
-    pub auto_topup: Option<bool>,
     pub cycles_alert_threshold: Option<i64>,
     pub created_at: String,
     pub updated_at: String,
@@ -259,7 +258,6 @@ pub struct AutoTopupRequest {
 
 #[derive(Debug, Deserialize)]
 pub struct CyclesSettingsRequest {
-    pub auto_topup: Option<bool>,
     pub alert_threshold: Option<i64>,
 }
 

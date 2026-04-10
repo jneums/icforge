@@ -302,7 +302,6 @@ pub async fn create_project(
             cycles_balance: None,
             candid_interface: None,
             canister_type: Some(recipe.to_string()),
-            auto_topup: Some(false),
             cycles_alert_threshold: None,
             created_at: now.clone(),
             updated_at: now.clone(),
@@ -1337,16 +1336,6 @@ pub async fn canister_cycles_settings(
     .ok_or_else(|| AppError::NotFound("Canister not found or not owned by you".into()))?;
 
     let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
-
-    if let Some(auto_topup) = req.auto_topup {
-        sqlx::query("UPDATE canisters SET auto_topup = $1, updated_at = $2 WHERE id = $3")
-            .bind(auto_topup)
-            .bind(&now)
-            .bind(&canister.id)
-            .execute(&state.db)
-            .await
-            .map_err(AppError::Database)?;
-    }
 
     if let Some(threshold) = req.alert_threshold {
         sqlx::query("UPDATE canisters SET cycles_alert_threshold = $1, updated_at = $2 WHERE id = $3")

@@ -3,10 +3,9 @@ import { useProjects } from "@/hooks/use-projects";
 import { useBillingBalance } from "@/hooks/use-billing";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { StatusDot } from "@/components/status-dot";
+import { StatusBadge } from "@/components/status-badge";
 import { HealthBadge } from "@/components/health-badge";
 import {
   Folder,
@@ -54,25 +53,6 @@ function formatUsd(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
-/** Status label for display */
-function statusLabel(status: string): string {
-  const labels: Record<string, string> = {
-    running: "Live",
-    deployed: "Live",
-    live: "Live",
-    succeeded: "Live",
-    building: "Building",
-    deploying: "Deploying",
-    queued: "Queued",
-    created: "Pending",
-    failed: "Failed",
-    error: "Error",
-    cancelled: "Cancelled",
-    stopped: "Stopped",
-  };
-  return labels[status] ?? status;
-}
-
 function ProjectCard({ project }: { project: Project }) {
   const status = getProjectStatus(project);
   const health = getProjectHealth(project);
@@ -94,11 +74,8 @@ function ProjectCard({ project }: { project: Project }) {
         {/* Row 1: Name + Status */}
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
-            <StatusDot status={status} pulse={status === "building" || status === "deploying"} />
             <span className="font-semibold truncate">{project.name}</span>
-            <Badge variant="outline" className="text-[10px] font-normal shrink-0">
-              {statusLabel(status)}
-            </Badge>
+            <StatusBadge status={status} />
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {health !== "unknown" && health !== "healthy" && (
@@ -109,7 +86,7 @@ function ProjectCard({ project }: { project: Project }) {
 
         {/* Row 2: Canisters */}
         {canisters.length > 0 && (
-          <div className="flex flex-wrap items-center gap-2 mt-2.5 ml-5">
+          <div className="flex flex-wrap items-center gap-2 mt-2.5">
             {canisters.map((c) => (
               <div
                 key={c.id}
@@ -126,7 +103,7 @@ function ProjectCard({ project }: { project: Project }) {
         )}
 
         {/* Row 3: Last deploy + live URL */}
-        <div className="flex items-center justify-between mt-2.5 ml-5 text-xs text-muted-foreground">
+        <div className="flex items-center justify-between mt-2.5 text-xs text-muted-foreground">
           {latestDeploy ? (
             <span className="flex items-center gap-1.5 truncate">
               <GitCommit className="h-3 w-3 shrink-0" />
@@ -173,17 +150,16 @@ function ProjectListSkeleton() {
         <Card key={i} className="px-5 py-4 border-border/50">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <Skeleton className="h-2 w-2 rounded-full" />
               <Skeleton className="h-4 w-36" />
-              <Skeleton className="h-4 w-12 rounded-md" />
+              <Skeleton className="h-5 w-16 rounded-full" />
             </div>
             <Skeleton className="h-5 w-20 rounded-full" />
           </div>
-          <div className="flex gap-2 mt-2.5 ml-5">
+          <div className="flex gap-2 mt-2.5">
             <Skeleton className="h-5 w-28 rounded-md" />
             <Skeleton className="h-5 w-32 rounded-md" />
           </div>
-          <div className="flex justify-between mt-2.5 ml-5">
+          <div className="flex justify-between mt-2.5">
             <Skeleton className="h-3 w-48" />
             <Skeleton className="h-3 w-24" />
           </div>

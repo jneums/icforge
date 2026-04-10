@@ -360,7 +360,7 @@ export default function ProjectDetail() {
           <AlertCircle className="h-4 w-4 text-yellow-500" />
           <AlertDescription>
             Insufficient compute balance — some canisters can&apos;t be auto-topped up.{" "}
-            <Link to="/settings" className="underline font-medium text-yellow-500 hover:text-yellow-400">
+            <Link to="/billing" className="underline font-medium text-yellow-500 hover:text-yellow-400">
               Add credits
             </Link>
           </AlertDescription>

@@ -115,10 +115,9 @@ export interface RepoConfig {
 
 export interface UsageBreakdown {
   total_cents: number;
-  execution_cents: number;
+  cycles_cents: number;
+  provision_cents: number;
   builds_cents: number;
-  storage_cents: number;
-  bandwidth_cents: number;
 }
 
 export interface BillingBalance {

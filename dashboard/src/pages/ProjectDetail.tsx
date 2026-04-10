@@ -29,7 +29,7 @@ import { StatusDot } from "@/components/status-dot";
 import { CopyButton } from "@/components/copy-button";
 import { HealthBadge } from "@/components/health-badge";
 import { CanisterHealthPanel } from "@/components/canister-health";
-import { displayRecipe, healthFromCycles, cyclesToUsd } from "@/lib/utils";
+import { displayRecipe, healthFromCycles } from "@/lib/utils";
 import type { Canister, Deployment } from "@/api/types";
 
 const IN_PROGRESS_STATUSES = ["queued", "building", "deploying", "created"];
@@ -125,14 +125,9 @@ function CanisterCard({
         </Link>
       )}
 
-        {canister.canister_id && (
+        {canister.canister_id && canister.cycles_balance != null && (
           <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-            {canister.cycles_balance != null && (
-              <>
-                <span>💰 {cyclesToUsd(canister.cycles_balance)}</span>
-                <HealthBadge health={healthFromCycles(canister.cycles_balance)} />
-              </>
-            )}
+            <HealthBadge health={healthFromCycles(canister.cycles_balance)} />
           </div>
         )}
 

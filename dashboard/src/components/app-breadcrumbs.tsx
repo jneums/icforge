@@ -36,26 +36,10 @@ export function AppBreadcrumbs() {
   const { data } = useProject(id ?? "");
   const projectName = data?.project?.name;
 
-  if (pathname === "/settings") {
+  if (pathname === "/billing") {
     return (
       <Breadcrumb>
         <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbPage>Settings</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-    );
-  }
-
-  if (pathname === "/settings/billing") {
-    return (
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink asChild><Link to="/settings">Settings</Link></BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbPage>Billing</BreadcrumbPage>
           </BreadcrumbItem>

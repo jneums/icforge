@@ -1,5 +1,5 @@
 import { useLocation, Link } from "react-router-dom"
-import { Folder, Settings, CreditCard, LogOut } from "lucide-react"
+import { Folder, CreditCard, LogOut } from "lucide-react"
 import { useAuth } from "@/hooks/use-auth"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -37,16 +37,8 @@ export function AppSidebar() {
             </SidebarMenuButton>
           </SidebarMenuItem>
           <SidebarMenuItem>
-            <SidebarMenuButton asChild isActive={pathname === "/settings"}>
-              <Link to="/settings">
-                <Settings className="h-4 w-4" />
-                <span>Settings</span>
-              </Link>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton asChild isActive={pathname === "/settings/billing"}>
-              <Link to="/settings/billing">
+            <SidebarMenuButton asChild isActive={pathname === "/billing"}>
+              <Link to="/billing">
                 <CreditCard className="h-4 w-4" />
                 <span>Billing</span>
               </Link>

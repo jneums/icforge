@@ -263,7 +263,8 @@ export default function ProjectDetail() {
       )}
 
       {/* Canisters */}
-      <div className="space-y-3">
+      <div className="space-y-4">
+        <h2 className="text-lg font-semibold tracking-tight">Canisters</h2>
         {canisters.length === 0 ? (
           <Card className="p-8 text-center border-border/50">
             <p className="text-sm text-muted-foreground">

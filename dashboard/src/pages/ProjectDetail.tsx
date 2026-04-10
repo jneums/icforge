@@ -69,7 +69,7 @@ function CanisterCard({
   const cancelled = latestDeploy?.status === "cancelled";
 
   return (
-    <Link to={`/projects/${projectId}/canisters/${canister.id}`}>
+    <Link to={`/projects/${projectId}/canisters/${canister.id}`} className="block">
       <Card className="p-4 border-border/50 hover:border-border transition-colors">
         <div className="flex items-center gap-3">
           {succeeded ? (
@@ -263,7 +263,8 @@ export default function ProjectDetail() {
       )}
 
       {/* Canisters */}
-      <div className="space-y-3">
+      <div className="space-y-4">
+        <h2 className="text-lg font-semibold tracking-tight">Canisters</h2>
         {canisters.length === 0 ? (
           <Card className="p-8 text-center border-border/50">
             <p className="text-sm text-muted-foreground">

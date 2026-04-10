@@ -1,12 +1,24 @@
 import { Link } from "react-router-dom";
 import { useProjects } from "@/hooks/use-projects";
+import { useBillingBalance } from "@/hooks/use-billing";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { StatusDot } from "@/components/status-dot";
 import { HealthBadge } from "@/components/health-badge";
-import { Folder, AlertCircle, GitCommit, Clock, Plus, Box } from "lucide-react";
-import { healthFromCycles } from "@/lib/utils";
+import {
+  Folder,
+  AlertCircle,
+  GitCommit,
+  Clock,
+  Plus,
+  Box,
+  ExternalLink,
+  Wallet,
+} from "lucide-react";
+import { displayRecipe, healthFromCycles } from "@/lib/utils";
 import type { Project } from "@/api/types";
 
 function getProjectStatus(project: Project): string {
@@ -37,50 +49,117 @@ function getProjectHealth(project: Project): "healthy" | "warning" | "critical" 
   return levels[0];
 }
 
-function ProjectRow({ project }: { project: Project }) {
+/** Format cents as USD — e.g. 350 → "$3.50" */
+function formatUsd(cents: number): string {
+  return `$${(cents / 100).toFixed(2)}`;
+}
+
+/** Status label for display */
+function statusLabel(status: string): string {
+  const labels: Record<string, string> = {
+    running: "Live",
+    deployed: "Live",
+    live: "Live",
+    succeeded: "Live",
+    building: "Building",
+    deploying: "Deploying",
+    queued: "Queued",
+    created: "Pending",
+    failed: "Failed",
+    error: "Error",
+    cancelled: "Cancelled",
+    stopped: "Stopped",
+  };
+  return labels[status] ?? status;
+}
+
+function ProjectCard({ project }: { project: Project }) {
   const status = getProjectStatus(project);
   const health = getProjectHealth(project);
   const latestDeploy = project.latest_deployment;
-  const canisterNames = project.canisters?.map((c) => c.name) ?? [];
+  const canisters = project.canisters ?? [];
+  const slug = project.slug ?? project.name;
+
+  // Build subdomain URL for first asset canister if deployed
+  const assetCanister = canisters.find(
+    (c) => c.canister_id && c.recipe?.includes("asset")
+  );
+  const liveUrl = assetCanister
+    ? `https://${slug}-${assetCanister.name}.icforge.dev`
+    : null;
 
   return (
     <Link to={`/projects/${project.id}`} className="block group">
       <Card className="px-5 py-4 border-border/50 hover:border-border hover:bg-card/80 transition-all duration-150 cursor-pointer">
+        {/* Row 1: Name + Status */}
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
-            <StatusDot status={status} />
+            <StatusDot status={status} pulse={status === "building" || status === "deploying"} />
             <span className="font-semibold truncate">{project.name}</span>
+            <Badge variant="outline" className="text-[10px] font-normal shrink-0">
+              {statusLabel(status)}
+            </Badge>
           </div>
-          {canisterNames.length > 0 && (
-            <span className="flex items-center gap-1.5 font-mono text-xs text-muted-foreground shrink-0 opacity-70 group-hover:opacity-100 transition-opacity">
-              <Box className="h-3 w-3" />
-              {canisterNames.join(" · ")}
-            </span>
-          )}
-          {health !== "unknown" && health !== "healthy" && (
-            <HealthBadge health={health} />
-          )}
+          <div className="flex items-center gap-2 shrink-0">
+            {health !== "unknown" && health !== "healthy" && (
+              <HealthBadge health={health} />
+            )}
+          </div>
         </div>
-        <div className="flex items-center justify-between mt-2 ml-5 text-xs text-muted-foreground">
+
+        {/* Row 2: Canisters */}
+        {canisters.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 mt-2.5 ml-5">
+            {canisters.map((c) => (
+              <div
+                key={c.id}
+                className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted/50 rounded-md px-2 py-0.5"
+              >
+                <Box className="h-3 w-3 shrink-0" />
+                <span className="font-medium">{c.name}</span>
+                <span className="text-muted-foreground/60">
+                  {displayRecipe(c.recipe)}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Row 3: Last deploy + live URL */}
+        <div className="flex items-center justify-between mt-2.5 ml-5 text-xs text-muted-foreground">
           {latestDeploy ? (
-            <>
-              <span className="flex items-center gap-1.5 truncate">
-                <GitCommit className="h-3 w-3 shrink-0" />
-                {latestDeploy.commit_message}
-              </span>
-              <span className="flex items-center gap-1.5 shrink-0 ml-4">
-                <Clock className="h-3 w-3" />
-                {timeAgo(latestDeploy.started_at ?? latestDeploy.created_at)}
-                {latestDeploy.branch && (
-                  <span className="text-muted-foreground/60">
-                    on <span className="font-mono">{latestDeploy.branch}</span>
-                  </span>
-                )}
-              </span>
-            </>
+            <span className="flex items-center gap-1.5 truncate">
+              <GitCommit className="h-3 w-3 shrink-0" />
+              <span className="truncate">{latestDeploy.commit_message}</span>
+              {latestDeploy.branch && (
+                <span className="text-muted-foreground/50 shrink-0">
+                  on <span className="font-mono">{latestDeploy.branch}</span>
+                </span>
+              )}
+            </span>
           ) : (
             <span className="italic text-muted-foreground/50">No deployments yet</span>
           )}
+          <div className="flex items-center gap-3 shrink-0 ml-4">
+            {liveUrl && (
+              <span
+                className="flex items-center gap-1 text-primary/70 group-hover:text-primary transition-colors"
+                onClick={(e) => {
+                  e.preventDefault();
+                  window.open(liveUrl, "_blank");
+                }}
+              >
+                <ExternalLink className="h-3 w-3" />
+                <span className="font-mono">{slug}.icforge.dev</span>
+              </span>
+            )}
+            {latestDeploy && (
+              <span className="flex items-center gap-1">
+                <Clock className="h-3 w-3" />
+                {timeAgo(latestDeploy.started_at ?? latestDeploy.created_at)}
+              </span>
+            )}
+          </div>
         </div>
       </Card>
     </Link>
@@ -96,8 +175,13 @@ function ProjectListSkeleton() {
             <div className="flex items-center gap-3">
               <Skeleton className="h-2 w-2 rounded-full" />
               <Skeleton className="h-4 w-36" />
+              <Skeleton className="h-4 w-12 rounded-md" />
             </div>
-            <Skeleton className="h-3 w-40" />
+            <Skeleton className="h-5 w-20 rounded-full" />
+          </div>
+          <div className="flex gap-2 mt-2.5 ml-5">
+            <Skeleton className="h-5 w-28 rounded-md" />
+            <Skeleton className="h-5 w-32 rounded-md" />
           </div>
           <div className="flex justify-between mt-2.5 ml-5">
             <Skeleton className="h-3 w-48" />
@@ -150,13 +234,28 @@ function ProjectListError({ error, onRetry }: { error: string; onRetry: () => vo
   );
 }
 
+/** Low-balance threshold: show banner when under $1.00 */
+const LOW_BALANCE_CENTS = 100;
+
 export default function Projects() {
   const { data: projects, isLoading, error, refetch } = useProjects();
+  const { data: billing } = useBillingBalance();
+
+  const showLowBalance =
+    billing != null && billing.compute_balance_cents < LOW_BALANCE_CENTS;
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight">Projects</h1>
+        <div className="flex items-center gap-4">
+          <h1 className="text-2xl font-semibold tracking-tight">Projects</h1>
+          {billing != null && (
+            <Link to="/settings" className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
+              <Wallet className="h-3.5 w-3.5" />
+              {formatUsd(billing.compute_balance_cents)}
+            </Link>
+          )}
+        </div>
         <div className="flex items-center gap-3">
           {!!projects?.length && (
             <span className="text-sm text-muted-foreground">
@@ -172,6 +271,19 @@ export default function Projects() {
         </div>
       </div>
 
+      {showLowBalance && (
+        <Alert className="border-yellow-500/50 bg-yellow-500/10">
+          <AlertCircle className="h-4 w-4 text-yellow-500" />
+          <AlertDescription>
+            Your compute balance is low ({formatUsd(billing!.compute_balance_cents)}).
+            Canisters may not be auto-topped up.{" "}
+            <Link to="/settings" className="underline font-medium text-yellow-500 hover:text-yellow-400">
+              Add credits
+            </Link>
+          </AlertDescription>
+        </Alert>
+      )}
+
       {isLoading ? (
         <ProjectListSkeleton />
       ) : error ? (
@@ -181,7 +293,7 @@ export default function Projects() {
       ) : (
         <div className="space-y-3">
           {projects.map((p) => (
-            <ProjectRow key={p.id} project={p} />
+            <ProjectCard key={p.id} project={p} />
           ))}
         </div>
       )}

@@ -12,8 +12,6 @@ import { HealthBadge } from "@/components/health-badge";
 import { CanisterHealthPanel } from "@/components/canister-health";
 import {
   ExternalLink,
-  GitCommit,
-  Clock,
   CheckCircle2,
   XCircle,
   Ban,

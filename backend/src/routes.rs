@@ -1536,7 +1536,7 @@ pub async fn canister_cycles_topup(
         &auth_user.user.id,
         cost_cents,
         "execution",
-        &format!("Manual top-up {} ({}) — {} cycles", canister.name, canister_id, req.amount),
+        &format!("Manual top-up {} ({}) — ${:.2}", canister.name, canister_id, cost_cents as f64 / 100.0),
     )
     .await?;
 

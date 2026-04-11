@@ -343,9 +343,9 @@ async fn auto_topup_canister(
         cost_cents,
         "execution",
         &format!(
-            "Auto top-up {} ({}) — {:.1}T cycles",
+            "Auto top-up {} ({}) — ${:.2}",
             canister.name, ic_id,
-            topup_amount as f64 / 1_000_000_000_000.0
+            cost_cents as f64 / 100.0
         ),
     )
     .await

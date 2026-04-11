@@ -446,9 +446,8 @@ async fn execute_deploy(
                     "info",
                     "billing",
                     &format!(
-                        "Provisioning canister '{canister_name}' — estimated cost: {}¢ ({:.2}T cycles)",
-                        provision_cost_cents,
-                        PROVISION_CYCLES as f64 / 1_000_000_000_000.0,
+                        "Provisioning canister '{canister_name}' — estimated cost: ${:.2}",
+                        provision_cost_cents as f64 / 100.0,
                     ),
                     tx,
                 )
@@ -463,9 +462,9 @@ async fn execute_deploy(
                     provision_cost_cents,
                     "provision",
                     &format!(
-                        "Canister '{}' provisioning ({:.2}T cycles)",
+                        "Canister '{}' provisioning — ${:.2}",
                         canister_name,
-                        PROVISION_CYCLES as f64 / 1_000_000_000_000.0,
+                        provision_cost_cents as f64 / 100.0,
                     ),
                 )
                 .await

@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
-import { Copy, Search, ArrowDown, X } from "lucide-react";
+import { Copy, Search, ArrowDown, ArrowUp, X } from "lucide-react";
 import { toast } from "sonner";
 
 /* ── Constants ──────────────────────────────────────────────── */
@@ -151,6 +151,12 @@ export interface LogViewerProps {
   className?: string;
   /** Height style override — defaults to calc(100vh - 340px) */
   height?: string;
+  /** Called when user scrolls to the top — load older logs */
+  onLoadMore?: () => void;
+  /** Whether older pages are currently being fetched */
+  loadingMore?: boolean;
+  /** Whether there are more older pages to load */
+  hasMore?: boolean;
 }
 
 export function LogViewer({
@@ -162,6 +168,9 @@ export function LogViewer({
   showSearch = true,
   className,
   height,
+  onLoadMore,
+  loadingMore = false,
+  hasMore = false,
 }: LogViewerProps) {
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -252,6 +261,13 @@ export function LogViewer({
   }, {});
 
   const containerHeight = height ?? "calc(100vh - 340px)";
+
+  // Trigger load-more when user scrolls to the very top
+  const handleStartReached = useCallback(() => {
+    if (onLoadMore && hasMore && !loadingMore) {
+      onLoadMore();
+    }
+  }, [onLoadMore, hasMore, loadingMore]);
 
   return (
     <div className={className}>
@@ -385,19 +401,45 @@ export function LogViewer({
             ref={virtuosoRef}
             data={filteredLogs}
             overscan={200}
+            startReached={handleStartReached}
+            firstItemIndex={Math.max(0, 1000000 - filteredLogs.length)}
             atBottomStateChange={(atBottom) => {
               atBottomRef.current = atBottom;
             }}
             followOutput={autoScroll ? "smooth" : false}
-            itemContent={(index, entry) => (
-              <LogLine
-                entry={entry}
-                lineNumber={index + 1}
-                highlighted={highlightedLine === index + 1}
-                onClickLine={handleClickLine}
-                searchTerm={searchTerm || undefined}
-              />
-            )}
+            components={{
+              Header: () =>
+                loadingMore ? (
+                  <div className="flex items-center justify-center py-2 text-xs text-muted-foreground">
+                    <Spinner className="h-3 w-3 mr-1.5" />
+                    Loading older logs...
+                  </div>
+                ) : hasMore ? (
+                  <div className="flex items-center justify-center py-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-xs h-6"
+                      onClick={onLoadMore}
+                    >
+                      <ArrowUp className="h-3 w-3 mr-1" />
+                      Load older logs
+                    </Button>
+                  </div>
+                ) : null,
+            }}
+            itemContent={(index, entry) => {
+              const lineNumber = index - Math.max(0, 1000000 - filteredLogs.length) + 1;
+              return (
+                <LogLine
+                  entry={entry}
+                  lineNumber={lineNumber}
+                  highlighted={highlightedLine === lineNumber}
+                  onClickLine={handleClickLine}
+                  searchTerm={searchTerm || undefined}
+                />
+              );
+            }}
             className="py-2"
           />
         )}

@@ -1,14 +1,15 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   fetchCanisterLogs,
   fetchLogSettings,
   updateLogSettings,
   type LogPeriod,
   type CanisterLogsResponse,
+  type CanisterLogEntry,
   type LogSettings,
 } from '@/api/canister-logs';
 
-/** Fetch paginated canister logs */
+/** Infinite-scroll canister logs — pages backward through time via next_before cursor */
 export function useCanisterLogs(
   canisterId: string | null,
   params?: {
@@ -18,11 +19,34 @@ export function useCanisterLogs(
     limit?: number;
   }
 ) {
-  return useQuery<CanisterLogsResponse>({
+  return useInfiniteQuery<CanisterLogsResponse, Error>({
     queryKey: ['canister-logs', canisterId, params],
-    queryFn: () => fetchCanisterLogs(canisterId!, params),
+    queryFn: ({ pageParam }) =>
+      fetchCanisterLogs(canisterId!, {
+        ...params,
+        before: pageParam as number | undefined,
+      }),
+    initialPageParam: undefined as number | undefined,
+    getNextPageParam: (lastPage) => lastPage.next_before ?? undefined,
     enabled: !!canisterId,
   });
+}
+
+/** Flatten all pages into a single chronological (oldest-first) array */
+export function flattenLogPages(
+  pages: CanisterLogsResponse[] | undefined
+): CanisterLogEntry[] {
+  if (!pages) return [];
+  // Each page is DESC (newest first). Pages themselves go newest→oldest.
+  // Reverse each page, then reverse the page order to get chronological.
+  const allLogs: CanisterLogEntry[] = [];
+  for (let i = pages.length - 1; i >= 0; i--) {
+    const page = pages[i];
+    for (let j = page.logs.length - 1; j >= 0; j--) {
+      allLogs.push(page.logs[j]);
+    }
+  }
+  return allLogs;
 }
 
 /** Fetch project log retention settings */

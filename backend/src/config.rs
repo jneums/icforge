@@ -27,6 +27,10 @@ pub struct AppConfig {
     pub compute_margin: f64,
     /// Cost per build-minute in cents (default: 1 = $0.01/min)
     pub build_cost_cents_per_min: i32,
+    /// Free log entries per user per poll cycle before billing kicks in (default: 1000)
+    pub log_free_entries_per_cycle: u64,
+    /// Cost in hundredths-of-a-cent per log entry above free tier (default: 1 = $0.0001/entry, i.e. $0.10 per 1K entries)
+    pub log_cost_microcents_per_entry: u64,
     pub dev_mode: bool,
     pub port: u16,
 }
@@ -70,6 +74,14 @@ impl AppConfig {
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(1.3),
             build_cost_cents_per_min: env::var("BUILD_COST_CENTS_PER_MIN")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(1),
+            log_free_entries_per_cycle: env::var("LOG_FREE_ENTRIES_PER_CYCLE")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(1000),
+            log_cost_microcents_per_entry: env::var("LOG_COST_MICROCENTS_PER_ENTRY")
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(1),

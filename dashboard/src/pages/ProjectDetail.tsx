@@ -104,20 +104,20 @@ function CanisterCard({
         </div>
 
         {latestDeploy && (
-          <div
-            className="mt-2 flex items-center gap-2 text-xs text-muted-foreground hover:text-primary transition-colors"
-            onClick={(e) => {
-              e.stopPropagation();
-              navigate(`/projects/${projectId}/deploys/${latestDeploy.id}`);
-            }}
-          >
-            {latestDeploy.commit_sha && (
-              <>
-                <GitCommit className="h-3 w-3" />
-                <span className="font-mono">{latestDeploy.commit_sha.slice(0, 7)}</span>
-              </>
-            )}
-            <span className="truncate">{latestDeploy.commit_message || "No message"}</span>
+          <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+            <Link
+              to={`/projects/${projectId}/deploys/${latestDeploy.id}`}
+              className="inline-flex items-center gap-2 hover:text-primary transition-colors truncate"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {latestDeploy.commit_sha && (
+                <>
+                  <GitCommit className="h-3 w-3 shrink-0" />
+                  <span className="font-mono">{latestDeploy.commit_sha.slice(0, 7)}</span>
+                </>
+              )}
+              <span className="truncate">{latestDeploy.commit_message || "No message"}</span>
+            </Link>
             <span className="ml-auto whitespace-nowrap">{timeAgo(latestDeploy.created_at)}</span>
           </div>
         )}

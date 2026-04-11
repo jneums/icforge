@@ -154,6 +154,20 @@ export interface ComputeHistoryPoint {
   memory_size: number;
   status: string;
   recorded_at: string;
+  // Query stats (cumulative counters)
+  query_num_calls: number | null;
+  query_num_instructions: number | null;
+  query_request_payload_bytes: number | null;
+  query_response_payload_bytes: number | null;
+  // Memory settings
+  wasm_memory_limit: number | null;
+  wasm_memory_threshold: number | null;
+  // Memory breakdown (from IC MemoryMetrics)
+  wasm_memory_size: number | null;
+  stable_memory_size: number | null;
+  global_memory_size: number | null;
+  canister_history_size: number | null;
+  snapshots_size: number | null;
 }
 
 export interface ComputeTopupRecord {
@@ -172,6 +186,17 @@ export interface CanisterComputeInfo {
   runway_days: number | null;
   history: ComputeHistoryPoint[];
   topups: ComputeTopupRecord[];
+  // Memory summary
+  current_memory_size: number;
+  memory_growth_bytes_per_day: number | null;
+  wasm_memory_limit: number | null;
+  wasm_memory_threshold: number | null;
+  wasm_memory_size: number | null;
+  stable_memory_size: number | null;
+  // Query stats summary
+  query_num_calls: number | null;
+  query_num_instructions: number | null;
+  query_calls_per_day: number | null;
 }
 
 export interface CanisterHealthEntry {

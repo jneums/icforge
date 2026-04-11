@@ -30,6 +30,15 @@ pub struct QueryStats {
 }
 
 #[derive(CandidType, Deserialize, Debug)]
+pub struct MemoryMetrics {
+    pub wasm_memory_size: Nat,
+    pub stable_memory_size: Nat,
+    pub global_memory_size: Nat,
+    pub canister_history_size: Nat,
+    pub snapshots_size: Nat,
+}
+
+#[derive(CandidType, Deserialize, Debug)]
 pub struct CanisterStatusResult {
     pub status: CanisterStatus,
     pub settings: CanisterStatusSettings,
@@ -39,6 +48,7 @@ pub struct CanisterStatusResult {
     pub reserved_cycles: Nat,
     pub idle_cycles_burned_per_day: Nat,
     pub query_stats: QueryStats,
+    pub memory_metrics: Option<MemoryMetrics>,
 }
 
 #[derive(CandidType, Deserialize, Debug)]

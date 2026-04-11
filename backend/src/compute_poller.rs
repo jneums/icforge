@@ -136,6 +136,19 @@ async fn poll_single_canister(
     let wasm_mem_limit: i64 = nat_to_i64(&status.settings.wasm_memory_limit);
     let wasm_mem_thresh: i64 = nat_to_i64(&status.settings.wasm_memory_threshold);
 
+    // Memory breakdown from MemoryMetrics (IC protocol 2025)
+    let (mm_wasm, mm_stable, mm_global, mm_history, mm_snapshots) =
+        match &status.memory_metrics {
+            Some(mm) => (
+                Some(nat_to_i64(&mm.wasm_memory_size)),
+                Some(nat_to_i64(&mm.stable_memory_size)),
+                Some(nat_to_i64(&mm.global_memory_size)),
+                Some(nat_to_i64(&mm.canister_history_size)),
+                Some(nat_to_i64(&mm.snapshots_size)),
+            ),
+            None => (None, None, None, None, None),
+        };
+
     // Record snapshot
     let snap_id = uuid::Uuid::new_v4().to_string();
     let now = chrono::Utc::now()
@@ -149,9 +162,11 @@ async fn poll_single_canister(
                compute_allocation, memory_allocation, freezing_threshold, module_hash,
                query_num_calls, query_num_instructions,
                query_request_payload_bytes, query_response_payload_bytes,
-               wasm_memory_limit, wasm_memory_threshold
+               wasm_memory_limit, wasm_memory_threshold,
+               wasm_memory_size, stable_memory_size, global_memory_size,
+               canister_history_size, snapshots_size
            )
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)"#,
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)"#,
     )
     .bind(&snap_id)
     .bind(&canister.id)
@@ -173,6 +188,11 @@ async fn poll_single_canister(
     .bind(q_resp_bytes)
     .bind(wasm_mem_limit)
     .bind(wasm_mem_thresh)
+    .bind(mm_wasm)
+    .bind(mm_stable)
+    .bind(mm_global)
+    .bind(mm_history)
+    .bind(mm_snapshots)
     .execute(db)
     .await?;
 

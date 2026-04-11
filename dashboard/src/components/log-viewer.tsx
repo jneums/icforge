@@ -400,6 +400,7 @@ export function LogViewer({
           <Virtuoso
             ref={virtuosoRef}
             data={filteredLogs}
+            initialTopMostItemIndex={filteredLogs.length - 1}
             overscan={200}
             startReached={handleStartReached}
             firstItemIndex={Math.max(0, 1000000 - filteredLogs.length)}

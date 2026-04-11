@@ -8,6 +8,16 @@ export async function fetchCanisterEnv(canisterId: string): Promise<EnvironmentV
   return data.environment_variables ?? [];
 }
 
+export async function setCanisterEnv(
+  canisterId: string,
+  envVars: EnvironmentVariable[]
+): Promise<void> {
+  await apiFetch(`/api/v1/canisters/${canisterId}/env`, {
+    method: 'PUT',
+    body: JSON.stringify({ environment_variables: envVars }),
+  });
+}
+
 export type ComputePeriod = '1h' | '6h' | '24h' | '7d' | '30d';
 
 export async function fetchCanisterCompute(canisterId: string, period: ComputePeriod = '24h'): Promise<CanisterComputeInfo> {

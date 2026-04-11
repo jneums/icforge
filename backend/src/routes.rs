@@ -1192,6 +1192,65 @@ pub async fn canister_env(
 }
 
 // ============================================================
+// Set canister environment variables
+// ============================================================
+
+/// PUT /api/v1/canisters/:canister_id/env — Set environment variables via IC management canister
+pub async fn set_canister_env(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+    Path(canister_id): Path<String>,
+    Json(body): Json<SetCanisterEnvRequest>,
+) -> Result<Json<Value>, AppError> {
+    // Verify the canister belongs to this user
+    let _canister: CanisterRecord = sqlx::query_as(
+        "SELECT c.* FROM canisters c JOIN projects p ON c.project_id = p.id WHERE c.canister_id = $1 AND p.user_id = $2"
+    )
+    .bind(&canister_id)
+    .bind(&auth_user.user.id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(AppError::Database)?
+    .ok_or_else(|| AppError::NotFound("Canister not found or not owned by you".into()))?;
+
+    let pem = state
+        .config
+        .ic_identity_pem
+        .as_deref()
+        .ok_or_else(|| AppError::Internal("IC_IDENTITY_PEM not configured".into()))?;
+    let client = crate::ic_client::IcClient::new(pem, &state.config.ic_url).await?;
+
+    let env_vars: Vec<crate::ic_client::EnvironmentVariableInput> = body
+        .environment_variables
+        .into_iter()
+        .map(|ev| crate::ic_client::EnvironmentVariableInput {
+            name: ev.name,
+            value: ev.value,
+        })
+        .collect();
+
+    client
+        .set_environment_variables(&canister_id, env_vars)
+        .await?;
+
+    Ok(Json(json!({
+        "canister_id": canister_id,
+        "ok": true,
+    })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SetCanisterEnvRequest {
+    pub environment_variables: Vec<EnvVarEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct EnvVarEntry {
+    pub name: String,
+    pub value: String,
+}
+
+// ============================================================
 // Canister cycles / health endpoints
 // ============================================================
 

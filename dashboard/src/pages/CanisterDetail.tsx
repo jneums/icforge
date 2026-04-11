@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useProject } from "@/hooks/use-project";
 import { useCanisterEnv, useSetCanisterEnv } from "@/hooks/use-canister-env";
-import { useCanisterLogs, useLogSettings, useUpdateLogSettings } from "@/hooks/use-canister-logs";
+import { useCanisterLogs, flattenLogPages, useLogSettings, useUpdateLogSettings } from "@/hooks/use-canister-logs";
 import { useCanisterLogStream } from "@/hooks/use-canister-log-stream";
 import { LogViewer } from "@/components/log-viewer";
 import { Card } from "@/components/ui/card";
@@ -267,11 +267,14 @@ function CanisterLogsTab({
   const [period, setPeriod] = useState<LogPeriod>("24h");
   const [liveMode, setLiveMode] = useState(false);
 
-  // Historical logs (non-live)
-  const { data: logsData, isLoading: logsLoading } = useCanisterLogs(
-    liveMode ? null : canisterId,
-    { period, limit: 500 }
-  );
+  // Historical logs with infinite scroll (non-live)
+  const {
+    data: logsData,
+    isLoading: logsLoading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useCanisterLogs(liveMode ? null : canisterId, { period, limit: 500 });
 
   // Live streaming
   const { logs: streamLogs, streaming } = useCanisterLogStream(
@@ -283,11 +286,10 @@ function CanisterLogsTab({
   const { data: settings } = useLogSettings(projectId);
   const updateSettings = useUpdateLogSettings(projectId);
 
-  // Merge: in live mode use stream logs, otherwise use fetched logs
+  // Merge: in live mode use stream logs, otherwise flatten infinite query pages
   const logs = useMemo(() => {
     if (liveMode) return streamLogs;
-    // API returns DESC order — reverse for chronological display
-    return [...(logsData?.logs ?? [])].reverse();
+    return flattenLogPages(logsData?.pages);
   }, [liveMode, streamLogs, logsData]);
 
   return (
@@ -357,6 +359,9 @@ function CanisterLogsTab({
         loading={logsLoading}
         emptyMessage="No canister logs yet. Logs appear when your canister prints to stdout/stderr."
         height="calc(100vh - 420px)"
+        onLoadMore={() => fetchNextPage()}
+        loadingMore={isFetchingNextPage}
+        hasMore={hasNextPage ?? false}
       />
     </div>
   );

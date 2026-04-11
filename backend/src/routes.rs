@@ -1273,6 +1273,17 @@ pub async fn canister_cycles(
                 "memory_size": s.memory_size,
                 "status": s.status,
                 "recorded_at": s.recorded_at,
+                "query_num_calls": s.query_num_calls,
+                "query_num_instructions": s.query_num_instructions,
+                "query_request_payload_bytes": s.query_request_payload_bytes,
+                "query_response_payload_bytes": s.query_response_payload_bytes,
+                "wasm_memory_limit": s.wasm_memory_limit,
+                "wasm_memory_threshold": s.wasm_memory_threshold,
+                "wasm_memory_size": s.wasm_memory_size,
+                "stable_memory_size": s.stable_memory_size,
+                "global_memory_size": s.global_memory_size,
+                "canister_history_size": s.canister_history_size,
+                "snapshots_size": s.snapshots_size,
             })
         })
         .collect();
@@ -1304,6 +1315,64 @@ pub async fn canister_cycles(
         })
         .collect();
 
+    // Current memory stats from latest snapshot
+    let current_memory_size = latest.map(|s| s.memory_size).unwrap_or(0);
+    let current_wasm_memory_limit = latest.and_then(|s| s.wasm_memory_limit);
+    let current_wasm_memory_threshold = latest.and_then(|s| s.wasm_memory_threshold);
+    let current_wasm_memory_size = latest.and_then(|s| s.wasm_memory_size);
+    let current_stable_memory_size = latest.and_then(|s| s.stable_memory_size);
+
+    // Memory growth rate: bytes per day (latest - earliest) / time span
+    let memory_growth_bytes_per_day: Option<f64> = if snapshots.len() >= 2 {
+        let first = &snapshots[0];
+        let last = snapshots.last().unwrap();
+        let t0 = chrono::NaiveDateTime::parse_from_str(&first.recorded_at, "%Y-%m-%dT%H:%M:%SZ").ok();
+        let t1 = chrono::NaiveDateTime::parse_from_str(&last.recorded_at, "%Y-%m-%dT%H:%M:%SZ").ok();
+        match (t0, t1) {
+            (Some(t0), Some(t1)) => {
+                let secs = (t1 - t0).num_seconds() as f64;
+                if secs > 0.0 {
+                    Some((last.memory_size - first.memory_size) as f64 / secs * 86400.0)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    } else {
+        None
+    };
+
+    // Query stats: latest cumulative counters
+    let current_query_num_calls = latest.and_then(|s| s.query_num_calls);
+    let current_query_num_instructions = latest.and_then(|s| s.query_num_instructions);
+
+    // Query call rate: delta in calls over the period / time span in days
+    let query_calls_per_day: Option<f64> = if snapshots.len() >= 2 {
+        let first = &snapshots[0];
+        let last = snapshots.last().unwrap();
+        match (first.query_num_calls, last.query_num_calls) {
+            (Some(c0), Some(c1)) => {
+                let t0 = chrono::NaiveDateTime::parse_from_str(&first.recorded_at, "%Y-%m-%dT%H:%M:%SZ").ok();
+                let t1 = chrono::NaiveDateTime::parse_from_str(&last.recorded_at, "%Y-%m-%dT%H:%M:%SZ").ok();
+                match (t0, t1) {
+                    (Some(t0), Some(t1)) => {
+                        let secs = (t1 - t0).num_seconds() as f64;
+                        if secs > 0.0 {
+                            Some((c1 - c0) as f64 / secs * 86400.0)
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    } else {
+        None
+    };
+
     Ok(Json(json!({
         "canister_id": canister_id,
         "canister_name": canister.name,
@@ -1315,6 +1384,17 @@ pub async fn canister_cycles(
         "topups": topups_usd,
         "xdr_usd_rate": xdr_usd,
         "compute_margin": margin,
+        // Memory summary
+        "current_memory_size": current_memory_size,
+        "memory_growth_bytes_per_day": memory_growth_bytes_per_day,
+        "wasm_memory_limit": current_wasm_memory_limit,
+        "wasm_memory_threshold": current_wasm_memory_threshold,
+        "wasm_memory_size": current_wasm_memory_size,
+        "stable_memory_size": current_stable_memory_size,
+        // Query stats summary
+        "query_num_calls": current_query_num_calls,
+        "query_num_instructions": current_query_num_instructions,
+        "query_calls_per_day": query_calls_per_day,
     })))
 }
 

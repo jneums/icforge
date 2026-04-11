@@ -230,6 +230,12 @@ pub struct CyclesSnapshot {
     pub query_response_payload_bytes: Option<i64>,
     pub wasm_memory_limit: Option<i64>,
     pub wasm_memory_threshold: Option<i64>,
+    // Memory breakdown fields (migration 017 — from IC MemoryMetrics)
+    pub wasm_memory_size: Option<i64>,
+    pub stable_memory_size: Option<i64>,
+    pub global_memory_size: Option<i64>,
+    pub canister_history_size: Option<i64>,
+    pub snapshots_size: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]

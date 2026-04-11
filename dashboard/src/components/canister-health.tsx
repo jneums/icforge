@@ -7,6 +7,8 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
+  Area,
+  AreaChart,
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -15,7 +17,7 @@ import { HealthBadge } from "@/components/health-badge";
 import { useCanisterCompute } from "@/hooks/use-canister-cycles";
 import type { Canister } from "@/api/types";
 import type { ComputePeriod } from "@/api/canisters";
-import { Flame, Timer, DollarSign } from "lucide-react";
+import { Flame, Timer, DollarSign, HardDrive, Activity } from "lucide-react";
 
 const PERIOD_OPTIONS: { value: ComputePeriod; label: string }[] = [
   { value: "1h", label: "1H" },
@@ -53,6 +55,44 @@ function formatRunway(days: number | null): string {
   if (days > 365) return `${(days / 365).toFixed(1)}y`;
   if (days > 30) return `${Math.round(days / 30)}mo`;
   return `${Math.round(days)}d`;
+}
+
+/** Format bytes in human-friendly units */
+function formatBytes(bytes: number | null | undefined): string {
+  if (bytes == null || bytes === 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  let i = 0;
+  let val = bytes;
+  while (val >= 1024 && i < units.length - 1) {
+    val /= 1024;
+    i++;
+  }
+  return `${val < 10 ? val.toFixed(2) : val < 100 ? val.toFixed(1) : Math.round(val)} ${units[i]}`;
+}
+
+/** Format bytes for chart axis — compact */
+function formatChartBytes(bytes: number): string {
+  if (bytes >= 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)}G`;
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)}M`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)}K`;
+  return `${bytes}`;
+}
+
+/** Format large numbers compactly (e.g. 1.2M, 45.3K) */
+function formatCompact(n: number | null | undefined): string {
+  if (n == null) return "—";
+  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`;
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return `${Math.round(n)}`;
+}
+
+/** Format bytes/day growth rate */
+function formatGrowthRate(bytesPerDay: number | null): string {
+  if (bytesPerDay == null) return "—";
+  if (Math.abs(bytesPerDay) < 1) return "Stable";
+  const sign = bytesPerDay > 0 ? "+" : "";
+  return `${sign}${formatBytes(Math.abs(bytesPerDay))}/day`;
 }
 
 interface CanisterHealthPanelProps {
@@ -95,6 +135,36 @@ export function CanisterHealthPanel({ canister }: CanisterHealthPanelProps) {
     date: formatChartDate(h.recorded_at, period),
     value: h.compute_value_cents,
   }));
+
+  // Memory chart data — Y-axis is bytes
+  const memoryChartData = compute.history.map((h) => ({
+    date: formatChartDate(h.recorded_at, period),
+    total: h.memory_size,
+    wasm: h.wasm_memory_size ?? undefined,
+    stable: h.stable_memory_size ?? undefined,
+  }));
+
+  // Query calls chart data — show delta between consecutive snapshots
+  // (query_num_calls is cumulative, so we diff to get calls-per-interval)
+  const queryChartData = compute.history
+    .map((h, i) => {
+      if (i === 0) return null;
+      const prev = compute.history[i - 1];
+      const calls = (h.query_num_calls ?? 0) - (prev.query_num_calls ?? 0);
+      return {
+        date: formatChartDate(h.recorded_at, period),
+        calls: Math.max(0, calls),
+      };
+    })
+    .filter((d): d is { date: string; calls: number } => d !== null);
+
+  // Query calls in selected period
+  const firstSnap = compute.history[0];
+  const lastSnap = compute.history[compute.history.length - 1];
+  const queriesInPeriod =
+    firstSnap && lastSnap && firstSnap.query_num_calls != null && lastSnap.query_num_calls != null
+      ? lastSnap.query_num_calls - firstSnap.query_num_calls
+      : null;
 
   return (
     <Card className="border-border/50">
@@ -230,6 +300,231 @@ export function CanisterHealthPanel({ canister }: CanisterHealthPanelProps) {
             </div>
           </div>
         )}
+
+        {/* ─── Memory Usage Card ─── */}
+        <div className="pt-3 border-t border-border/30">
+          <div className="grid grid-cols-4 gap-4 mb-3">
+            <div>
+              <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
+                <HardDrive className="h-3 w-3" /> Total Memory
+              </div>
+              <div className="text-xl font-bold">
+                {formatBytes(compute.current_memory_size)}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground mb-1">Growth Rate</div>
+              <div className="text-sm font-medium">
+                {formatGrowthRate(compute.memory_growth_bytes_per_day)}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground mb-1">Heap (Wasm)</div>
+              <div className="text-sm font-medium">
+                {formatBytes(compute.wasm_memory_size)}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground mb-1">Stable Memory</div>
+              <div className="text-sm font-medium">
+                {formatBytes(compute.stable_memory_size)}
+              </div>
+            </div>
+          </div>
+
+          {/* Wasm limit bar if available */}
+          {compute.wasm_memory_limit != null && compute.wasm_memory_limit > 0 && (
+            <div className="mb-3">
+              <div className="flex items-center justify-between text-[10px] text-muted-foreground mb-1">
+                <span>Memory usage vs limit</span>
+                <span>
+                  {formatBytes(compute.current_memory_size)} / {formatBytes(compute.wasm_memory_limit)}
+                </span>
+              </div>
+              <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all"
+                  style={{
+                    width: `${Math.min(100, (compute.current_memory_size / compute.wasm_memory_limit) * 100)}%`,
+                    backgroundColor:
+                      compute.current_memory_size / compute.wasm_memory_limit > 0.9
+                        ? "var(--destructive)"
+                        : compute.current_memory_size / compute.wasm_memory_limit > 0.7
+                          ? "var(--warning, #f59e0b)"
+                          : "var(--primary)",
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Memory over time chart */}
+          {memoryChartData.length > 1 && (
+            <div>
+              <span className="text-xs text-muted-foreground">Memory Over Time</span>
+              <div className="h-40 mt-1">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={memoryChartData}>
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-border/30" />
+                    <XAxis
+                      dataKey="date"
+                      tick={{ fontSize: 11 }}
+                      className="text-muted-foreground"
+                    />
+                    <YAxis
+                      tickFormatter={formatChartBytes}
+                      tick={{ fontSize: 11 }}
+                      className="text-muted-foreground"
+                      width={55}
+                    />
+                    <Tooltip
+                      formatter={(val, name) => [
+                        formatBytes(Number(val)),
+                        name === "total" ? "Total" : name === "wasm" ? "Heap" : "Stable",
+                      ]}
+                      labelStyle={{ color: "var(--muted-foreground)" }}
+                      contentStyle={{
+                        backgroundColor: "var(--card)",
+                        border: "1px solid var(--border)",
+                        borderRadius: "6px",
+                        fontSize: "12px",
+                      }}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="total"
+                      stroke="var(--primary)"
+                      fill="var(--primary)"
+                      fillOpacity={0.1}
+                      strokeWidth={2}
+                      dot={false}
+                      activeDot={{ r: 3 }}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="wasm"
+                      stroke="#8b5cf6"
+                      fill="#8b5cf6"
+                      fillOpacity={0.08}
+                      strokeWidth={1.5}
+                      strokeDasharray="4 2"
+                      dot={false}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="stable"
+                      stroke="#06b6d4"
+                      fill="#06b6d4"
+                      fillOpacity={0.08}
+                      strokeWidth={1.5}
+                      strokeDasharray="4 2"
+                      dot={false}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="flex items-center gap-4 mt-1 text-[10px] text-muted-foreground">
+                <span className="flex items-center gap-1">
+                  <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: "var(--primary)" }} />
+                  Total
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="inline-block w-2 h-2 rounded-full bg-violet-500" />
+                  Heap
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="inline-block w-2 h-2 rounded-full bg-cyan-500" />
+                  Stable
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ─── Query Calls Card ─── */}
+        <div className="pt-3 border-t border-border/30">
+          <div className="grid grid-cols-4 gap-4 mb-3">
+            <div>
+              <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
+                <Activity className="h-3 w-3" /> Total Calls
+              </div>
+              <div className="text-xl font-bold">
+                {formatCompact(compute.query_num_calls)}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground mb-1">In Period</div>
+              <div className="text-sm font-medium">
+                {formatCompact(queriesInPeriod)}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground mb-1">Calls/Day</div>
+              <div className="text-sm font-medium">
+                {formatCompact(compute.query_calls_per_day)}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground mb-1">Avg Instructions</div>
+              <div className="text-sm font-medium">
+                {compute.query_num_calls && compute.query_num_instructions && compute.query_num_calls > 0
+                  ? formatCompact(Math.round(compute.query_num_instructions / compute.query_num_calls))
+                  : "—"}
+              </div>
+            </div>
+          </div>
+
+          {/* Query calls over time chart */}
+          {queryChartData.length > 1 && (
+            <div>
+              <span className="text-xs text-muted-foreground">Query Calls Over Time</span>
+              <div className="h-40 mt-1">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={queryChartData}>
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-border/30" />
+                    <XAxis
+                      dataKey="date"
+                      tick={{ fontSize: 11 }}
+                      className="text-muted-foreground"
+                    />
+                    <YAxis
+                      tickFormatter={(v) => formatCompact(v)}
+                      tick={{ fontSize: 11 }}
+                      className="text-muted-foreground"
+                      width={50}
+                    />
+                    <Tooltip
+                      formatter={(val) => [formatCompact(Number(val)), "Calls"]}
+                      labelStyle={{ color: "var(--muted-foreground)" }}
+                      contentStyle={{
+                        backgroundColor: "var(--card)",
+                        border: "1px solid var(--border)",
+                        borderRadius: "6px",
+                        fontSize: "12px",
+                      }}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="calls"
+                      stroke="#10b981"
+                      fill="#10b981"
+                      fillOpacity={0.1}
+                      strokeWidth={2}
+                      dot={false}
+                      activeDot={{ r: 3 }}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
+
+          {queryChartData.length <= 1 && compute.query_num_calls == null && (
+            <div className="h-16 flex items-center justify-center text-sm text-muted-foreground border border-dashed border-border/50 rounded-md">
+              No query call data available yet
+            </div>
+          )}
+        </div>
       </CardContent>
     </Card>
   );

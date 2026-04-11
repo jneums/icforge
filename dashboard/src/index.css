@@ -151,4 +151,25 @@
   ::-webkit-scrollbar-corner {
     background: transparent;
   }
+
+  /* Virtuoso scroller overrides — Virtuoso creates its own
+     overflow container that can ignore the global * rules */
+  [data-virtuoso-scroller] {
+    scrollbar-width: thin;
+    scrollbar-color: oklch(0.35 0 0) transparent;
+  }
+  [data-virtuoso-scroller]::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  [data-virtuoso-scroller]::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  [data-virtuoso-scroller]::-webkit-scrollbar-thumb {
+    background: oklch(0.35 0 0);
+    border-radius: 9999px;
+  }
+  [data-virtuoso-scroller]::-webkit-scrollbar-thumb:hover {
+    background: oklch(0.45 0 0);
+  }
 }

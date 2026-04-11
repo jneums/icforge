@@ -122,11 +122,33 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    /* Thin scrollbar for Firefox */
+    scrollbar-width: thin;
+    scrollbar-color: oklch(0.35 0 0) transparent;
   }
   body {
     @apply bg-background text-foreground min-h-screen;
   }
   html {
     @apply font-sans;
+  }
+
+  /* Webkit scrollbar (Chrome, Edge, Safari) */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: oklch(0.35 0 0);
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: oklch(0.45 0 0);
+  }
+  ::-webkit-scrollbar-corner {
+    background: transparent;
   }
 }

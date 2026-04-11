@@ -168,7 +168,7 @@ async fn collect_canister_logs(
     }
 
     // Find the highest log_index we already have for this IC canister
-    let max_existing: Option<(i64,)> = sqlx::query_as(
+    let max_existing: Option<(Option<i64>,)> = sqlx::query_as(
         "SELECT MAX(log_index) FROM canister_logs WHERE ic_canister_id = $1",
     )
     .bind(ic_id)
@@ -176,7 +176,7 @@ async fn collect_canister_logs(
     .await?;
 
     let max_idx = max_existing
-        .and_then(|(v,)| Some(v))
+        .and_then(|(v,)| v)
         .unwrap_or(-1);
 
     let now = chrono::Utc::now()

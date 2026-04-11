@@ -119,6 +119,25 @@ pub struct EnvironmentVariableInput {
     pub value: String,
 }
 
+// -- fetch_canister_logs types --
+
+#[derive(CandidType)]
+struct FetchCanisterLogsArg {
+    canister_id: Principal,
+}
+
+#[derive(CandidType, Deserialize, Debug, Clone)]
+pub struct CanisterLogRecord {
+    pub idx: u64,
+    pub timestamp_nanos: u64,
+    pub content: Vec<u8>,
+}
+
+#[derive(CandidType, Deserialize, Debug)]
+struct FetchCanisterLogsResult {
+    canister_log_records: Vec<CanisterLogRecord>,
+}
+
 // -- IcClient --
 
 pub struct IcClient {
@@ -257,6 +276,42 @@ impl IcClient {
         );
 
         Ok(())
+    }
+
+    /// Fetch recent debug logs from a canister via the IC management canister's
+    /// `fetch_canister_logs` endpoint. Returns log records with index, timestamp,
+    /// and raw content bytes (UTF-8 text from ic_cdk::println! / ic0.debug_print).
+    ///
+    /// Note: This is an ingress-only call — the agent must be a controller of the canister.
+    /// The IC retains up to 4KB of debug log buffer per canister.
+    pub async fn fetch_canister_logs(
+        &self,
+        canister_id_text: &str,
+    ) -> Result<Vec<CanisterLogRecord>, AppError> {
+        let management = Principal::from_text(MANAGEMENT_CANISTER_ID)
+            .map_err(|e| AppError::Internal(format!("Invalid management canister ID: {e}")))?;
+
+        let canister_id = Principal::from_text(canister_id_text)
+            .map_err(|e| AppError::Internal(format!("Invalid canister ID '{canister_id_text}': {e}")))?;
+
+        let args = FetchCanisterLogsArg { canister_id };
+        let arg_bytes = Encode!(&args)
+            .map_err(|e| AppError::Internal(format!("Failed to encode fetch_canister_logs args: {e}")))?;
+
+        // fetch_canister_logs is a query-like call but must be sent as an ingress message
+        // (not an inter-canister call). ic-agent's query() works for this.
+        let response = self.agent
+            .query(&management, "fetch_canister_logs")
+            .with_arg(arg_bytes)
+            .with_effective_canister_id(canister_id)
+            .call()
+            .await
+            .map_err(|e| AppError::Internal(format!("fetch_canister_logs call failed for {canister_id_text}: {e}")))?;
+
+        let result = Decode!(&response, FetchCanisterLogsResult)
+            .map_err(|e| AppError::Internal(format!("Failed to decode fetch_canister_logs response: {e}")))?;
+
+        Ok(result.canister_log_records)
     }
 
     /// Set environment variables on a canister via the management canister's update_settings.

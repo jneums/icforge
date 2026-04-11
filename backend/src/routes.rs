@@ -1375,7 +1375,21 @@ pub async fn canister_cycles_topup(
     let xdr_usd = state.exchange_rate.get().await.xdr_usd;
     let cost_cents = crate::exchange_rate::cycles_to_credit_cents(cycles, xdr_usd, state.config.compute_margin);
 
-    // Debit user balance
+    // Deposit cycles to canister on IC FIRST — before debiting the user.
+    // If this fails, the user doesn't lose money.
+    let pem = state
+        .config
+        .ic_identity_pem
+        .as_deref()
+        .ok_or_else(|| AppError::Internal("IC_IDENTITY_PEM not configured".into()))?;
+    crate::compute_poller::ensure_icp_identity(pem)
+        .await
+        .map_err(|e| AppError::Internal(e))?;
+    crate::compute_poller::deposit_cycles_via_cli(&canister_id, cycles)
+        .await
+        .map_err(|e| AppError::Internal(e))?;
+
+    // Cycles landed — now debit user balance
     crate::billing::debit_balance(
         &state.db,
         state.config.stripe_secret_key.as_deref(),
@@ -1385,15 +1399,6 @@ pub async fn canister_cycles_topup(
         &format!("Manual top-up {} ({}) — {} cycles", canister.name, canister_id, req.amount),
     )
     .await?;
-
-    // Deposit cycles to canister on IC
-    let pem = state
-        .config
-        .ic_identity_pem
-        .as_deref()
-        .ok_or_else(|| AppError::Internal("IC_IDENTITY_PEM not configured".into()))?;
-    let ic = crate::ic_client::IcClient::new(pem, &state.config.ic_url).await?;
-    ic.deposit_cycles(&canister_id, cycles).await?;
 
     // Record the top-up
     let topup_id = uuid::Uuid::new_v4().to_string();

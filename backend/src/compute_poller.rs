@@ -215,10 +215,62 @@ async fn poll_single_canister(
     Ok(())
 }
 
+/// Ensure the `icforge` icp-cli identity exists (imported from PEM).
+/// This is idempotent — if the identity already exists, import will fail
+/// gracefully and we just move on.
+pub async fn ensure_icp_identity(pem: &str) -> Result<(), String> {
+    use tokio::process::Command;
+
+    // Write PEM to a temp file
+    let pem_path = "/tmp/icforge-poller-identity.pem";
+    tokio::fs::write(pem_path, pem)
+        .await
+        .map_err(|e| format!("Failed to write PEM temp file: {e}"))?;
+
+    // Try to import — ignore errors (identity may already exist)
+    let _ = Command::new("icp")
+        .args(["identity", "import", "icforge", "--from-pem", pem_path, "--storage", "plaintext"])
+        .output()
+        .await;
+
+    // Clean up temp file
+    let _ = tokio::fs::remove_file(pem_path).await;
+
+    Ok(())
+}
+
+/// Deposit cycles into a canister using `icp canister top-up` CLI.
+/// This uses the cycles ledger withdraw flow (the correct off-chain method),
+/// unlike the management canister's deposit_cycles which is canister-to-canister only.
+pub async fn deposit_cycles_via_cli(ic_id: &str, amount: u128) -> Result<(), String> {
+    use tokio::process::Command;
+
+    let amount_str = amount.to_string();
+
+    let output = Command::new("icp")
+        .args([
+            "canister", "top-up", ic_id,
+            "--amount", &amount_str,
+            "-n", "ic",
+            "--identity", "icforge",
+        ])
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run `icp canister top-up`: {e}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("icp canister top-up failed (exit {}): {stderr}",
+            output.status.code().unwrap_or(-1)));
+    }
+
+    Ok(())
+}
+
 async fn auto_topup_canister(
     db: &PgPool,
     config: &AppConfig,
-    ic: &IcClient,
+    _ic: &IcClient,
     canister: &CanisterRecord,
     ic_id: &str,
     rate_cache: &ExchangeRateCache,
@@ -251,7 +303,19 @@ async fn auto_topup_canister(
         return Ok(());
     }
 
-    // Debit the user's balance
+    // Ensure icp-cli identity is available
+    if let Some(pem) = &config.ic_identity_pem {
+        ensure_icp_identity(pem).await?;
+    } else {
+        return Err("IC_IDENTITY_PEM not set — cannot top up".into());
+    }
+
+    // Deposit cycles FIRST — only debit the user if this succeeds.
+    // This prevents the money-drain loop where the user gets charged
+    // but cycles never land on the canister.
+    deposit_cycles_via_cli(ic_id, topup_amount).await?;
+
+    // Cycles deposited successfully — now debit the user's balance
     billing::debit_balance(
         db,
         config.stripe_secret_key.as_deref(),
@@ -266,11 +330,6 @@ async fn auto_topup_canister(
     )
     .await
     .map_err(|e| format!("debit_balance failed: {e}"))?;
-
-    // Deposit cycles to the canister
-    ic.deposit_cycles(ic_id, topup_amount)
-        .await
-        .map_err(|e| format!("deposit_cycles failed: {e}"))?;
 
     // Record the top-up
     let topup_id = uuid::Uuid::new_v4().to_string();

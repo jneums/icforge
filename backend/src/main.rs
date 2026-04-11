@@ -22,6 +22,7 @@ mod error;
 mod exchange_rate;
 mod github;
 mod ic_client;
+mod log_poller;
 mod models;
 mod routes;
 mod webhooks;
@@ -73,7 +74,10 @@ async fn main() {
     deploy_worker::spawn_worker(pool.clone(), config.clone(), state.log_channels.clone(), state.exchange_rate.clone());
 
     // Start the background cycles poller (checks every 6h)
-    compute_poller::spawn_poller(pool, config, state.exchange_rate.clone());
+    compute_poller::spawn_poller(pool.clone(), config.clone(), state.exchange_rate.clone());
+
+    // Start the background canister log poller (fetches IC logs every 30s)
+    log_poller::spawn_log_poller(pool, config);
 
     let app = Router::new()
         .route("/health", get(health))
@@ -94,8 +98,13 @@ async fn main() {
         .route("/api/v1/canisters/{canister_id}/cycles", get(routes::canister_cycles))
         .route("/api/v1/canisters/{canister_id}/cycles/settings", put(routes::canister_cycles_settings))
         .route("/api/v1/canisters/{canister_id}/cycles/topup", post(routes::canister_cycles_topup))
+        // Canister runtime logs
+        .route("/api/v1/canisters/{canister_id}/logs", get(routes::canister_logs))
+        .route("/api/v1/canisters/{canister_id}/logs/stream", get(routes::canister_logs_stream))
         // Project health
         .route("/api/v1/projects/{project_id}/health", get(routes::project_health))
+        // Project log retention settings
+        .route("/api/v1/projects/{project_id}/settings/logs", get(routes::project_log_settings_get).put(routes::project_log_settings))
         // API tokens
         .route("/api/v1/tokens", get(routes::list_api_tokens))
         .route("/api/v1/tokens", post(routes::create_api_token))

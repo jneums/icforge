@@ -1,52 +1,25 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useMemo } from "react";
 import { useParams, Link } from "react-router-dom";
 import {
   GitCommit,
   GitBranch,
-  Copy,
   AlertCircle,
   ExternalLink,
   Clock,
 } from "lucide-react";
-import type { LogEntry } from "@/api/types";
 import { useAuth } from "@/hooks/use-auth";
 import { useDeployStatus, useDeployLogs } from "@/hooks/use-deploy";
 import { useDeployStream } from "@/hooks/use-deploy-stream";
-import { cn } from "@/lib/utils";
+import { LogViewer } from "@/components/log-viewer";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Spinner } from "@/components/ui/spinner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { StatusBadge } from "@/components/status-badge";
 import { CopyButton } from "@/components/copy-button";
-import { toast } from "sonner";
 
 const IN_PROGRESS_STATUSES = ["queued", "building", "deploying", "created"];
-
-const LEVEL_COLORS: Record<string, string> = {
-  error: "text-destructive",
-  warn: "text-warning",
-  warning: "text-warning",
-  info: "text-muted-foreground",
-  debug: "text-muted-foreground/60",
-};
-
-function formatTimestamp(ts: string): string | null {
-  if (!ts) return null;
-  try {
-    const normalized = ts.includes("T") ? ts : ts.replace(" ", "T");
-    const d = new Date(normalized.endsWith("Z") ? normalized : normalized + "Z");
-    if (isNaN(d.getTime())) return null;
-    const h = String(d.getUTCHours()).padStart(2, "0");
-    const m = String(d.getUTCMinutes()).padStart(2, "0");
-    const s = String(d.getUTCSeconds()).padStart(2, "0");
-    return `${h}:${m}:${s}`;
-  } catch {
-    return null;
-  }
-}
 
 function timeAgo(dateStr: string): string {
   const date = new Date(dateStr + "Z");
@@ -66,77 +39,6 @@ function formatDuration(ms: number): string {
   const m = Math.floor(s / 60);
   const rem = s % 60;
   return rem > 0 ? `${m}m ${rem}s` : `${m}m`;
-}
-
-/* -- Linkify URLs in log messages -- */
-
-const URL_RE = /(https?:\/\/[^\s)>]+)/g;
-
-function LinkifiedMessage({ text }: { text: string }) {
-  const parts = text.split(URL_RE);
-  if (parts.length === 1) return <>{text}</>;
-  return (
-    <>
-      {parts.map((part, i) =>
-        URL_RE.test(part) ? (
-          <a
-            key={i}
-            href={part}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-primary hover:underline"
-          >
-            {part}
-          </a>
-        ) : (
-          <span key={i}>{part}</span>
-        )
-      )}
-    </>
-  );
-}
-
-/* -- Log Line -- */
-
-function LogLine({
-  entry,
-  lineNumber,
-  highlighted,
-  onClickLine,
-}: {
-  entry: LogEntry;
-  lineNumber: number;
-  highlighted: boolean;
-  onClickLine: (n: number) => void;
-}) {
-  const ts = formatTimestamp(entry.timestamp);
-  return (
-    <div
-      id={`L${lineNumber}`}
-      className={cn(
-        "flex gap-2 pl-2 pr-3 py-px hover:bg-muted/30 border-l-2 border-transparent",
-        highlighted && "bg-primary/5 border-l-primary"
-      )}
-    >
-      <span
-        className="text-muted-foreground/50 select-none cursor-pointer min-w-[2.5ch] text-right hover:text-primary"
-        onClick={() => onClickLine(lineNumber)}
-      >
-        {lineNumber}
-      </span>
-      {ts && (
-        <span className="text-muted-foreground/70 whitespace-nowrap">
-          {ts}
-        </span>
-      )}
-      <span className={cn("whitespace-nowrap", LEVEL_COLORS[entry.level])}>
-        [{entry.level}]
-      </span>
-      <span className="text-foreground whitespace-pre-wrap break-all flex-1">
-        <LinkifiedMessage text={entry.message} />
-      </span>
-    </div>
-  );
 }
 
 /* -- Main Page -- */
@@ -172,24 +74,6 @@ export default function DeployDetail() {
     () => (streamLogs.length > 0 ? streamLogs : initialLogs ?? []),
     [streamLogs, initialLogs]
   );
-
-  // UI state
-  const [autoScroll, setAutoScroll] = useState(true);
-  const [highlightedLine, setHighlightedLine] = useState<number | null>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
-
-  // Read line from URL hash
-  useEffect(() => {
-    const hash = window.location.hash;
-    if (hash.startsWith("#L")) setHighlightedLine(parseInt(hash.slice(2)));
-  }, []);
-
-  // Auto-scroll on new logs
-  useEffect(() => {
-    if (autoScroll && scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [logs, autoScroll]);
 
   /* -- Render -- */
 
@@ -345,64 +229,14 @@ export default function DeployDetail() {
 
       {/* Log Viewer */}
       <div>
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-lg font-semibold">Deploy Logs</h2>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-xs"
-              onClick={() => {
-                navigator.clipboard.writeText(
-                  logs.map((l) => l.message).join("\n")
-                );
-                toast.success("Logs copied to clipboard");
-              }}
-            >
-              <Copy className="h-3 w-3 mr-1.5" /> Copy
-            </Button>
-            <Button
-              variant={autoScroll ? "secondary" : "ghost"}
-              size="sm"
-              className="text-xs"
-              onClick={() => setAutoScroll(!autoScroll)}
-            >
-              Auto-scroll {autoScroll ? "on" : "off"}
-            </Button>
-          </div>
-        </div>
-
-        <div
-          ref={scrollRef}
-          className="bg-background rounded-lg border border-border/50 font-mono text-[13px] leading-relaxed overflow-y-auto min-h-[300px] py-2"
-          style={{ maxHeight: "calc(100vh - 340px)" }}
-        >
-          {logs.length === 0 ? (
-            <div className="flex items-center justify-center py-8 text-muted-foreground">
-              {streaming || isInProgress ? (
-                <>
-                  <Spinner className="h-4 w-4 mr-2" />
-                  Waiting for logs...
-                </>
-              ) : (
-                "No logs available"
-              )}
-            </div>
-          ) : (
-            logs.map((entry, i) => (
-              <LogLine
-                key={i}
-                entry={entry}
-                lineNumber={i + 1}
-                highlighted={highlightedLine === i + 1}
-                onClickLine={(n) => {
-                  window.location.hash = `#L${n}`;
-                  setHighlightedLine(n);
-                }}
-              />
-            ))
-          )}
-        </div>
+        <h2 className="text-lg font-semibold mb-3">Deploy Logs</h2>
+        <LogViewer
+          logs={logs}
+          streaming={streaming || isInProgress}
+          loading={logsLoading}
+          showFilters={false}
+          height="calc(100vh - 340px)"
+        />
       </div>
     </div>
   );

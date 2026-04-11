@@ -26,6 +26,8 @@ pub struct Project {
     pub subnet_id: Option<String>,
     pub github_repo_id: Option<String>,
     pub production_branch: Option<String>,
+    /// Log retention in hours (1, 24, 168=7d, 720=30d). Default 24.
+    pub log_retention_hours: i32,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -82,6 +84,19 @@ pub struct DeployLog {
     pub level: String,
     pub message: String,
     pub timestamp: String,
+}
+
+/// Runtime canister log entry (from IC management canister's fetch_canister_logs)
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct CanisterLog {
+    pub id: String,
+    pub canister_id: String,      // DB canister record ID
+    pub ic_canister_id: String,   // actual IC canister ID
+    pub log_index: i64,
+    pub level: String,
+    pub message: String,
+    pub ic_timestamp: i64,        // nanosecond timestamp from IC
+    pub collected_at: String,
 }
 
 // Request types
@@ -271,4 +286,10 @@ pub struct CyclesSettingsRequest {
 pub struct ManualTopupRequest {
     /// Cycles amount to deposit (e.g. 2_000_000_000_000 = 2T)
     pub amount: i64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LogRetentionRequest {
+    /// Retention in hours. Allowed: 1, 24, 168 (7d), 720 (30d).
+    pub log_retention_hours: i32,
 }

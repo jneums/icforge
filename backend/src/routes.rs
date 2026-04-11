@@ -317,6 +317,7 @@ pub async fn create_project(
         subnet_id: req.subnet,
         github_repo_id: None,
         production_branch: None,
+        log_retention_hours: 24,
         created_at: now.clone(),
         updated_at: now,
     };
@@ -1656,4 +1657,425 @@ fn cycles_health_level(balance: i64) -> String {
     } else {
         "healthy".to_string()
     }
+}
+
+// ============================================================
+// Project log retention settings
+// ============================================================
+
+const ALLOWED_RETENTION_HOURS: &[i32] = &[1, 24, 168, 720];
+
+/// PUT /api/v1/projects/:project_id/settings/logs — Update log retention for a project
+pub async fn project_log_settings(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+    Path(project_id): Path<String>,
+    Json(body): Json<crate::models::LogRetentionRequest>,
+) -> Result<Json<Value>, AppError> {
+    // Validate allowed values
+    if !ALLOWED_RETENTION_HOURS.contains(&body.log_retention_hours) {
+        return Err(AppError::BadRequest(format!(
+            "Invalid retention hours. Allowed values: {} (1h, 24h, 7d, 30d)",
+            ALLOWED_RETENTION_HOURS.iter().map(|h| h.to_string()).collect::<Vec<_>>().join(", ")
+        )));
+    }
+
+    // Verify project belongs to this user
+    let project: Project = sqlx::query_as(
+        "SELECT * FROM projects WHERE id = $1 AND user_id = $2",
+    )
+    .bind(&project_id)
+    .bind(&auth_user.user.id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(AppError::Database)?
+    .ok_or_else(|| AppError::NotFound("Project not found".into()))?;
+
+    let now = chrono::Utc::now()
+        .format("%Y-%m-%dT%H:%M:%SZ")
+        .to_string();
+
+    sqlx::query(
+        "UPDATE projects SET log_retention_hours = $1, updated_at = $2 WHERE id = $3",
+    )
+    .bind(body.log_retention_hours)
+    .bind(&now)
+    .bind(&project_id)
+    .execute(&state.db)
+    .await
+    .map_err(AppError::Database)?;
+
+    // Estimate storage impact (rough heuristic)
+    let retention_label = match body.log_retention_hours {
+        1 => "1 hour",
+        24 => "1 day",
+        168 => "7 days",
+        720 => "30 days",
+        h => return Err(AppError::BadRequest(format!("Unexpected retention: {h}"))),
+    };
+
+    tracing::info!(
+        project_id = project.id,
+        project_name = project.name,
+        old_retention = project.log_retention_hours,
+        new_retention = body.log_retention_hours,
+        "Log retention updated"
+    );
+
+    Ok(Json(json!({
+        "project_id": project_id,
+        "log_retention_hours": body.log_retention_hours,
+        "retention_label": retention_label,
+        "note": "Logs older than the retention period are automatically pruned."
+    })))
+}
+
+/// GET /api/v1/projects/:project_id/settings/logs — Get current log retention settings
+pub async fn project_log_settings_get(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+    Path(project_id): Path<String>,
+) -> Result<Json<Value>, AppError> {
+    let project: Project = sqlx::query_as(
+        "SELECT * FROM projects WHERE id = $1 AND user_id = $2",
+    )
+    .bind(&project_id)
+    .bind(&auth_user.user.id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(AppError::Database)?
+    .ok_or_else(|| AppError::NotFound("Project not found".into()))?;
+
+    let retention_label = match project.log_retention_hours {
+        1 => "1 hour",
+        24 => "1 day",
+        168 => "7 days",
+        720 => "30 days",
+        _ => "custom",
+    };
+
+    // Count current stored logs for this project's canisters
+    let log_count: (i64,) = sqlx::query_as(
+        r#"SELECT COUNT(*) FROM canister_logs cl
+           JOIN canisters c ON cl.canister_id = c.id
+           WHERE c.project_id = $1"#,
+    )
+    .bind(&project_id)
+    .fetch_one(&state.db)
+    .await
+    .map_err(AppError::Database)?;
+
+    Ok(Json(json!({
+        "project_id": project_id,
+        "log_retention_hours": project.log_retention_hours,
+        "retention_label": retention_label,
+        "allowed_values": [
+            { "hours": 1, "label": "1 hour", "description": "Minimal storage" },
+            { "hours": 24, "label": "1 day", "description": "Default" },
+            { "hours": 168, "label": "7 days", "description": "More storage" },
+            { "hours": 720, "label": "30 days", "description": "Maximum storage" }
+        ],
+        "current_log_count": log_count.0,
+    })))
+}
+
+// ============================================================
+// Canister runtime logs (from IC management canister)
+// ============================================================
+
+#[derive(Debug, Deserialize)]
+pub struct CanisterLogsQueryParams {
+    /// Filter by level: debug, info, warn, error
+    pub level: Option<String>,
+    /// Search substring in message
+    pub search: Option<String>,
+    /// Pagination cursor: return logs with ic_timestamp < before (nanoseconds)
+    pub before: Option<i64>,
+    /// Max results (default 100, max 500)
+    pub limit: Option<i64>,
+    /// Time period: 1h, 6h, 24h, 7d, 30d (default: all within retention)
+    pub period: Option<String>,
+}
+
+/// GET /api/v1/canisters/:canister_id/logs — Paginated canister runtime logs
+pub async fn canister_logs(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+    Path(canister_id): Path<String>,
+    Query(params): Query<CanisterLogsQueryParams>,
+) -> Result<Json<Value>, AppError> {
+    // Verify canister belongs to this user (canister_id = IC canister principal)
+    let _canister: CanisterRecord = sqlx::query_as(
+        "SELECT c.* FROM canisters c JOIN projects p ON c.project_id = p.id WHERE c.canister_id = $1 AND p.user_id = $2",
+    )
+    .bind(&canister_id)
+    .bind(&auth_user.user.id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(AppError::Database)?
+    .ok_or_else(|| AppError::NotFound("Canister not found or not owned by you".into()))?;
+
+    let limit = params.limit.unwrap_or(100).min(500);
+
+    // Build dynamic query with filters
+    let mut query = String::from(
+        "SELECT * FROM canister_logs WHERE ic_canister_id = $1"
+    );
+    let mut bind_idx = 2u32;
+
+    // Period filter (convert to nanosecond timestamp)
+    let period_nanos: Option<i64> = params.period.as_deref().map(|p| {
+        let hours: i64 = match p {
+            "1h" => 1,
+            "6h" => 6,
+            "24h" => 24,
+            "7d" => 7 * 24,
+            "30d" => 30 * 24,
+            _ => 24,
+        };
+        (chrono::Utc::now() - chrono::Duration::hours(hours))
+            .timestamp_nanos_opt()
+            .unwrap_or(0)
+    });
+
+    if period_nanos.is_some() {
+        query.push_str(&format!(" AND ic_timestamp >= ${bind_idx}"));
+        bind_idx += 1;
+    }
+
+    if params.level.is_some() {
+        query.push_str(&format!(" AND level = ${bind_idx}"));
+        bind_idx += 1;
+    }
+
+    if params.search.is_some() {
+        query.push_str(&format!(" AND message ILIKE ${bind_idx}"));
+        bind_idx += 1;
+    }
+
+    if params.before.is_some() {
+        query.push_str(&format!(" AND ic_timestamp < ${bind_idx}"));
+        bind_idx += 1;
+    }
+
+    query.push_str(&format!(" ORDER BY ic_timestamp DESC LIMIT ${bind_idx}"));
+
+    // Build and execute with dynamic binds
+    let mut q = sqlx::query_as::<_, crate::models::CanisterLog>(&query)
+        .bind(&canister_id);
+
+    if let Some(ref nanos) = period_nanos {
+        q = q.bind(nanos);
+    }
+    if let Some(ref level) = params.level {
+        q = q.bind(level);
+    }
+    if let Some(ref search) = params.search {
+        q = q.bind(format!("%{search}%"));
+    }
+    if let Some(ref before) = params.before {
+        q = q.bind(before);
+    }
+    q = q.bind(limit);
+
+    let logs: Vec<crate::models::CanisterLog> = q
+        .fetch_all(&state.db)
+        .await
+        .map_err(AppError::Database)?;
+
+    // Convert nanosecond timestamps to ISO 8601 for the response
+    let entries: Vec<Value> = logs
+        .iter()
+        .map(|l| {
+            let ts_secs = l.ic_timestamp / 1_000_000_000;
+            let ts_nanos = (l.ic_timestamp % 1_000_000_000) as u32;
+            let dt = chrono::DateTime::from_timestamp(ts_secs, ts_nanos)
+                .map(|d| d.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string())
+                .unwrap_or_else(|| l.ic_timestamp.to_string());
+
+            json!({
+                "id": l.id,
+                "log_index": l.log_index,
+                "level": l.level,
+                "message": l.message,
+                "timestamp": dt,
+                "ic_timestamp": l.ic_timestamp,
+                "collected_at": l.collected_at,
+            })
+        })
+        .collect();
+
+    // Next cursor = ic_timestamp of last entry
+    let next_before = logs.last().map(|l| l.ic_timestamp);
+
+    Ok(Json(json!({
+        "canister_id": canister_id,
+        "logs": entries,
+        "next_before": next_before,
+        "count": entries.len(),
+    })))
+}
+
+/// GET /api/v1/canisters/:canister_id/logs/stream — SSE stream of new canister log entries
+///
+/// Replays recent logs from DB, then polls IC every 10 seconds for new entries.
+/// Stream ends after 5 minutes of inactivity (client should reconnect).
+pub async fn canister_logs_stream(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+    Path(canister_id): Path<String>,
+) -> Result<
+    axum::response::sse::Sse<impl futures::stream::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>>,
+    AppError,
+> {
+    use axum::response::sse::{Event, KeepAlive, Sse};
+
+    // Verify canister belongs to this user
+    let canister: CanisterRecord = sqlx::query_as(
+        "SELECT c.* FROM canisters c JOIN projects p ON c.project_id = p.id WHERE c.canister_id = $1 AND p.user_id = $2",
+    )
+    .bind(&canister_id)
+    .bind(&auth_user.user.id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(AppError::Database)?
+    .ok_or_else(|| AppError::NotFound("Canister not found or not owned by you".into()))?;
+
+    // Fetch recent logs from DB for replay
+    let recent_logs: Vec<crate::models::CanisterLog> = sqlx::query_as(
+        "SELECT * FROM canister_logs WHERE ic_canister_id = $1 ORDER BY ic_timestamp DESC LIMIT 50",
+    )
+    .bind(&canister_id)
+    .fetch_all(&state.db)
+    .await
+    .map_err(AppError::Database)?;
+
+    // Reverse to chronological order for replay
+    let mut replay_logs = recent_logs;
+    replay_logs.reverse();
+
+    let db = state.db.clone();
+    let config = state.config.clone();
+    let ic_canister_id = canister_id.clone();
+    let db_canister_id = canister.id.clone();
+
+    let stream = async_stream::stream! {
+        // Phase 1: replay existing logs
+        let mut max_idx: i64 = -1;
+        for l in &replay_logs {
+            if l.log_index > max_idx {
+                max_idx = l.log_index;
+            }
+            let ts_secs = l.ic_timestamp / 1_000_000_000;
+            let ts_nanos = (l.ic_timestamp % 1_000_000_000) as u32;
+            let dt = chrono::DateTime::from_timestamp(ts_secs, ts_nanos)
+                .map(|d| d.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string())
+                .unwrap_or_else(|| l.ic_timestamp.to_string());
+
+            let entry = serde_json::json!({
+                "log_index": l.log_index,
+                "level": l.level,
+                "message": l.message,
+                "timestamp": dt,
+            });
+            let data = serde_json::to_string(&entry).unwrap_or_default();
+            yield Ok(Event::default().event("log").data(data));
+        }
+
+        yield Ok(Event::default().event("replay_done").data("true"));
+
+        // Phase 2: poll IC for new logs every 10 seconds
+        let pem = match &config.ic_identity_pem {
+            Some(p) => p.clone(),
+            None => {
+                yield Ok(Event::default().event("error").data("IC identity not configured"));
+                return;
+            }
+        };
+
+        let ic = match crate::ic_client::IcClient::new(&pem, &config.ic_url).await {
+            Ok(c) => c,
+            Err(e) => {
+                yield Ok(Event::default().event("error").data(format!("IC client error: {e}")));
+                return;
+            }
+        };
+
+        let mut consecutive_empty = 0u32;
+        let max_empty = 30; // 30 * 10s = 5 minutes of no new logs
+
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+            match ic.fetch_canister_logs(&ic_canister_id).await {
+                Ok(records) => {
+                    let mut found_new = false;
+                    for record in &records {
+                        if (record.idx as i64) <= max_idx {
+                            continue;
+                        }
+
+                        found_new = true;
+                        max_idx = record.idx as i64;
+
+                        let message = String::from_utf8_lossy(&record.content).to_string();
+                        let level = crate::log_poller::parse_log_level(&message);
+
+                        let ts_secs = record.timestamp_nanos / 1_000_000_000;
+                        let ts_nanos = (record.timestamp_nanos % 1_000_000_000) as u32;
+                        let dt = chrono::DateTime::from_timestamp(ts_secs as i64, ts_nanos)
+                            .map(|d| d.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string())
+                            .unwrap_or_else(|| record.timestamp_nanos.to_string());
+
+                        let entry = serde_json::json!({
+                            "log_index": record.idx,
+                            "level": level,
+                            "message": message,
+                            "timestamp": dt,
+                        });
+                        let data = serde_json::to_string(&entry).unwrap_or_default();
+                        yield Ok(Event::default().event("log").data(data));
+
+                        // Also persist to DB
+                        let log_id = uuid::Uuid::new_v4().to_string();
+                        let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+                        let _ = sqlx::query(
+                            r#"INSERT INTO canister_logs (id, canister_id, ic_canister_id, log_index, level, message, ic_timestamp, collected_at)
+                               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                               ON CONFLICT (ic_canister_id, log_index) DO NOTHING"#,
+                        )
+                        .bind(&log_id)
+                        .bind(&db_canister_id)
+                        .bind(&ic_canister_id)
+                        .bind(record.idx as i64)
+                        .bind(level)
+                        .bind(&message)
+                        .bind(record.timestamp_nanos as i64)
+                        .bind(&now)
+                        .execute(&db)
+                        .await;
+                    }
+
+                    if found_new {
+                        consecutive_empty = 0;
+                    } else {
+                        consecutive_empty += 1;
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("SSE log stream poll error for {ic_canister_id}: {e}");
+                    consecutive_empty += 1;
+                    // Don't yield error events for transient failures
+                }
+            }
+
+            // Close stream after 5 min of no new logs
+            if consecutive_empty >= max_empty {
+                yield Ok(Event::default().event("timeout").data("No new logs for 5 minutes"));
+                break;
+            }
+        }
+    };
+
+    Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
 }

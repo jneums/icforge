@@ -8,3 +8,4 @@ export * from './auth';
 export * from './tokens';
 export * from './github';
 export * from './billing';
+export * from './canister-logs';

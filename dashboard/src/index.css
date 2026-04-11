@@ -131,6 +131,7 @@
   }
   html {
     @apply font-sans;
+    overflow-y: scroll;
   }
 
   /* Webkit scrollbar (Chrome, Edge, Safari) */

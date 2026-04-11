@@ -469,7 +469,7 @@ export default function CanisterDetail() {
         </TabsContent>
 
         <TabsContent value="logs">
-          <CanisterLogsTab canisterId={canister.id} projectId={id!} />
+          <CanisterLogsTab canisterId={canister.canister_id!} projectId={id!} />
         </TabsContent>
 
         <TabsContent value="deployments">

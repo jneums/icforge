@@ -98,6 +98,27 @@ struct DepositCyclesArg {
     canister_id: Principal,
 }
 
+/// update_settings arg for the management canister.
+/// Only the fields we set will be updated; others remain unchanged.
+#[derive(CandidType)]
+struct UpdateSettingsArg {
+    canister_id: Principal,
+    settings: UpdateSettingsPayload,
+}
+
+/// Partial settings payload — all fields optional so we only update what we need.
+#[derive(CandidType, Default)]
+struct UpdateSettingsPayload {
+    environment_variables: Option<Vec<EnvironmentVariableInput>>,
+}
+
+/// Input type for setting environment variables via update_settings.
+#[derive(CandidType, Clone, Debug, serde::Deserialize)]
+pub struct EnvironmentVariableInput {
+    pub name: String,
+    pub value: String,
+}
+
 // -- IcClient --
 
 pub struct IcClient {
@@ -233,6 +254,45 @@ impl IcClient {
             canister_id = canister_id_text,
             amount = amount,
             "Deposited cycles into canister"
+        );
+
+        Ok(())
+    }
+
+    /// Set environment variables on a canister via the management canister's update_settings.
+    /// This replaces ALL environment variables — pass the full desired list.
+    pub async fn set_environment_variables(
+        &self,
+        canister_id_text: &str,
+        env_vars: Vec<EnvironmentVariableInput>,
+    ) -> Result<(), AppError> {
+        let management = Principal::from_text(MANAGEMENT_CANISTER_ID)
+            .map_err(|e| AppError::Internal(format!("Invalid management canister ID: {e}")))?;
+
+        let canister_id = Principal::from_text(canister_id_text)
+            .map_err(|e| AppError::Internal(format!("Invalid canister ID '{canister_id_text}': {e}")))?;
+
+        let args = UpdateSettingsArg {
+            canister_id,
+            settings: UpdateSettingsPayload {
+                environment_variables: Some(env_vars.clone()),
+            },
+        };
+        let arg_bytes = Encode!(&args)
+            .map_err(|e| AppError::Internal(format!("Failed to encode update_settings args: {e}")))?;
+
+        self.agent
+            .update(&management, "update_settings")
+            .with_arg(arg_bytes)
+            .with_effective_canister_id(canister_id)
+            .call_and_wait()
+            .await
+            .map_err(|e| AppError::Internal(format!("update_settings call failed: {e}")))?;
+
+        tracing::info!(
+            canister_id = canister_id_text,
+            count = env_vars.len(),
+            "Updated environment variables on canister"
         );
 
         Ok(())

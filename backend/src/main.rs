@@ -90,6 +90,7 @@ async fn main() {
         .route("/api/v1/cycles/balance", get(routes::cycles_balance))
         // Canister details
         .route("/api/v1/canisters/{canister_id}/env", get(routes::canister_env))
+        .route("/api/v1/canisters/{canister_id}/env", put(routes::set_canister_env))
         .route("/api/v1/canisters/{canister_id}/cycles", get(routes::canister_cycles))
         .route("/api/v1/canisters/{canister_id}/cycles/settings", put(routes::canister_cycles_settings))
         .route("/api/v1/canisters/{canister_id}/cycles/topup", post(routes::canister_cycles_topup))

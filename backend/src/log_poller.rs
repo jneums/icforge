@@ -6,6 +6,7 @@
 //! Users can increase retention at the cost of more storage.
 
 use sqlx::PgPool;
+use std::collections::HashMap;
 use tokio::time::{interval, Duration};
 
 use crate::config::AppConfig;
@@ -116,7 +117,22 @@ async fn run_log_collection(
         return Ok(());
     }
 
+    // Build project_id → user_id map for billing
+    let project_ids: Vec<&str> = canisters.iter().map(|c| c.project_id.as_str()).collect();
+    let project_owners: HashMap<String, String> = {
+        let rows: Vec<(String, String)> = sqlx::query_as(
+            "SELECT id, user_id FROM projects WHERE id = ANY($1)",
+        )
+        .bind(&project_ids)
+        .fetch_all(db)
+        .await?;
+        rows.into_iter().collect()
+    };
+
+    // Accumulate new log entries per user for billing
+    let mut user_entries: HashMap<String, u64> = HashMap::new();
     let mut total_new = 0u64;
+
     for canister in &canisters {
         let ic_id = match &canister.canister_id {
             Some(id) => id.as_str(),
@@ -132,6 +148,9 @@ async fn run_log_collection(
                         new_logs = new_count,
                         "Collected new log entries"
                     );
+                    if let Some(uid) = project_owners.get(&canister.project_id) {
+                        *user_entries.entry(uid.clone()).or_insert(0) += new_count;
+                    }
                 }
                 total_new += new_count;
             }
@@ -148,6 +167,10 @@ async fn run_log_collection(
     if total_new > 0 {
         tracing::info!("Log poller: collected {total_new} new log entries");
     }
+
+    // Bill each user for log entries above their free tier
+    bill_log_ingestion(db, config, &user_entries).await;
+
     Ok(())
 }
 
@@ -219,6 +242,77 @@ async fn collect_canister_logs(
     }
 
     Ok(new_count)
+}
+
+/// Bill users for log ingestion above the free tier.
+///
+/// Pricing model:
+///   - Each user gets `log_free_entries_per_cycle` free entries per poll cycle
+///   - Entries above free tier cost `log_cost_microcents_per_entry` microcents each
+///   - 1 microcent = 1/100th of a cent, so 100 microcents = 1 cent
+///   - Default: 1000 free entries, then $0.10 per 1K entries ($0.0001 each)
+///
+/// This is called once per poll cycle (30s) after collecting all canister logs.
+/// Debit is skipped if cost rounds to 0 cents (small batches stay free).
+async fn bill_log_ingestion(
+    db: &PgPool,
+    config: &AppConfig,
+    user_entries: &HashMap<String, u64>,
+) {
+    use crate::billing;
+
+    let free_tier = config.log_free_entries_per_cycle;
+    let microcents_per_entry = config.log_cost_microcents_per_entry;
+
+    for (user_id, &total_entries) in user_entries {
+        // Subtract free tier
+        let billable = total_entries.saturating_sub(free_tier);
+        if billable == 0 {
+            continue;
+        }
+
+        // Calculate cost: billable * microcents_per_entry / 100 = cents
+        // Use integer math to avoid floating point: round up to nearest cent
+        let cost_microcents = billable * microcents_per_entry;
+        let cost_cents = ((cost_microcents + 99) / 100) as i32; // ceiling division
+
+        if cost_cents == 0 {
+            continue;
+        }
+
+        match billing::debit_balance(
+            db,
+            config.stripe_secret_key.as_deref(),
+            user_id,
+            cost_cents,
+            "logging",
+            &format!(
+                "Log ingestion: {} entries ({} billable)",
+                total_entries, billable
+            ),
+        )
+        .await
+        {
+            Ok(()) => {
+                tracing::info!(
+                    user_id,
+                    entries = total_entries,
+                    billable,
+                    cost_cents,
+                    "Billed for log ingestion"
+                );
+            }
+            Err(e) => {
+                // Don't fail the entire poll cycle — just log the billing error.
+                // Logs were already stored; billing failure shouldn't block collection.
+                tracing::warn!(
+                    user_id,
+                    entries = total_entries,
+                    "Failed to bill for log ingestion: {e}"
+                );
+            }
+        }
+    }
 }
 
 /// Delete canister logs older than each project's configured retention period.

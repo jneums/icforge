@@ -118,6 +118,7 @@ export interface UsageBreakdown {
   cycles_cents: number;
   provision_cents: number;
   builds_cents: number;
+  logging_cents: number;
 }
 
 export interface BillingBalance {

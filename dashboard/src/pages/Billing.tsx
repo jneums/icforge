@@ -93,6 +93,7 @@ function UsageCard() {
     { label: "Compute", cents: u.cycles_cents },
     { label: "Provisioning", cents: u.provision_cents },
     { label: "Builds", cents: u.builds_cents },
+    { label: "Logging", cents: u.logging_cents },
   ];
 
   return (

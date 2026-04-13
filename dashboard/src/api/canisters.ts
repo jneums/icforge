@@ -27,3 +27,19 @@ export async function fetchCanisterCompute(canisterId: string, period: ComputePe
 export async function fetchProjectHealth(projectId: string): Promise<ProjectHealth> {
   return apiFetch<ProjectHealth>(`/api/v1/projects/${projectId}/health`);
 }
+
+export async function fetchCanisterControllers(canisterId: string): Promise<{ controllers: string[]; platform_principal: string }> {
+  return apiFetch<{ controllers: string[]; platform_principal: string }>(
+    `/api/v1/canisters/${canisterId}/controllers`
+  );
+}
+
+export async function setCanisterControllers(
+  canisterId: string,
+  controllers: string[]
+): Promise<void> {
+  await apiFetch(`/api/v1/canisters/${canisterId}/controllers`, {
+    method: 'PUT',
+    body: JSON.stringify({ controllers }),
+  });
+}

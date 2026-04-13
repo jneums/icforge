@@ -1270,6 +1270,106 @@ pub struct EnvVarEntry {
 }
 
 // ============================================================
+// Canister controllers endpoints
+// ============================================================
+
+#[derive(Debug, Deserialize)]
+pub struct SetControllersRequest {
+    pub controllers: Vec<String>,
+}
+
+/// GET /api/v1/canisters/:canister_id/controllers — Fetch controllers from IC management canister
+pub async fn canister_controllers(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+    Path(canister_id): Path<String>,
+) -> Result<Json<Value>, AppError> {
+    // Verify the canister belongs to this user
+    let _canister: CanisterRecord = sqlx::query_as(
+        "SELECT c.* FROM canisters c JOIN projects p ON c.project_id = p.id WHERE c.canister_id = $1 AND p.user_id = $2"
+    )
+    .bind(&canister_id)
+    .bind(&auth_user.user.id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(AppError::Database)?
+    .ok_or_else(|| AppError::NotFound("Canister not found or not owned by you".into()))?;
+
+    let pem = state
+        .config
+        .ic_identity_pem
+        .as_deref()
+        .ok_or_else(|| AppError::Internal("IC_IDENTITY_PEM not configured".into()))?;
+    let client = crate::ic_client::IcClient::new(pem, &state.config.ic_url).await?;
+    let status = client.canister_status(&canister_id).await?;
+
+    let controllers: Vec<String> = status
+        .settings
+        .controllers
+        .iter()
+        .map(|p| p.to_text())
+        .collect();
+
+    let platform_principal = client.identity_principal().to_text();
+
+    Ok(Json(json!({
+        "canister_id": canister_id,
+        "controllers": controllers,
+        "platform_principal": platform_principal,
+    })))
+}
+
+/// PUT /api/v1/canisters/:canister_id/controllers — Set controllers via IC management canister
+pub async fn set_canister_controllers(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+    Path(canister_id): Path<String>,
+    Json(body): Json<SetControllersRequest>,
+) -> Result<Json<Value>, AppError> {
+    // Verify the canister belongs to this user
+    let _canister: CanisterRecord = sqlx::query_as(
+        "SELECT c.* FROM canisters c JOIN projects p ON c.project_id = p.id WHERE c.canister_id = $1 AND p.user_id = $2"
+    )
+    .bind(&canister_id)
+    .bind(&auth_user.user.id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(AppError::Database)?
+    .ok_or_else(|| AppError::NotFound("Canister not found or not owned by you".into()))?;
+
+    let pem = state
+        .config
+        .ic_identity_pem
+        .as_deref()
+        .ok_or_else(|| AppError::Internal("IC_IDENTITY_PEM not configured".into()))?;
+    let client = crate::ic_client::IcClient::new(pem, &state.config.ic_url).await?;
+
+    // Always include the platform principal so icforge stays a controller
+    let platform_principal = client.identity_principal();
+
+    // Parse and validate all user-supplied principals
+    let mut controllers: Vec<candid::Principal> = Vec::new();
+    controllers.push(platform_principal);
+    for principal_text in &body.controllers {
+        let p = candid::Principal::from_text(principal_text).map_err(|e| {
+            AppError::BadRequest(format!("Invalid principal '{}': {}", principal_text, e))
+        })?;
+        // Avoid duplicating the platform principal
+        if p != platform_principal {
+            controllers.push(p);
+        }
+    }
+
+    client
+        .set_controllers(&canister_id, controllers)
+        .await?;
+
+    Ok(Json(json!({
+        "ok": true,
+    })))
+}
+
+// ============================================================
 // Canister cycles / health endpoints
 // ============================================================
 

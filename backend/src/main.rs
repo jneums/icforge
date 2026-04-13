@@ -95,6 +95,8 @@ async fn main() {
         // Canister details
         .route("/api/v1/canisters/{canister_id}/env", get(routes::canister_env))
         .route("/api/v1/canisters/{canister_id}/env", put(routes::set_canister_env))
+        .route("/api/v1/canisters/{canister_id}/controllers", get(routes::canister_controllers))
+        .route("/api/v1/canisters/{canister_id}/controllers", put(routes::set_canister_controllers))
         .route("/api/v1/canisters/{canister_id}/cycles", get(routes::canister_cycles))
         .route("/api/v1/canisters/{canister_id}/cycles/settings", put(routes::canister_cycles_settings))
         .route("/api/v1/canisters/{canister_id}/cycles/topup", post(routes::canister_cycles_topup))

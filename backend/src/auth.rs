@@ -49,6 +49,8 @@ pub struct GitHubUser {
     pub email: Option<String>,
     pub name: Option<String>,
     pub avatar_url: Option<String>,
+    /// ISO 8601 timestamp of when the GitHub account was created
+    pub created_at: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

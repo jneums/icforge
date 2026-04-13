@@ -120,17 +120,35 @@ pub async fn auth_callback(
         .await
         .map_err(AppError::Database)?;
 
-        // Credit signup bonus
+        // Credit signup bonus (only if GitHub account is old enough to prevent abuse)
         if state.config.signup_bonus_cents > 0 {
-            crate::billing::credit_balance(
-                &state.db,
-                &user_id,
-                state.config.signup_bonus_cents,
-                "signup_bonus",
-                None,
-                &format!("Welcome bonus ${:.2}", state.config.signup_bonus_cents as f64 / 100.0),
-            )
-            .await?;
+            let account_old_enough = github_user.created_at.as_deref()
+                .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
+                .map(|created| {
+                    let age = chrono::Utc::now().signed_duration_since(created);
+                    age.num_days() >= state.config.min_github_account_age_days
+                })
+                .unwrap_or(false); // If we can't parse the date, deny the bonus
+
+            if account_old_enough {
+                crate::billing::credit_balance(
+                    &state.db,
+                    &user_id,
+                    state.config.signup_bonus_cents,
+                    "signup_bonus",
+                    None,
+                    &format!("Welcome bonus ${:.2}", state.config.signup_bonus_cents as f64 / 100.0),
+                )
+                .await?;
+            } else {
+                tracing::info!(
+                    user_id = %user_id,
+                    github_login = %github_user.login,
+                    github_created_at = ?github_user.created_at,
+                    min_age_days = state.config.min_github_account_age_days,
+                    "Signup bonus skipped — GitHub account too new"
+                );
+            }
         }
 
         (user_id, github_user.login)

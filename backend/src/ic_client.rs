@@ -109,6 +109,7 @@ struct UpdateSettingsArg {
 /// Partial settings payload — all fields optional so we only update what we need.
 #[derive(CandidType, Default)]
 struct UpdateSettingsPayload {
+    controllers: Option<Vec<Principal>>,
     environment_variables: Option<Vec<EnvironmentVariableInput>>,
 }
 
@@ -330,6 +331,7 @@ impl IcClient {
         let args = UpdateSettingsArg {
             canister_id,
             settings: UpdateSettingsPayload {
+                controllers: None,
                 environment_variables: Some(env_vars.clone()),
             },
         };
@@ -348,6 +350,46 @@ impl IcClient {
             canister_id = canister_id_text,
             count = env_vars.len(),
             "Updated environment variables on canister"
+        );
+
+        Ok(())
+    }
+
+    /// Set the controllers on a canister. This REPLACES the full controller list.
+    /// Caller must ensure the platform principal is always included.
+    pub async fn set_controllers(
+        &self,
+        canister_id_text: &str,
+        controllers: Vec<Principal>,
+    ) -> Result<(), AppError> {
+        let management = Principal::from_text(MANAGEMENT_CANISTER_ID)
+            .map_err(|e| AppError::Internal(format!("Invalid management canister ID: {e}")))?;
+
+        let canister_id = Principal::from_text(canister_id_text)
+            .map_err(|e| AppError::Internal(format!("Invalid canister ID '{canister_id_text}': {e}")))?;
+
+        let args = UpdateSettingsArg {
+            canister_id,
+            settings: UpdateSettingsPayload {
+                controllers: Some(controllers.clone()),
+                environment_variables: None,
+            },
+        };
+        let arg_bytes = Encode!(&args)
+            .map_err(|e| AppError::Internal(format!("Failed to encode update_settings args: {e}")))?;
+
+        self.agent
+            .update(&management, "update_settings")
+            .with_arg(arg_bytes)
+            .with_effective_canister_id(canister_id)
+            .call_and_wait()
+            .await
+            .map_err(|e| AppError::Internal(format!("update_settings call failed: {e}")))?;
+
+        tracing::info!(
+            canister_id = canister_id_text,
+            count = controllers.len(),
+            "Updated controllers on canister"
         );
 
         Ok(())

@@ -27,6 +27,8 @@ pub struct AppConfig {
     pub compute_margin: f64,
     /// Cost per build-minute in cents (default: 1 = $0.01/min)
     pub build_cost_cents_per_min: i32,
+    /// Minimum GitHub account age in days to receive free credits (default: 180 = ~6 months)
+    pub min_github_account_age_days: i64,
     /// Free log entries per user per poll cycle before billing kicks in (default: 1000)
     pub log_free_entries_per_cycle: u64,
     /// Cost in hundredths-of-a-cent per log entry above free tier (default: 1 = $0.0001/entry, i.e. $0.10 per 1K entries)
@@ -64,7 +66,7 @@ impl AppConfig {
             signup_bonus_cents: env::var("SIGNUP_BONUS_CENTS")
                 .ok()
                 .and_then(|v| v.parse().ok())
-                .unwrap_or(1000),
+                .unwrap_or(2500),
             min_purchase_cents: env::var("MIN_PURCHASE_CENTS")
                 .ok()
                 .and_then(|v| v.parse().ok())
@@ -77,6 +79,10 @@ impl AppConfig {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(1),
+            min_github_account_age_days: env::var("MIN_GITHUB_ACCOUNT_AGE_DAYS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(180),
             log_free_entries_per_cycle: env::var("LOG_FREE_ENTRIES_PER_CYCLE")
                 .ok()
                 .and_then(|v| v.parse().ok())

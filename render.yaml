@@ -37,6 +37,10 @@ services:
         value: "mainnet"
       - key: FRONTEND_URL
         value: "https://icforge-dashboard.onrender.com"
+      - key: SIGNUP_BONUS_CENTS
+        value: "2500"  # $25 free credits for beta
+      - key: MIN_GITHUB_ACCOUNT_AGE_DAYS
+        value: "180"   # 6 months — abuse prevention
 
   # Dashboard (React/Vite static site)
   - type: web
@@ -55,5 +59,5 @@ services:
 
 databases:
   - name: icforge-db
-    plan: free
+    plan: starter
     region: oregon

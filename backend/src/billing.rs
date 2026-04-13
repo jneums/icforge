@@ -171,10 +171,13 @@ async fn maybe_auto_topup(
 ) {
     let amount_cents = bal.auto_topup_amount_cents.unwrap_or(1000);
 
-    // Look up stripe customer id
-    let customer_id: Option<(Option<String>,)> = sqlx::query_as(
-        "SELECT stripe_customer_id FROM users WHERE id = $1",
-    )
+    // Look up stripe customer id (prefer mode-specific column)
+    let is_live = stripe_key.starts_with("sk_live_");
+    let mode_col = if is_live { "stripe_customer_id_live" } else { "stripe_customer_id_test" };
+    let query = format!(
+        "SELECT COALESCE({mode_col}, stripe_customer_id) FROM users WHERE id = $1"
+    );
+    let customer_id: Option<(Option<String>,)> = sqlx::query_as(&query)
     .bind(user_id)
     .fetch_optional(db)
     .await
@@ -289,14 +292,27 @@ async fn maybe_auto_topup(
 }
 
 /// Get or create a Stripe customer for a user. Returns the customer ID.
+/// Uses mode-specific columns (stripe_customer_id_live / _test) so switching
+/// between sandbox and live Stripe keys preserves customer IDs in both envs.
 async fn ensure_stripe_customer(
     db: &crate::db::DbPool,
     stripe_key: &str,
     user: &crate::models::User,
 ) -> Result<String, AppError> {
-    // Return existing if we have one
-    if let Some(ref cid) = user.stripe_customer_id {
-        return Ok(cid.clone());
+    let is_live = stripe_key.starts_with("sk_live_");
+    let mode_column = if is_live { "stripe_customer_id_live" } else { "stripe_customer_id_test" };
+
+    // Pick the customer ID for the current Stripe mode
+    let existing_cid = if is_live {
+        user.stripe_customer_id_live.as_deref()
+    } else {
+        user.stripe_customer_id_test.as_deref()
+    }
+    // Fall back to legacy column during migration
+    .or(user.stripe_customer_id.as_deref());
+
+    if let Some(cid) = existing_cid {
+        return Ok(cid.to_string());
     }
 
     // Create customer via Stripe API
@@ -331,10 +347,14 @@ async fn ensure_stripe_customer(
         })?
         .to_string();
 
-    // Save to DB
-    sqlx::query("UPDATE users SET stripe_customer_id = $1, updated_at = $2 WHERE id = $3")
+    // Save to the mode-specific column (and legacy column for compat)
+    let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    let query = format!(
+        "UPDATE users SET {mode_column} = $1, stripe_customer_id = $1, updated_at = $2 WHERE id = $3"
+    );
+    sqlx::query(&query)
         .bind(&customer_id)
-        .bind(chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string())
+        .bind(&now)
         .bind(&user.id)
         .execute(db)
         .await

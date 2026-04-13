@@ -12,6 +12,8 @@ pub struct User {
     pub ic_principal: Option<String>,
     pub plan: String,
     pub stripe_customer_id: Option<String>,
+    pub stripe_customer_id_live: Option<String>,
+    pub stripe_customer_id_test: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }

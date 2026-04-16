@@ -409,6 +409,14 @@ async fn execute_deploy(
     // Phase: pre-provision — ensure canister has ID in DB
     log_deploy(pool, &job.id, "info", "provision", &format!("Pre-provisioning canister '{canister_name}'..."), tx).await;
 
+    // BYOC: check if the repo already has canister IDs in .icp/data/mappings/ic.ids.json
+    // This handles both CLI (icforge init) and GitHub App flows — the repo is the source of truth.
+    let repo_ids_path = format!("{work_dir}/.icp/data/mappings/ic.ids.json");
+    let repo_canister_ids: std::collections::HashMap<String, String> = match tokio::fs::read_to_string(&repo_ids_path).await {
+        Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
+        Err(_) => std::collections::HashMap::new(),
+    };
+
     {
         let canister_row = sqlx::query_as::<_, (String, Option<String>)>(
             "SELECT id, canister_id FROM canisters WHERE project_id = $1 AND name = $2",
@@ -421,19 +429,150 @@ async fn execute_deploy(
 
         match canister_row {
             Some((_db_id, Some(cid))) => {
+                // Canister ID already exists — verify icforge is a controller before deploying
                 log_deploy(
                     pool,
                     &job.id,
                     "info",
                     "provision",
-                    &format!("Canister '{canister_name}' already provisioned: {cid}"),
+                    &format!("Canister '{canister_name}' has ID {cid} — verifying controller access..."),
                     tx,
                 )
                 .await;
+
+                // Build IC client to check controller status
+                let ic_pem_for_check = config
+                    .ic_identity_pem
+                    .as_deref()
+                    .ok_or_else(|| "IC_IDENTITY_PEM not configured".to_string())?;
+
+                let ic_client = crate::ic_client::IcClient::new(ic_pem_for_check, &config.ic_url)
+                    .await
+                    .map_err(|e| format!("Failed to create IC client: {e}"))?;
+
+                let icforge_principal = ic_client.identity_principal();
+
+                match ic_client.canister_status(&cid).await {
+                    Ok(status) => {
+                        let controllers = &status.settings.controllers;
+                        if !controllers.iter().any(|c| *c == icforge_principal) {
+                            let msg = format!(
+                                "ICForge is not a controller of canister '{canister_name}' ({cid}).\n\n\
+                                 To fix this, run:\n\n\
+                                   icp canister update-settings {cid} \\\n\
+                                     --add-controller {} \\\n\
+                                     --network ic\n\n\
+                                 Then re-deploy.",
+                                icforge_principal.to_text(),
+                            );
+                            log_deploy(pool, &job.id, "error", "provision", &msg, tx).await;
+                            return Err(msg);
+                        }
+
+                        log_deploy(
+                            pool,
+                            &job.id,
+                            "info",
+                            "provision",
+                            &format!("✅ ICForge is a controller of canister '{canister_name}'"),
+                            tx,
+                        )
+                        .await;
+                    }
+                    Err(e) => {
+                        // canister_status requires controller access — if call fails, we're not a controller
+                        let msg = format!(
+                            "Cannot verify controller access for canister '{canister_name}' ({cid}): {e}\n\n\
+                             This usually means ICForge is not a controller. To fix, run:\n\n\
+                               icp canister update-settings {cid} \\\n\
+                                 --add-controller {} \\\n\
+                                 --network ic\n\n\
+                             Then re-deploy.",
+                            icforge_principal.to_text(),
+                        );
+                        log_deploy(pool, &job.id, "error", "provision", &msg, tx).await;
+                        return Err(msg);
+                    }
+                }
             }
             Some((db_id, None)) => {
-                // DB record exists but no canister ID — create on IC via icp-cli.
-                // This is the FIRST provision of this canister — charge the user.
+                // DB record exists but no canister ID yet.
+                // Check if the repo has a pre-existing canister ID in ic.ids.json (BYOC).
+                if let Some(repo_cid) = repo_canister_ids.get(canister_name.as_str()) {
+                    // BYOC: adopt the canister ID from the repo — skip provisioning billing
+                    log_deploy(
+                        pool,
+                        &job.id,
+                        "info",
+                        "provision",
+                        &format!("Found existing canister ID for '{canister_name}' in repo: {repo_cid} (BYOC)"),
+                        tx,
+                    )
+                    .await;
+
+                    let _ = sqlx::query(
+                        "UPDATE canisters SET canister_id = $1, status = 'byoc', updated_at = to_char(NOW(), 'YYYY-MM-DD HH24:MI:SS') WHERE id = $2",
+                    )
+                    .bind(repo_cid)
+                    .bind(&db_id)
+                    .execute(pool)
+                    .await;
+
+                    // Now verify controller access — same as the Some((_, Some(cid))) arm above
+                    let ic_pem_for_check = config
+                        .ic_identity_pem
+                        .as_deref()
+                        .ok_or_else(|| "IC_IDENTITY_PEM not configured".to_string())?;
+
+                    let ic_client = crate::ic_client::IcClient::new(ic_pem_for_check, &config.ic_url)
+                        .await
+                        .map_err(|e| format!("Failed to create IC client: {e}"))?;
+
+                    let icforge_principal = ic_client.identity_principal();
+
+                    match ic_client.canister_status(repo_cid).await {
+                        Ok(status) => {
+                            let controllers = &status.settings.controllers;
+                            if !controllers.iter().any(|c| *c == icforge_principal) {
+                                let msg = format!(
+                                    "ICForge is not a controller of canister '{canister_name}' ({repo_cid}).\n\n\
+                                     To fix this, run:\n\n\
+                                       icp canister update-settings {repo_cid} \\\n\
+                                         --add-controller {} \\\n\
+                                         --network ic\n\n\
+                                     Then re-deploy.",
+                                    icforge_principal.to_text(),
+                                );
+                                log_deploy(pool, &job.id, "error", "provision", &msg, tx).await;
+                                return Err(msg);
+                            }
+
+                            log_deploy(
+                                pool,
+                                &job.id,
+                                "info",
+                                "provision",
+                                &format!("✅ ICForge is a controller of BYOC canister '{canister_name}'"),
+                                tx,
+                            )
+                            .await;
+                        }
+                        Err(e) => {
+                            let msg = format!(
+                                "Cannot verify controller access for canister '{canister_name}' ({repo_cid}): {e}\n\n\
+                                 This usually means ICForge is not a controller. To fix, run:\n\n\
+                                   icp canister update-settings {repo_cid} \\\n\
+                                     --add-controller {} \\\n\
+                                     --network ic\n\n\
+                                 Then re-deploy.",
+                                icforge_principal.to_text(),
+                            );
+                            log_deploy(pool, &job.id, "error", "provision", &msg, tx).await;
+                            return Err(msg);
+                        }
+                    }
+                } else {
+                // Platform-provisioned: create a new canister on IC — charge the user.
 
                 // --- Compute provisioning cost ---
                 let provision_cost_cents = rate_cache
@@ -571,6 +710,7 @@ async fn execute_deploy(
                     tx,
                 )
                 .await;
+                } // close else (platform-provisioned)
             }
             None => {
                 return Err(format!("No canister record for '{canister_name}' in project — cannot deploy"));

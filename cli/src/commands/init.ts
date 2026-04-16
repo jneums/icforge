@@ -5,6 +5,7 @@ import {
   loadICForgeConfig,
   saveICForgeConfig,
   isIcProject,
+  readExistingCanisterIds,
 } from "../config.js";
 import { isAuthenticated } from "../auth.js";
 import { apiFetch } from "../api.js";
@@ -38,13 +39,21 @@ export async function initCommand(options: Record<string, unknown> = {}) {
     process.exit(1);
   }
 
+  // 4b. Check for existing canister IDs (BYOC — Bring Your Own Canister)
+  const existingIds = await readExistingCanisterIds();
+
   // 5. Show what we found
   console.log(chalk.cyan("\n\u2601\uFE0F  ICForge Init\n"));
   console.log(chalk.dim("Reading icp.yaml...\n"));
 
   for (const canister of canisters) {
     const recipe = canister.recipe ?? "custom";
-    console.log(`  \u{1F4E6} ${chalk.bold(canister.name)} (${chalk.dim(recipe)})`);
+    const existingId = existingIds[canister.name];
+    if (existingId) {
+      console.log(`  \u{1F4E6} ${chalk.bold(canister.name)} (${chalk.dim(recipe)}) \u2192 ${chalk.yellow("BYOC")} ${chalk.dim(existingId)}`);
+    } else {
+      console.log(`  \u{1F4E6} ${chalk.bold(canister.name)} (${chalk.dim(recipe)})`);
+    }
   }
 
   console.log();
@@ -57,6 +66,7 @@ export async function initCommand(options: Record<string, unknown> = {}) {
       canisters: canisters.map(c => ({
         name: c.name,
         recipe: c.recipe ?? "custom",
+        canister_id: existingIds[c.name] ?? undefined,
       })),
       subnet: undefined,
     }),
@@ -80,6 +90,23 @@ export async function initCommand(options: Record<string, unknown> = {}) {
     console.log(chalk.dim(`  Vanity URL: https://${slug}.icforge.dev`));
   }
   console.log(chalk.dim("  Config saved to .icforge"));
+
+  // Show BYOC controller reminder if any canisters have existing IDs
+  const byocNames = canisters.filter(c => existingIds[c.name]).map(c => c.name);
+  if (byocNames.length > 0) {
+    console.log();
+    console.log(chalk.yellow("\u26A0\uFE0F  BYOC canisters detected. ICForge needs controller access to deploy."));
+    console.log(chalk.dim("  Ensure the ICForge identity is added as a controller for each canister:"));
+    for (const name of byocNames) {
+      const cid = existingIds[name];
+      console.log();
+      console.log(chalk.dim(`    icp canister update-settings ${cid} \\`));
+      console.log(chalk.dim(`      --add-controller <icforge-principal> \\`));
+      console.log(chalk.dim(`      --network ic`));
+    }
+    console.log();
+    console.log(chalk.dim("  The exact principal will be shown in deploy logs if missing."));
+  }
 
   // 8. Auto-link GitHub repo if in a git repo with a GitHub remote
   try {

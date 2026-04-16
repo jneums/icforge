@@ -27,13 +27,18 @@ export default function Landing() {
           <span className="text-lg">⬡</span>
           <span className="font-semibold">ICForge</span>
         </Link>
-        <Button asChild>
-          {user ? (
-            <Link to="/projects">Dashboard</Link>
-          ) : (
-            <a href={loginHref}>Login with GitHub</a>
-          )}
-        </Button>
+        <div className="flex items-center gap-3">
+          <Link to="/skill" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+            Agent Skill
+          </Link>
+          <Button asChild>
+            {user ? (
+              <Link to="/projects">Dashboard</Link>
+            ) : (
+              <a href={loginHref}>Login with GitHub</a>
+            )}
+          </Button>
+        </div>
       </header>
 
       {/* Hero */}

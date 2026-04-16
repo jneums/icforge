@@ -15,6 +15,7 @@ import CanisterDetail from "./pages/CanisterDetail";
 import Billing from "./pages/Billing";
 import NewProject from "./pages/NewProject";
 import NotFound from "./pages/NotFound";
+import Skill from "./pages/Skill";
 
 export default function App() {
   return (
@@ -24,6 +25,7 @@ export default function App() {
           <AppShell>
             <Routes>
               <Route path="/" element={<Landing />} />
+              <Route path="/skill" element={<Skill />} />
               <Route path="/login" element={<Login />} />
               <Route path="/projects" element={<RequireAuth><Projects /></RequireAuth>} />
               <Route path="/projects/new" element={<RequireAuth><NewProject /></RequireAuth>} />

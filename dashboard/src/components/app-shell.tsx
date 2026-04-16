@@ -17,7 +17,7 @@ function formatUsd(cents: number): string {
 export function AppShell({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
   const location = useLocation();
-  const isPublicRoute = ["/", "/login"].includes(location.pathname);
+  const isPublicRoute = ["/", "/login", "/skill"].includes(location.pathname);
 
   // Public routes: no sidebar
   if (isPublicRoute || (!loading && !user)) {

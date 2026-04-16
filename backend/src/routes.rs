@@ -294,15 +294,26 @@ pub async fn create_project(
         // recipe takes priority, default to "custom"
         let recipe = canister_input.recipe.as_deref()
             .unwrap_or("custom");
+
+        // BYOC: if a pre-existing canister ID is provided, store it directly.
+        // Status starts as 'byoc' — will transition to 'created' once controller is verified at deploy time.
+        let (ic_canister_id, status) = if let Some(ref cid) = canister_input.canister_id {
+            (Some(cid.clone()), "byoc")
+        } else {
+            (None, "pending")
+        };
+
         sqlx::query(
-            "INSERT INTO canisters (id, project_id, name, type, recipe, subnet_id, status, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, $8)",
+            "INSERT INTO canisters (id, project_id, name, type, recipe, canister_id, subnet_id, status, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
         )
         .bind(&canister_id)
         .bind(&project_id)
         .bind(&canister_input.name)
         .bind(recipe)
         .bind(recipe)
+        .bind(&ic_canister_id)
         .bind(&req.subnet)
+        .bind(status)
         .bind(&now)
         .bind(&now)
         .execute(&state.db)
@@ -314,9 +325,9 @@ pub async fn create_project(
             project_id: project_id.clone(),
             name: canister_input.name.clone(),
             recipe: recipe.to_string(),
-            canister_id: None,
+            canister_id: ic_canister_id,
             subnet_id: req.subnet.clone(),
-            status: "pending".into(),
+            status: status.into(),
             cycles_balance: None,
             candid_interface: None,
             canister_type: Some(recipe.to_string()),

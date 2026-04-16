@@ -108,6 +108,32 @@ export function isIcProject(dir: string = process.cwd()): boolean {
 }
 
 /**
+ * Read existing canister IDs from .icp/data/mappings/ic.ids.json (if present).
+ * These are canisters the user has already deployed outside of ICForge (BYOC).
+ * Returns a map of canister_name → canister_id.
+ */
+export async function readExistingCanisterIds(dir: string = process.cwd()): Promise<Record<string, string>> {
+  const idsPath = join(dir, ".icp", "data", "mappings", "ic.ids.json");
+  if (!existsSync(idsPath)) return {};
+  try {
+    const raw = await readFile(idsPath, "utf-8");
+    const parsed = JSON.parse(raw);
+    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+      const result: Record<string, string> = {};
+      for (const [key, value] of Object.entries(parsed)) {
+        if (typeof value === "string" && value.length > 0) {
+          result[key] = value;
+        }
+      }
+      return result;
+    }
+  } catch {
+    // Malformed JSON — ignore
+  }
+  return {};
+}
+
+/**
  * Check if the current directory is linked to ICForge.
  */
 export function isLinked(dir: string = process.cwd()): boolean {

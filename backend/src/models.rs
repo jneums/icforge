@@ -114,6 +114,9 @@ pub struct CreateCanisterInput {
     pub name: String,
     /// Recipe string from icp.yaml (e.g. "rust@v3.1.0", "asset-canister@v2.1.0")
     pub recipe: Option<String>,
+    /// Pre-existing IC canister ID for BYOC (Bring Your Own Canister).
+    /// If provided, ICForge will use this canister instead of creating a new one.
+    pub canister_id: Option<String>,
 }
 
 /// CLI/dashboard-triggered deployment request

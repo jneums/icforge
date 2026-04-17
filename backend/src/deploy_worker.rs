@@ -773,16 +773,10 @@ async fn execute_deploy(
         let mops_lock_path = format!("{work_dir}/mops.lock");
         let _ = tokio::fs::remove_file(&mops_lock_path).await;
 
-        // Mops needs DFX_MOC_PATH=moc-wrapper to enable toolchain management.
-        // `mops toolchain init` sets this in shell profile, but that doesn't
-        // take effect in non-interactive process spawns. Set it directly.
-        run_cmd_with_env(
-            &work_dir,
-            &["mops", "install"],
-            &[("DFX_MOC_PATH", "moc-wrapper")],
-        )
-        .await
-        .map_err(|e| format!("mops install failed: {e}"))?;
+        // DFX_MOC_PATH is set globally in Dockerfile — mops install picks it up
+        run_cmd(&work_dir, &["mops", "install"])
+            .await
+            .map_err(|e| format!("mops install failed: {e}"))?;
 
         log_deploy(pool, &job.id, "info", "setup", "Motoko packages installed", tx).await;
     }

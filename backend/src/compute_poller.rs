@@ -91,11 +91,32 @@ async fn run_poll_cycle(
         match poll_single_canister(db, config, &ic, canister, ic_id, rate_cache).await {
             Ok(()) => {}
             Err(e) => {
-                tracing::warn!(
-                    canister_id = ic_id,
-                    canister_name = canister.name,
-                    "Failed to poll canister: {e}"
-                );
+                let err_str = e.to_string();
+                if err_str.contains("not found") || err_str.contains("DestinationInvalid") {
+                    tracing::warn!(
+                        canister_id = ic_id,
+                        canister_name = canister.name,
+                        "Canister no longer exists on IC, marking as deleted"
+                    );
+                    if let Err(db_err) = sqlx::query(
+                        "UPDATE canisters SET status = 'deleted', updated_at = to_char(now(), 'YYYY-MM-DD HH24:MI:SS') WHERE id = $1",
+                    )
+                    .bind(&canister.id)
+                    .execute(db)
+                    .await
+                    {
+                        tracing::error!(
+                            canister_id = ic_id,
+                            "Failed to mark canister as deleted: {db_err}"
+                        );
+                    }
+                } else {
+                    tracing::warn!(
+                        canister_id = ic_id,
+                        canister_name = canister.name,
+                        "Failed to poll canister: {e}"
+                    );
+                }
             }
         }
     }

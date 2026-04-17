@@ -767,15 +767,18 @@ async fn execute_deploy(
     // Phase: setup Motoko packages (mops) if mops.toml exists
     let mops_toml_path = format!("{work_dir}/mops.toml");
     if tokio::fs::metadata(&mops_toml_path).await.is_ok() {
-        log_deploy(pool, &job.id, "info", "setup", "Detected mops.toml — installing Motoko packages...", tx).await;
+        log_deploy(pool, &job.id, "info", "setup", "Detected mops.toml — initializing Motoko toolchain...", tx).await;
+
+        // Toolchain init MUST come first — mops install depends on it
+        run_cmd(&work_dir, &["mops", "toolchain", "init"])
+            .await
+            .map_err(|e| format!("mops toolchain init failed: {e}"))?;
+
+        log_deploy(pool, &job.id, "info", "setup", "Installing Motoko packages...", tx).await;
 
         run_cmd(&work_dir, &["mops", "install"])
             .await
             .map_err(|e| format!("mops install failed: {e}"))?;
-
-        run_cmd(&work_dir, &["mops", "toolchain", "init"])
-            .await
-            .map_err(|e| format!("mops toolchain init failed: {e}"))?;
 
         log_deploy(pool, &job.id, "info", "setup", "Motoko packages installed", tx).await;
     }

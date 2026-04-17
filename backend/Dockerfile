@@ -19,6 +19,9 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
 # Install icp-cli (pinned), ic-wasm, and mops (Motoko package manager) — build worker needs all three
 RUN npm install -g @icp-sdk/icp-cli@0.2.2 @icp-sdk/ic-wasm@0.9.10 ic-mops
 
+# Increase Node.js heap for mops/npm — Render starter has 512MB, default ~256MB heap OOMs on mops install
+ENV NODE_OPTIONS="--max-old-space-size=384"
+
 # ── Stage 2: Build the Rust binary ──
 FROM rust:1.88-slim-bookworm AS builder
 

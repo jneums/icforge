@@ -19,6 +19,10 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
 # Install icp-cli (pinned), ic-wasm, and mops (Motoko package manager) — build worker needs all three
 RUN npm install -g @icp-sdk/icp-cli@0.2.2 @icp-sdk/ic-wasm@0.9.10 ic-mops@1.10.0
 
+# Mops toolchain management requires this env var (normally set by `mops toolchain init`
+# in shell profile, but that doesn't work in non-interactive containers)
+ENV DFX_MOC_PATH="moc-wrapper"
+
 # ── Stage 2: Build the Rust binary ──
 FROM rust:1.88-slim-bookworm AS builder
 

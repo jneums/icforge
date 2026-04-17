@@ -74,7 +74,7 @@ function CanisterCard({
   return (
     <div className="block">
       <Card
-        className="p-4 border-border/50 hover:border-border transition-colors cursor-pointer"
+        className="p-4 border-border/50 hover:border-border transition-colors cursor-pointer overflow-hidden"
         onClick={() => navigate(detailUrl)}
       >
         <div className="flex items-center gap-3">
@@ -104,26 +104,26 @@ function CanisterCard({
         </div>
 
         {latestDeploy && (
-          <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+          <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground min-w-0 overflow-hidden">
             <Link
               to={`/projects/${projectId}/deploys/${latestDeploy.id}`}
-              className="inline-flex items-center gap-2 hover:text-primary transition-colors truncate"
+              className="inline-flex items-center gap-2 hover:text-primary transition-colors truncate min-w-0"
               onClick={(e) => e.stopPropagation()}
             >
               {latestDeploy.commit_sha && (
                 <>
                   <GitCommit className="h-3 w-3 shrink-0" />
-                  <span className="font-mono">{latestDeploy.commit_sha.slice(0, 7)}</span>
+                  <span className="font-mono shrink-0">{latestDeploy.commit_sha.slice(0, 7)}</span>
                 </>
               )}
               <span className="truncate">{latestDeploy.commit_message || "No message"}</span>
             </Link>
-            <span className="ml-auto whitespace-nowrap">{timeAgo(latestDeploy.created_at)}</span>
+            <span className="ml-auto whitespace-nowrap shrink-0">{timeAgo(latestDeploy.created_at)}</span>
           </div>
         )}
 
         {canister.canister_id && canister.cycles_balance != null && (
-          <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+          <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground min-w-0">
             <HealthBadge health={healthFromCycles(canister.cycles_balance)} />
           </div>
         )}
@@ -163,7 +163,7 @@ function LatestPushCard({
       : null;
 
   return (
-    <Card className="p-5 border-border/50">
+    <Card className="p-5 border-border/50 overflow-hidden">
       <div className="flex items-center gap-2 mb-3">
         <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Latest Push
@@ -248,7 +248,7 @@ export default function ProjectDetail() {
     latestDeploy?.status ?? project.canisters?.[0]?.status ?? "queued";
   const canisters = project.canisters ?? [];
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 min-w-0">
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>

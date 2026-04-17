@@ -459,9 +459,9 @@ async fn execute_deploy(
                             let msg = format!(
                                 "ICForge is not a controller of canister '{canister_name}' ({cid}).\n\n\
                                  To fix this, run:\n\n\
-                                   icp canister update-settings {cid} \\\n\
+                                   icp canister settings update {cid} \\\n\
                                      --add-controller {} \\\n\
-                                     --network ic\n\n\
+                                     -n ic\n\n\
                                  Then re-deploy.",
                                 icforge_principal.to_text(),
                             );
@@ -484,9 +484,9 @@ async fn execute_deploy(
                         let msg = format!(
                             "Cannot verify controller access for canister '{canister_name}' ({cid}): {e}\n\n\
                              This usually means ICForge is not a controller. To fix, run:\n\n\
-                               icp canister update-settings {cid} \\\n\
+                               icp canister settings update {cid} \\\n\
                                  --add-controller {} \\\n\
-                                 --network ic\n\n\
+                                 -n ic\n\n\
                              Then re-deploy.",
                             icforge_principal.to_text(),
                         );
@@ -537,9 +537,9 @@ async fn execute_deploy(
                                 let msg = format!(
                                     "ICForge is not a controller of canister '{canister_name}' ({repo_cid}).\n\n\
                                      To fix this, run:\n\n\
-                                       icp canister update-settings {repo_cid} \\\n\
+                                       icp canister settings update {repo_cid} \\\n\
                                          --add-controller {} \\\n\
-                                         --network ic\n\n\
+                                         -n ic\n\n\
                                      Then re-deploy.",
                                     icforge_principal.to_text(),
                                 );
@@ -561,9 +561,9 @@ async fn execute_deploy(
                             let msg = format!(
                                 "Cannot verify controller access for canister '{canister_name}' ({repo_cid}): {e}\n\n\
                                  This usually means ICForge is not a controller. To fix, run:\n\n\
-                                   icp canister update-settings {repo_cid} \\\n\
+                                   icp canister settings update {repo_cid} \\\n\
                                      --add-controller {} \\\n\
-                                     --network ic\n\n\
+                                     -n ic\n\n\
                                  Then re-deploy.",
                                 icforge_principal.to_text(),
                             );

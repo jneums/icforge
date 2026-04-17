@@ -104,21 +104,21 @@ function CanisterCard({
         </div>
 
         {latestDeploy && (
-          <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground min-w-0">
+          <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground min-w-0 overflow-hidden">
             <Link
               to={`/projects/${projectId}/deploys/${latestDeploy.id}`}
-              className="inline-flex items-center gap-2 hover:text-primary transition-colors truncate"
+              className="inline-flex items-center gap-2 hover:text-primary transition-colors truncate min-w-0"
               onClick={(e) => e.stopPropagation()}
             >
               {latestDeploy.commit_sha && (
                 <>
                   <GitCommit className="h-3 w-3 shrink-0" />
-                  <span className="font-mono">{latestDeploy.commit_sha.slice(0, 7)}</span>
+                  <span className="font-mono shrink-0">{latestDeploy.commit_sha.slice(0, 7)}</span>
                 </>
               )}
               <span className="truncate">{latestDeploy.commit_message || "No message"}</span>
             </Link>
-            <span className="ml-auto whitespace-nowrap">{timeAgo(latestDeploy.created_at)}</span>
+            <span className="ml-auto whitespace-nowrap shrink-0">{timeAgo(latestDeploy.created_at)}</span>
           </div>
         )}
 
@@ -248,7 +248,7 @@ export default function ProjectDetail() {
     latestDeploy?.status ?? project.canisters?.[0]?.status ?? "queued";
   const canisters = project.canisters ?? [];
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 min-w-0">
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>

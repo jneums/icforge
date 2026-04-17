@@ -72,77 +72,75 @@ function CanisterCard({
   const detailUrl = `/projects/${projectId}/canisters/${canister.id}`;
 
   return (
-    <div className="block">
-      <Card
-        className="p-4 border-border/50 hover:border-border transition-colors cursor-pointer overflow-hidden"
-        onClick={() => navigate(detailUrl)}
-      >
-        <div className="flex items-center gap-3">
-          {succeeded ? (
-            <CheckCircle2 className="h-4 w-4 shrink-0 text-success" />
-          ) : failed ? (
-            <XCircle className="h-4 w-4 shrink-0 text-destructive" />
-          ) : cancelled ? (
-            <Ban className="h-4 w-4 shrink-0 text-muted-foreground" />
-          ) : inProgress ? (
-            <Loader2 className="h-4 w-4 shrink-0 text-warning animate-spin" />
-          ) : (
-            <StatusDot status={canister.status} />
-          )}
-          <span className="text-sm font-semibold">{canister.name}</span>
-          <Badge variant="outline" className="text-xs">
-            {displayRecipe(canister.recipe)}
-          </Badge>
-          {canister.canister_id && (
-            <div className="ml-auto flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-              <span className="font-mono text-xs text-muted-foreground">
-                {canister.canister_id}
-              </span>
-              <CopyButton text={canister.canister_id} />
-            </div>
-          )}
+    <Card
+      className="p-4 border-border/50 hover:border-border transition-colors cursor-pointer"
+      onClick={() => navigate(detailUrl)}
+    >
+      <div className="flex items-center gap-3 min-w-0">
+        {succeeded ? (
+          <CheckCircle2 className="h-4 w-4 shrink-0 text-success" />
+        ) : failed ? (
+          <XCircle className="h-4 w-4 shrink-0 text-destructive" />
+        ) : cancelled ? (
+          <Ban className="h-4 w-4 shrink-0 text-muted-foreground" />
+        ) : inProgress ? (
+          <Loader2 className="h-4 w-4 shrink-0 text-warning animate-spin" />
+        ) : (
+          <StatusDot status={canister.status} />
+        )}
+        <span className="text-sm font-semibold truncate">{canister.name}</span>
+        <Badge variant="outline" className="text-xs shrink-0">
+          {displayRecipe(canister.recipe)}
+        </Badge>
+        {canister.canister_id && (
+          <div className="ml-auto flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+            <span className="font-mono text-xs text-muted-foreground">
+              {canister.canister_id}
+            </span>
+            <CopyButton text={canister.canister_id} />
+          </div>
+        )}
+      </div>
+
+      {latestDeploy && (
+        <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground min-w-0">
+          <Link
+            to={`/projects/${projectId}/deploys/${latestDeploy.id}`}
+            className="inline-flex items-center gap-2 hover:text-primary transition-colors truncate min-w-0"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {latestDeploy.commit_sha && (
+              <>
+                <GitCommit className="h-3 w-3 shrink-0" />
+                <span className="font-mono shrink-0">{latestDeploy.commit_sha.slice(0, 7)}</span>
+              </>
+            )}
+            <span className="truncate">{latestDeploy.commit_message || "No message"}</span>
+          </Link>
+          <span className="ml-auto whitespace-nowrap shrink-0">{timeAgo(latestDeploy.created_at)}</span>
         </div>
+      )}
 
-        {latestDeploy && (
-          <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground min-w-0 overflow-hidden">
-            <Link
-              to={`/projects/${projectId}/deploys/${latestDeploy.id}`}
-              className="inline-flex items-center gap-2 hover:text-primary transition-colors truncate min-w-0"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {latestDeploy.commit_sha && (
-                <>
-                  <GitCommit className="h-3 w-3 shrink-0" />
-                  <span className="font-mono shrink-0">{latestDeploy.commit_sha.slice(0, 7)}</span>
-                </>
-              )}
-              <span className="truncate">{latestDeploy.commit_message || "No message"}</span>
-            </Link>
-            <span className="ml-auto whitespace-nowrap shrink-0">{timeAgo(latestDeploy.created_at)}</span>
-          </div>
-        )}
+      {canister.canister_id && canister.cycles_balance != null && (
+        <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+          <HealthBadge health={healthFromCycles(canister.cycles_balance)} />
+        </div>
+      )}
 
-        {canister.canister_id && canister.cycles_balance != null && (
-          <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground min-w-0">
-            <HealthBadge health={healthFromCycles(canister.cycles_balance)} />
-          </div>
-        )}
-
-        {subdomainUrl && (
-          <div className="mt-2 flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-            <a
-              href={subdomainUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs font-mono text-muted-foreground hover:text-primary inline-flex items-center gap-1"
-            >
-              {projectSlug}-{canister.name}.icforge.dev
-              <ExternalLink className="h-3 w-3" />
-            </a>
-          </div>
-        )}
-      </Card>
-    </div>
+      {subdomainUrl && (
+        <div className="mt-2 flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+          <a
+            href={subdomainUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs font-mono text-muted-foreground hover:text-primary inline-flex items-center gap-1"
+          >
+            {projectSlug}-{canister.name}.icforge.dev
+            <ExternalLink className="h-3 w-3" />
+          </a>
+        </div>
+      )}
+    </Card>
   );
 }
 
@@ -163,7 +161,7 @@ function LatestPushCard({
       : null;
 
   return (
-    <Card className="p-5 border-border/50 overflow-hidden">
+    <Card className="p-5 border-border/50">
       <div className="flex items-center gap-2 mb-3">
         <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Latest Push

@@ -100,9 +100,9 @@ export async function initCommand(options: Record<string, unknown> = {}) {
     for (const name of byocNames) {
       const cid = existingIds[name];
       console.log();
-      console.log(chalk.dim(`    icp canister update-settings ${cid} \\`));
+      console.log(chalk.dim(`    icp canister settings update ${cid} \\`));
       console.log(chalk.dim(`      --add-controller <icforge-principal> \\`));
-      console.log(chalk.dim(`      --network ic`));
+      console.log(chalk.dim(`      -n ic`));
     }
     console.log();
     console.log(chalk.dim("  The exact principal will be shown in deploy logs if missing."));

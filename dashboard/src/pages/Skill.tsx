@@ -145,9 +145,9 @@ icp new my-project --subfolder hello-world \\
           If this step is missing, the deploy will fail with an error showing
           the exact command to run:
         </p>
-        <pre><code>{`icp canister update-settings <canister-id> \\
+        <pre><code>{`icp canister settings update <canister-id> \\
   --add-controller <icforge-principal> \\
-  --network ic`}</code></pre>
+  -n ic`}</code></pre>
 
         <hr />
 
@@ -209,7 +209,7 @@ icp new my-project --subfolder hello-world \\
             <tr>
               <td>ICForge is not a controller</td>
               <td>BYOC canister without ICForge as controller</td>
-              <td>Human runs the <code>icp canister update-settings</code> command from the error</td>
+              <td>Human runs the <code>icp canister settings update</code> command from the error</td>
             </tr>
             <tr>
               <td>Insufficient compute balance</td>

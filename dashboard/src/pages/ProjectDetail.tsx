@@ -74,7 +74,7 @@ function CanisterCard({
   return (
     <div className="block">
       <Card
-        className="p-4 border-border/50 hover:border-border transition-colors cursor-pointer"
+        className="p-4 border-border/50 hover:border-border transition-colors cursor-pointer overflow-hidden"
         onClick={() => navigate(detailUrl)}
       >
         <div className="flex items-center gap-3">
@@ -104,7 +104,7 @@ function CanisterCard({
         </div>
 
         {latestDeploy && (
-          <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+          <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground min-w-0">
             <Link
               to={`/projects/${projectId}/deploys/${latestDeploy.id}`}
               className="inline-flex items-center gap-2 hover:text-primary transition-colors truncate"
@@ -123,7 +123,7 @@ function CanisterCard({
         )}
 
         {canister.canister_id && canister.cycles_balance != null && (
-          <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+          <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground min-w-0">
             <HealthBadge health={healthFromCycles(canister.cycles_balance)} />
           </div>
         )}
@@ -163,7 +163,7 @@ function LatestPushCard({
       : null;
 
   return (
-    <Card className="p-5 border-border/50">
+    <Card className="p-5 border-border/50 overflow-hidden">
       <div className="flex items-center gap-2 mb-3">
         <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Latest Push

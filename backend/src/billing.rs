@@ -434,7 +434,15 @@ async fn user_has_redeemed_signup_bonus(
     user_id: &str,
 ) -> Result<bool, AppError> {
     let existing: Option<(String,)> = sqlx::query_as(
-        "SELECT id FROM compute_transactions WHERE user_id = $1 AND type = 'credit' AND source = 'signup_bonus' LIMIT 1",
+        r#"SELECT id
+           FROM compute_transactions
+           WHERE user_id = $1
+             AND (
+               source = 'signup_bonus'
+               OR description ILIKE 'Welcome bonus%'
+               OR type = 'debit'
+             )
+           LIMIT 1"#,
     )
     .bind(user_id)
     .fetch_optional(db)
@@ -606,7 +614,7 @@ pub async fn billing_redeem_signup_bonus(
     }
 
     if user_has_redeemed_signup_bonus(&state.db, &auth_user.user.id).await? {
-        return Err(AppError::BadRequest("Signup bonus already redeemed".into()));
+        return Err(AppError::BadRequest("Signup bonus already redeemed or unavailable for this account".into()));
     }
 
     let stripe_key = state

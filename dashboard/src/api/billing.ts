@@ -16,6 +16,14 @@ export async function getBillingPortal(): Promise<{ portal_url: string }> {
   return apiFetch('/api/v1/billing/portal');
 }
 
+export async function setupPaymentMethod(): Promise<{ checkout_url: string }> {
+  return apiFetch('/api/v1/billing/setup-payment-method', { method: 'POST' });
+}
+
+export async function redeemSignupBonus(): Promise<{ ok: boolean; amount_cents: number }> {
+  return apiFetch('/api/v1/billing/redeem-signup-bonus', { method: 'POST' });
+}
+
 export async function updateAutoTopup(settings: AutoTopupSettings): Promise<{ ok: boolean }> {
   return apiFetch('/api/v1/billing/auto-topup', {
     method: 'PUT',

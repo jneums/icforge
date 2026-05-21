@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, State},
+    extract::State,
     Json,
 };
 use serde_json::{json, Value};
@@ -363,6 +363,87 @@ async fn ensure_stripe_customer(
     Ok(customer_id)
 }
 
+async fn get_stripe_customer_id_for_user(
+    db: &crate::db::DbPool,
+    stripe_key: &str,
+    user_id: &str,
+) -> Result<Option<String>, AppError> {
+    let is_live = stripe_key.starts_with("sk_live_");
+    let mode_col = if is_live { "stripe_customer_id_live" } else { "stripe_customer_id_test" };
+    let query = format!(
+        "SELECT COALESCE({mode_col}, stripe_customer_id) FROM users WHERE id = $1"
+    );
+
+    let row: Option<(Option<String>,)> = sqlx::query_as(&query)
+        .bind(user_id)
+        .fetch_optional(db)
+        .await
+        .map_err(AppError::Database)?;
+
+    Ok(row.and_then(|r| r.0))
+}
+
+async fn stripe_customer_has_payment_method(
+    stripe_key: &str,
+    customer_id: &str,
+) -> Result<bool, AppError> {
+    let client = reqwest::Client::new();
+    let customer_resp = client
+        .get(&format!("https://api.stripe.com/v1/customers/{customer_id}"))
+        .basic_auth(stripe_key, None::<&str>)
+        .send()
+        .await
+        .map_err(|e| AppError::Internal(format!("Stripe request failed: {e}")))?;
+
+    let customer: Value = customer_resp
+        .json()
+        .await
+        .map_err(|e| AppError::Internal(format!("Stripe response parse failed: {e}")))?;
+
+    if customer["invoice_settings"]["default_payment_method"].as_str().is_some()
+        || customer["default_source"].as_str().is_some()
+    {
+        return Ok(true);
+    }
+
+    let pm_resp = client
+        .get("https://api.stripe.com/v1/payment_methods")
+        .basic_auth(stripe_key, None::<&str>)
+        .query(&[
+            ("customer", customer_id),
+            ("type", "card"),
+            ("limit", "1"),
+        ])
+        .send()
+        .await
+        .map_err(|e| AppError::Internal(format!("Stripe request failed: {e}")))?;
+
+    let payment_methods: Value = pm_resp
+        .json()
+        .await
+        .map_err(|e| AppError::Internal(format!("Stripe response parse failed: {e}")))?;
+
+    Ok(payment_methods["data"]
+        .as_array()
+        .map(|items| !items.is_empty())
+        .unwrap_or(false))
+}
+
+async fn user_has_redeemed_signup_bonus(
+    db: &crate::db::DbPool,
+    user_id: &str,
+) -> Result<bool, AppError> {
+    let existing: Option<(String,)> = sqlx::query_as(
+        "SELECT id FROM compute_transactions WHERE user_id = $1 AND type = 'credit' AND source = 'signup_bonus' LIMIT 1",
+    )
+    .bind(user_id)
+    .fetch_optional(db)
+    .await
+    .map_err(AppError::Database)?;
+
+    Ok(existing.is_some())
+}
+
 // ============================================================
 // Route handlers
 // ============================================================
@@ -472,12 +553,108 @@ pub async fn billing_portal(
     Ok(Json(json!({ "portal_url": url })))
 }
 
+/// POST /api/v1/billing/setup-payment-method — Create Stripe Checkout setup session
+pub async fn billing_setup_payment_method(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+) -> Result<Json<Value>, AppError> {
+    let stripe_key = state
+        .config
+        .stripe_secret_key
+        .as_deref()
+        .ok_or_else(|| AppError::Internal("Stripe not configured".into()))?;
+
+    let customer_id = ensure_stripe_customer(&state.db, stripe_key, &auth_user.user).await?;
+
+    let frontend_url = &state.config.frontend_url;
+    let params = vec![
+        ("mode", "setup".to_string()),
+        ("customer", customer_id),
+        ("success_url", format!("{frontend_url}/billing?payment_method=connected")),
+        ("cancel_url", format!("{frontend_url}/billing")),
+        ("metadata[user_id]", auth_user.user.id.clone()),
+    ];
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .post("https://api.stripe.com/v1/checkout/sessions")
+        .basic_auth(stripe_key, None::<&str>)
+        .form(&params)
+        .send()
+        .await
+        .map_err(|e| AppError::Internal(format!("Stripe request failed: {e}")))?;
+
+    let body: Value = resp
+        .json()
+        .await
+        .map_err(|e| AppError::Internal(format!("Stripe response parse failed: {e}")))?;
+
+    let url = body["url"]
+        .as_str()
+        .ok_or_else(|| AppError::Internal(format!("Stripe setup session create failed: {body}")))?;
+
+    Ok(Json(json!({ "checkout_url": url })))
+}
+
+/// POST /api/v1/billing/redeem-signup-bonus — Redeem welcome credits after payment method verification
+pub async fn billing_redeem_signup_bonus(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+) -> Result<Json<Value>, AppError> {
+    if state.config.signup_bonus_cents <= 0 {
+        return Err(AppError::BadRequest("Signup bonus is disabled".into()));
+    }
+
+    if user_has_redeemed_signup_bonus(&state.db, &auth_user.user.id).await? {
+        return Err(AppError::BadRequest("Signup bonus already redeemed".into()));
+    }
+
+    let stripe_key = state
+        .config
+        .stripe_secret_key
+        .as_deref()
+        .ok_or_else(|| AppError::Internal("Stripe not configured".into()))?;
+
+    let customer_id = get_stripe_customer_id_for_user(&state.db, stripe_key, &auth_user.user.id)
+        .await?
+        .ok_or_else(|| AppError::BadRequest("Connect a payment method to redeem free credits".into()))?;
+
+    if !stripe_customer_has_payment_method(stripe_key, &customer_id).await? {
+        return Err(AppError::BadRequest("Connect a payment method to redeem free credits".into()));
+    }
+
+    credit_balance(
+        &state.db,
+        &auth_user.user.id,
+        state.config.signup_bonus_cents,
+        "signup_bonus",
+        None,
+        &format!(
+            "Welcome bonus redeemed after payment method verification - ${:.2}",
+            state.config.signup_bonus_cents as f64 / 100.0
+        ),
+    )
+    .await?;
+
+    Ok(Json(json!({
+        "ok": true,
+        "amount_cents": state.config.signup_bonus_cents,
+    })))
+}
+
 /// GET /api/v1/billing/balance — Get compute balance + usage
 pub async fn billing_balance(
     State(state): State<AppState>,
     auth_user: AuthUser,
 ) -> Result<Json<Value>, AppError> {
     let bal = get_or_create_balance(&state.db, &auth_user.user.id).await?;
+    let signup_bonus_redeemed = user_has_redeemed_signup_bonus(&state.db, &auth_user.user.id).await?;
+    let mut payment_method_on_file = false;
+    if let Some(stripe_key) = state.config.stripe_secret_key.as_deref() {
+        if let Some(customer_id) = get_stripe_customer_id_for_user(&state.db, stripe_key, &auth_user.user.id).await? {
+            payment_method_on_file = stripe_customer_has_payment_method(stripe_key, &customer_id).await?;
+        }
+    }
 
     // Get this month's usage breakdown
     let month_start = chrono::Utc::now()
@@ -519,6 +696,9 @@ pub async fn billing_balance(
         "auto_topup_threshold_cents": bal.auto_topup_threshold_cents,
         "auto_topup_amount_cents": bal.auto_topup_amount_cents,
         "credits_expire_at": bal.credits_expire_at,
+        "signup_bonus_cents": state.config.signup_bonus_cents,
+        "signup_bonus_redeemed": signup_bonus_redeemed,
+        "payment_method_on_file": payment_method_on_file,
         "usage_this_month": {
             "total_cents": total_cents,
             "cycles_cents": cycles_cents,

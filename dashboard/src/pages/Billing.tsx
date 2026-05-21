@@ -5,7 +5,15 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
-import { useBillingBalance, useTransactions, useCheckout, useBillingPortal, useAutoTopup } from "@/hooks/use-billing";
+import {
+  useBillingBalance,
+  useTransactions,
+  useCheckout,
+  useBillingPortal,
+  useSetupPaymentMethod,
+  useRedeemSignupBonus,
+  useAutoTopup,
+} from "@/hooks/use-billing";
 import { useProjects } from "@/hooks/use-projects";
 import type { ComputeTransaction } from "@/api";
 
@@ -77,6 +85,48 @@ function BalanceCard() {
             {portal.isPending ? "Redirecting…" : "Manage Payment Methods"}
           </Button>
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+
+function SignupBonusCard() {
+  const { data: balance, isLoading } = useBillingBalance();
+  const setupPaymentMethod = useSetupPaymentMethod();
+  const redeemSignupBonus = useRedeemSignupBonus();
+
+  if (isLoading) return <Skeleton className="h-32 w-full rounded-lg" />;
+  if (!balance || balance.signup_bonus_cents <= 0 || balance.signup_bonus_redeemed) return null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Free Credits</CardTitle>
+        <CardDescription>Connect a payment method to redeem {formatCents(balance.signup_bonus_cents)} in compute credits.</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm text-muted-foreground">
+          No charge is made. Payment method verification prevents free-cycle abuse.
+        </p>
+        {balance.payment_method_on_file ? (
+          <Button
+            size="sm"
+            onClick={() => redeemSignupBonus.mutate()}
+            disabled={redeemSignupBonus.isPending}
+          >
+            {redeemSignupBonus.isPending ? "Redeeming…" : "Redeem Credits"}
+          </Button>
+        ) : (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setupPaymentMethod.mutate()}
+            disabled={setupPaymentMethod.isPending}
+          >
+            {setupPaymentMethod.isPending ? "Redirecting…" : "Connect Payment Method"}
+          </Button>
+        )}
       </CardContent>
     </Card>
   );
@@ -338,6 +388,7 @@ export default function Billing() {
         <UsageCard />
       </div>
 
+      <SignupBonusCard />
       <AutoTopupCard />
       <CanisterCostsCard />
       <TransactionsCard />

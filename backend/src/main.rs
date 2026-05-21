@@ -124,6 +124,8 @@ async fn main() {
         // Billing
         .route("/api/v1/billing/checkout", post(billing::billing_checkout))
         .route("/api/v1/billing/portal", get(billing::billing_portal))
+        .route("/api/v1/billing/setup-payment-method", post(billing::billing_setup_payment_method))
+        .route("/api/v1/billing/redeem-signup-bonus", post(billing::billing_redeem_signup_bonus))
         .route("/api/v1/billing/balance", get(billing::billing_balance))
         .route("/api/v1/billing/auto-topup", put(billing::billing_auto_topup))
         .route("/api/v1/billing/transactions", get(billing::billing_transactions))

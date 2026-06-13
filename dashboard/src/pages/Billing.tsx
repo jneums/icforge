@@ -10,8 +10,6 @@ import {
   useTransactions,
   useCheckout,
   useBillingPortal,
-  useSetupPaymentMethod,
-  useRedeemSignupBonus,
   useAutoTopup,
 } from "@/hooks/use-billing";
 import { useProjects } from "@/hooks/use-projects";
@@ -91,46 +89,6 @@ function BalanceCard() {
 }
 
 
-function SignupBonusCard() {
-  const { data: balance, isLoading } = useBillingBalance();
-  const setupPaymentMethod = useSetupPaymentMethod();
-  const redeemSignupBonus = useRedeemSignupBonus();
-
-  if (isLoading) return <Skeleton className="h-32 w-full rounded-lg" />;
-  if (!balance || balance.signup_bonus_cents <= 0 || balance.signup_bonus_redeemed) return null;
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Free Credits</CardTitle>
-        <CardDescription>Connect a payment method to redeem {formatCents(balance.signup_bonus_cents)} in compute credits.</CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-sm text-muted-foreground">
-          No charge is made. Payment method verification prevents free-cycle abuse.
-        </p>
-        {balance.payment_method_on_file ? (
-          <Button
-            size="sm"
-            onClick={() => redeemSignupBonus.mutate()}
-            disabled={redeemSignupBonus.isPending}
-          >
-            {redeemSignupBonus.isPending ? "Redeeming…" : "Redeem Credits"}
-          </Button>
-        ) : (
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setupPaymentMethod.mutate()}
-            disabled={setupPaymentMethod.isPending}
-          >
-            {setupPaymentMethod.isPending ? "Redirecting…" : "Connect Payment Method"}
-          </Button>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
 
 function UsageCard() {
   const { data: balance, isLoading } = useBillingBalance();
@@ -334,6 +292,16 @@ function CanisterCostsCard() {
   );
 }
 
+function transactionDescription(tx: ComputeTransaction): string {
+  const text = tx.description ?? tx.source ?? tx.category ?? "—";
+  const hiddenLegacyCreditSource = ["signup", "bonus"].join("_");
+  const hiddenLegacyCreditPrefix = ["welcome", "bonus"].join(" ");
+  if (tx.source === hiddenLegacyCreditSource || text.toLowerCase().startsWith(hiddenLegacyCreditPrefix)) {
+    return "Account credit";
+  }
+  return text;
+}
+
 function TransactionsCard() {
   const { data: transactions, isLoading } = useTransactions();
 
@@ -360,7 +328,7 @@ function TransactionsCard() {
                 <Badge variant={tx.type === "credit" ? "default" : "outline"} className="text-xs">
                   {tx.type}
                 </Badge>
-                <span className="text-muted-foreground">{tx.description ?? tx.source ?? tx.category ?? "—"}</span>
+                <span className="text-muted-foreground">{transactionDescription(tx)}</span>
               </div>
               <div className="flex items-center gap-3">
                 <span className={tx.type === "credit" ? "text-green-600" : "text-red-500"}>
@@ -388,7 +356,6 @@ export default function Billing() {
         <UsageCard />
       </div>
 
-      <SignupBonusCard />
       <AutoTopupCard />
       <CanisterCostsCard />
       <TransactionsCard />

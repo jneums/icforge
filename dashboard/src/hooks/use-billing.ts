@@ -3,8 +3,6 @@ import {
   getBillingBalance,
   createCheckout,
   getBillingPortal,
-  setupPaymentMethod,
-  redeemSignupBonus,
   updateAutoTopup,
   getTransactions,
 } from '@/api';
@@ -42,25 +40,6 @@ export function useBillingPortal() {
   });
 }
 
-export function useSetupPaymentMethod() {
-  return useMutation({
-    mutationFn: () => setupPaymentMethod(),
-    onSuccess: (data) => {
-      window.location.href = data.checkout_url;
-    },
-  });
-}
-
-export function useRedeemSignupBonus() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: () => redeemSignupBonus(),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['billing', 'balance'] });
-      queryClient.invalidateQueries({ queryKey: ['billing', 'transactions'] });
-    },
-  });
-}
 
 export function useAutoTopup() {
   const queryClient = useQueryClient();

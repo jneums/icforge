@@ -221,7 +221,7 @@ icp new my-project --subfolder hello-world \\
 
         <hr />
 
-        <h2>Free Tier</h2>
+        <h2>Billing</h2>
         <table>
           <thead>
             <tr>
@@ -230,11 +230,10 @@ icp new my-project --subfolder hello-world \\
             </tr>
           </thead>
           <tbody>
-            <tr><td>Signup bonus</td><td>$25 compute credits</td></tr>
             <tr><td>Build time</td><td>$0.01/min</td></tr>
             <tr><td>Canister provisioning</td><td>~$7 per canister (4T cycles)</td></tr>
             <tr><td>Cycles auto top-up</td><td>Always on, billed from balance</td></tr>
-            <tr><td>Log retention</td><td>24 hours (free), up to 30 days (paid)</td></tr>
+            <tr><td>Log retention</td><td>Plan-based retention</td></tr>
           </tbody>
         </table>
 
@@ -265,9 +264,6 @@ git push origin main
               Get Started with GitHub →
             </a>
           </Button>
-          <p className="text-sm text-muted-foreground mt-3">
-            $25 free compute credits · No credit card required
-          </p>
         </div>
       </article>
 

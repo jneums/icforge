@@ -127,9 +127,6 @@ export interface BillingBalance {
   auto_topup_threshold_cents: number | null;
   auto_topup_amount_cents: number | null;
   credits_expire_at: string | null;
-  signup_bonus_cents: number;
-  signup_bonus_redeemed: boolean;
-  payment_method_on_file: boolean;
   usage_this_month: UsageBreakdown;
 }
 

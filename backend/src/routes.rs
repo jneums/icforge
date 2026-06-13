@@ -120,9 +120,6 @@ pub async fn auth_callback(
         .await
         .map_err(AppError::Database)?;
 
-        // Signup bonus is redeemed from Billing after the user connects a Stripe payment method.
-        // Do not credit free compute on GitHub signup; GitHub age alone was not enough to prevent abuse.
-
         (user_id, github_user.login)
     };
 
@@ -459,8 +456,6 @@ pub async fn dev_token(State(state): State<AppState>) -> Result<Json<Value>, App
         .execute(&state.db)
         .await
         .map_err(AppError::Database)?;
-
-        // Dev users also redeem signup bonus from Billing after payment method verification.
 
         tracing::info!("Created dev user");
     }

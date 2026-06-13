@@ -85,9 +85,6 @@ export default function Landing() {
             </a>
           </Button>
         </div>
-        <p className="text-sm text-muted-foreground mt-4">
-          $25 free compute credits · No credit card required
-        </p>
       </section>
 
       {/* How it works */}
@@ -178,7 +175,7 @@ export default function Landing() {
           Start deploying in under a minute
         </h2>
         <p className="text-muted-foreground mb-6">
-          Sign up with GitHub and get $25 in free compute credits.
+          Connect your GitHub repo and deploy to the Internet Computer.
         </p>
         <Button asChild size="lg">
           <Link to={ctaLink}>Get Started → </Link>

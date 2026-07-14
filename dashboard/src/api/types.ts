@@ -127,7 +127,30 @@ export interface BillingBalance {
   auto_topup_threshold_cents: number | null;
   auto_topup_amount_cents: number | null;
   credits_expire_at: string | null;
+  /** ISO start of the usage_this_month window (1st of current month, UTC) */
+  usage_period_start: string;
   usage_this_month: UsageBreakdown;
+}
+
+export interface TransactionsPage {
+  transactions: ComputeTransaction[];
+  next_before: string | null;
+  next_before_id: string | null;
+}
+
+export interface CanisterCostEntry {
+  ic_canister_id: string;
+  canister_name: string;
+  project_name: string;
+  total_cents: number;
+  topup_count: number;
+}
+
+export interface CostsByCanister {
+  from: string;
+  to: string | null;
+  canisters: CanisterCostEntry[];
+  total_cents: number;
 }
 
 export interface ComputeTransaction {

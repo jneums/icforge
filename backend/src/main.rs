@@ -128,6 +128,7 @@ async fn main() {
         .route("/api/v1/billing/balance", get(billing::billing_balance))
         .route("/api/v1/billing/auto-topup", put(billing::billing_auto_topup))
         .route("/api/v1/billing/transactions", get(billing::billing_transactions))
+        .route("/api/v1/billing/costs-by-canister", get(billing::billing_costs_by_canister))
         // Webhooks (no auth — signature-verified)
         .route("/api/v1/webhooks/github", post(webhooks::handle_webhook))
         .route("/api/v1/webhooks/stripe", post(billing::billing_webhook))

@@ -64,11 +64,6 @@ function BalanceCard() {
       <CardContent className="space-y-4">
         <div className="flex items-baseline gap-2">
           <span className="text-3xl font-bold">{formatCents(balance.compute_balance_cents)}</span>
-          {balance.credits_expire_at && (
-            <span className="text-xs text-muted-foreground">
-              expires {formatDate(balance.credits_expire_at)}
-            </span>
-          )}
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">

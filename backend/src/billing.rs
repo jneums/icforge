@@ -67,17 +67,13 @@ pub async fn credit_balance(
     // Ensure balance row exists
     get_or_create_balance(db, user_id).await?;
 
-    // Credit the balance
+    // Credit the balance. Credits don't expire — expiry was never enforced,
+    // and expiring purchased credits raises consumer-protection issues.
+    // NULL out any stale expiry date stamped by older versions.
     sqlx::query(
-        "UPDATE compute_balances SET balance_cents = balance_cents + $1, credits_expire_at = $2, updated_at = $3 WHERE user_id = $4",
+        "UPDATE compute_balances SET balance_cents = balance_cents + $1, credits_expire_at = NULL, updated_at = $2 WHERE user_id = $3",
     )
     .bind(amount_cents)
-    .bind(
-        // Reset expiry to 6 months from now on any credit
-        (chrono::Utc::now() + chrono::Duration::days(180))
-            .format("%Y-%m-%dT%H:%M:%SZ")
-            .to_string(),
-    )
     .bind(&now)
     .bind(user_id)
     .execute(db)
@@ -562,7 +558,6 @@ pub async fn billing_balance(
         "auto_topup_enabled": bal.auto_topup_enabled,
         "auto_topup_threshold_cents": bal.auto_topup_threshold_cents,
         "auto_topup_amount_cents": bal.auto_topup_amount_cents,
-        "credits_expire_at": bal.credits_expire_at,
         "usage_period_start": month_start,
         "usage_this_month": {
             "total_cents": total_cents,

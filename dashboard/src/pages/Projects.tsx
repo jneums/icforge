@@ -15,6 +15,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { displayRecipe, healthFromCycles } from "@/lib/utils";
+import { timeAgo } from "@/lib/format";
 import type { Project } from "@/api/types";
 
 function getProjectStatus(project: Project): string {
@@ -23,17 +24,6 @@ function getProjectStatus(project: Project): string {
   if (statuses.includes("running")) return "running";
   if (statuses.includes("created")) return "created";
   return statuses[0] ?? "queued";
-}
-
-function timeAgo(dateStr: string): string {
-  const date = new Date(dateStr + "Z");
-  const now = new Date();
-  const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
-  if (seconds < 60) return "just now";
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
-  if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`;
-  return date.toLocaleDateString();
 }
 
 function getProjectHealth(project: Project): "healthy" | "warning" | "critical" | "frozen" | "unknown" {

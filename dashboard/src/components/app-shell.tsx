@@ -14,6 +14,22 @@ function formatUsd(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
+// Own component so useBillingBalance only runs when authenticated
+// (calling it in AppShell after the early returns broke the rules of hooks).
+function HeaderBalance() {
+  const { data: billing } = useBillingBalance();
+  if (billing == null) return null;
+  return (
+    <Link
+      to="/billing"
+      className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+    >
+      <CreditCard className="h-3.5 w-3.5" />
+      {formatUsd(billing.compute_balance_cents)}
+    </Link>
+  );
+}
+
 export function AppShell({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
   const location = useLocation();
@@ -34,8 +50,6 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
 
   // Authenticated routes: sidebar + breadcrumbs
-  const { data: billing } = useBillingBalance();
-
   return (
     <SidebarProvider>
       <AppSidebar />
@@ -45,15 +59,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <Separator orientation="vertical" className="mr-2 h-4" />
           <AppBreadcrumbs />
           <div className="ml-auto flex items-center gap-3">
-            {billing != null && (
-              <Link
-                to="/billing"
-                className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <CreditCard className="h-3.5 w-3.5" />
-                {formatUsd(billing.compute_balance_cents)}
-              </Link>
-            )}
+            <HeaderBalance />
           </div>
         </header>
         <main className="flex-1 p-6">

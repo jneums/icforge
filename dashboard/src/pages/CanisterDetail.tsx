@@ -1,96 +1,25 @@
-import { useState, useEffect, useMemo } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useProject } from "@/hooks/use-project";
-import { useCanisterEnv, useSetCanisterEnv } from "@/hooks/use-canister-env";
-import { useCanisterControllers, useSetCanisterControllers } from "@/hooks/use-canister-controllers";
-import { useCanisterLogs, flattenLogPages, useLogSettings, useUpdateLogSettings } from "@/hooks/use-canister-logs";
-import { useCanisterLogStream } from "@/hooks/use-canister-log-stream";
-import { LogViewer } from "@/components/log-viewer";
+import { useCanisterEnv } from "@/hooks/use-canister-env";
+import { useCanisterControllers } from "@/hooks/use-canister-controllers";
+import { useTabParam } from "@/hooks/use-tab-param";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StatusDot } from "@/components/status-dot";
 import { CopyButton } from "@/components/copy-button";
 import { HealthBadge } from "@/components/health-badge";
 import { CanisterHealthPanel } from "@/components/canister-health";
-import {
-  ExternalLink,
-  CheckCircle2,
-  XCircle,
-  Ban,
-  Loader2,
-  Plus,
-  Trash2,
-  Radio,
-  History,
-  Shield,
-} from "lucide-react";
+import { CanisterLogsPanel } from "@/components/canister-logs-panel";
+import { EnvVarEditor } from "@/components/env-var-editor";
+import { ControllersEditor } from "@/components/controllers-editor";
+import { DeployList } from "@/components/deploy-list";
+import { ExternalLink } from "lucide-react";
 import { displayRecipe, healthFromCycles } from "@/lib/utils";
-import type { Deployment } from "@/api/types";
-import type { EnvironmentVariable } from "@/api/types";
-import type { LogPeriod } from "@/api/canister-logs";
 
-const IN_PROGRESS_STATUSES = ["queued", "building", "deploying", "created"];
-
-function timeAgo(dateStr: string): string {
-  const date = new Date(dateStr + "Z");
-  const now = new Date();
-  const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
-  if (seconds < 60) return "just now";
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
-  if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`;
-  return date.toLocaleDateString();
-}
-
-function DeployRow({
-  deploy,
-  projectId,
-}: {
-  deploy: Deployment;
-  projectId: string;
-}) {
-  const inProgress = IN_PROGRESS_STATUSES.includes(deploy.status);
-  const succeeded =
-    deploy.status === "live" ||
-    deploy.status === "succeeded" ||
-    deploy.status === "deployed";
-  const failed = deploy.status === "failed" || deploy.status === "error";
-  const cancelled = deploy.status === "cancelled";
-
-  return (
-    <Link
-      to={`/projects/${projectId}/deploys/${deploy.id}`}
-      className="flex items-center gap-3 px-4 py-2.5 hover:bg-muted/40 transition-colors"
-    >
-      {succeeded ? (
-        <CheckCircle2 className="h-4 w-4 shrink-0 text-success" />
-      ) : failed ? (
-        <XCircle className="h-4 w-4 shrink-0 text-destructive" />
-      ) : cancelled ? (
-        <Ban className="h-4 w-4 shrink-0 text-muted-foreground" />
-      ) : inProgress ? (
-        <Loader2 className="h-4 w-4 shrink-0 text-warning animate-spin" />
-      ) : (
-        <StatusDot status={deploy.status} pulse={inProgress} />
-      )}
-      <span className="text-sm truncate flex-1">
-        {deploy.commit_message || "No message"}
-      </span>
-      {deploy.commit_sha && (
-        <span className="font-mono text-xs text-muted-foreground">
-          {deploy.commit_sha.slice(0, 7)}
-        </span>
-      )}
-      <span className="text-xs text-muted-foreground whitespace-nowrap">
-        {timeAgo(deploy.created_at)}
-      </span>
-    </Link>
-  );
-}
+const CANISTER_TABS = ["health", "logs", "deployments", "env", "controllers"];
 
 function CanisterDetailSkeleton() {
   return (
@@ -104,386 +33,10 @@ function CanisterDetailSkeleton() {
   );
 }
 
-interface EnvVarRow {
-  key: string;
-  name: string;
-  value: string;
-}
-
-function envVarsToRows(vars: EnvironmentVariable[]): EnvVarRow[] {
-  return vars.map((v, i) => ({
-    key: `existing-${i}-${v.name}`,
-    name: v.name,
-    value: v.value,
-  }));
-}
-
-function rowsEqual(
-  rows: EnvVarRow[],
-  original: EnvironmentVariable[]
-): boolean {
-  const filtered = rows.filter((r) => r.name.trim() !== "");
-  if (filtered.length !== original.length) return false;
-  return filtered.every(
-    (r, i) => r.name === original[i].name && r.value === original[i].value
-  );
-}
-
-function EnvVarEditor({
-  canisterId,
-  envVars,
-}: {
-  canisterId: string;
-  envVars: EnvironmentVariable[];
-}) {
-  const [rows, setRows] = useState<EnvVarRow[]>(() => envVarsToRows(envVars));
-  const [nextKey, setNextKey] = useState(0);
-  const mutation = useSetCanisterEnv(canisterId);
-
-  // Sync rows when remote data changes (after save or refetch)
-  useEffect(() => {
-    if (!mutation.isPending) {
-      setRows(envVarsToRows(envVars));
-    }
-  }, [envVars, mutation.isPending]);
-
-  const isDirty = !rowsEqual(rows, envVars);
-
-  function addRow() {
-    setRows((prev) => [
-      ...prev,
-      { key: `new-${nextKey}`, name: "", value: "" },
-    ]);
-    setNextKey((k) => k + 1);
-  }
-
-  function removeRow(key: string) {
-    setRows((prev) => prev.filter((r) => r.key !== key));
-  }
-
-  function updateRow(key: string, field: "name" | "value", val: string) {
-    setRows((prev) =>
-      prev.map((r) => (r.key === key ? { ...r, [field]: val } : r))
-    );
-  }
-
-  function handleSave() {
-    // Filter out empty-name rows before saving
-    const toSave: EnvironmentVariable[] = rows
-      .filter((r) => r.name.trim() !== "")
-      .map((r) => ({ name: r.name.trim(), value: r.value }));
-    mutation.mutate(toSave);
-  }
-
-  return (
-    <div className="space-y-3">
-      {rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          No environment variables set.
-        </p>
-      ) : (
-        <div className="space-y-2">
-          {rows.map((row) => (
-            <div key={row.key} className="flex items-center gap-2">
-              <Input
-                className="font-mono text-sm flex-1"
-                placeholder="NAME"
-                value={row.name}
-                onChange={(e) => updateRow(row.key, "name", e.target.value)}
-              />
-              <span className="text-muted-foreground text-sm">=</span>
-              <Input
-                className="font-mono text-sm flex-[2]"
-                placeholder="value"
-                value={row.value}
-                onChange={(e) => updateRow(row.key, "value", e.target.value)}
-              />
-              <Button
-                variant="ghost"
-                size="icon"
-                className="shrink-0 text-muted-foreground hover:text-destructive"
-                onClick={() => removeRow(row.key)}
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <div className="flex items-center gap-2 pt-1">
-        <Button variant="outline" size="sm" onClick={addRow}>
-          <Plus className="h-3.5 w-3.5 mr-1.5" />
-          Add Variable
-        </Button>
-        {isDirty && (
-          <Button
-            size="sm"
-            onClick={handleSave}
-            disabled={mutation.isPending}
-          >
-            {mutation.isPending && (
-              <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-            )}
-            Save Changes
-          </Button>
-        )}
-      </div>
-
-      {mutation.isError && (
-        <p className="text-sm text-destructive">
-          Failed to save: {mutation.error?.message ?? "Unknown error"}
-        </p>
-      )}
-      {mutation.isSuccess && !isDirty && (
-        <p className="text-sm text-success">Environment variables saved.</p>
-      )}
-    </div>
-  );
-}
-
-/* ── Canister Logs Tab ────────────────────────────────────────── */
-
-const LOG_PERIODS: { label: string; value: LogPeriod }[] = [
-  { label: "1h", value: "1h" },
-  { label: "6h", value: "6h" },
-  { label: "24h", value: "24h" },
-  { label: "7d", value: "7d" },
-  { label: "30d", value: "30d" },
-];
-
-const RETENTION_OPTIONS: { label: string; value: number }[] = [
-  { label: "1 hour", value: 1 },
-  { label: "24 hours", value: 24 },
-  { label: "7 days", value: 168 },
-  { label: "30 days", value: 720 },
-];
-
-function CanisterLogsTab({
-  canisterId,
-  projectId,
-}: {
-  canisterId: string;
-  projectId: string;
-}) {
-  const [period, setPeriod] = useState<LogPeriod>("24h");
-  const [liveMode, setLiveMode] = useState(false);
-
-  // Historical logs with infinite scroll (non-live)
-  const {
-    data: logsData,
-    isLoading: logsLoading,
-    fetchNextPage,
-    hasNextPage,
-    isFetchingNextPage,
-  } = useCanisterLogs(liveMode ? null : canisterId, { period, limit: 500 });
-
-  // Live streaming
-  const { logs: streamLogs, streaming } = useCanisterLogStream(
-    canisterId,
-    liveMode
-  );
-
-  // Log settings (retention)
-  const { data: settings } = useLogSettings(projectId);
-  const updateSettings = useUpdateLogSettings(projectId);
-
-  // Merge: in live mode use stream logs, otherwise flatten infinite query pages
-  const logs = useMemo(() => {
-    if (liveMode) return streamLogs;
-    return flattenLogPages(logsData?.pages);
-  }, [liveMode, streamLogs, logsData]);
-
-  return (
-    <div className="space-y-4">
-      {/* Controls bar */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-2">
-          {/* Mode toggle */}
-          <Button
-            variant={liveMode ? "secondary" : "ghost"}
-            size="sm"
-            className="text-xs h-7"
-            onClick={() => setLiveMode(!liveMode)}
-          >
-            <Radio className="h-3 w-3 mr-1.5" />
-            {liveMode ? "Live" : "Go Live"}
-          </Button>
-
-          {/* Period selector (only in history mode) */}
-          {!liveMode && (
-            <div className="flex items-center gap-1 ml-2">
-              <History className="h-3 w-3 text-muted-foreground" />
-              {LOG_PERIODS.map((p) => (
-                <Button
-                  key={p.value}
-                  variant={period === p.value ? "secondary" : "ghost"}
-                  size="sm"
-                  className="text-xs h-7 px-2"
-                  onClick={() => setPeriod(p.value)}
-                >
-                  {p.label}
-                </Button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Retention settings */}
-        {settings && (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <span>Retention:</span>
-            <select
-              className="bg-muted border border-border rounded px-2 py-0.5 text-xs"
-              value={settings.log_retention_hours}
-              onChange={(e) => updateSettings.mutate(Number(e.target.value))}
-              disabled={updateSettings.isPending}
-            >
-              {RETENTION_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-            {settings.log_count > 0 && (
-              <span className="text-muted-foreground/60">
-                ({settings.log_count.toLocaleString()} entries)
-              </span>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Log viewer */}
-      <LogViewer
-        logs={logs}
-        streaming={streaming}
-        loading={logsLoading}
-        emptyMessage="No canister logs yet. Logs appear when your canister prints to stdout/stderr."
-        height="calc(100vh - 420px)"
-        onLoadMore={() => fetchNextPage()}
-        loadingMore={isFetchingNextPage}
-        hasMore={hasNextPage ?? false}
-      />
-    </div>
-  );
-}
-
-/* ── Controllers Editor ──────────────────────────────────────── */
-
-function ControllersEditor({
-  canisterId,
-  controllers,
-  platformPrincipal,
-}: {
-  canisterId: string;
-  controllers: string[];
-  platformPrincipal: string;
-}) {
-  // Filter out the platform principal — users manage their own principals only
-  const userControllers = controllers.filter(c => c !== platformPrincipal);
-  const [rows, setRows] = useState<{ key: string; value: string }[]>(
-    () => userControllers.map((c, i) => ({ key: `existing-${i}`, value: c }))
-  );
-  const [nextKey, setNextKey] = useState(0);
-  const mutation = useSetCanisterControllers(canisterId);
-
-  // Sync when remote data changes
-  useEffect(() => {
-    if (!mutation.isPending) {
-      const filtered = controllers.filter(c => c !== platformPrincipal);
-      setRows(filtered.map((c, i) => ({ key: `existing-${i}`, value: c })));
-    }
-  }, [controllers, platformPrincipal, mutation.isPending]);
-
-  // isDirty check: compare current rows to userControllers
-  const isDirty = useMemo(() => {
-    const current = rows.map(r => r.value.trim()).filter(v => v !== "");
-    if (current.length !== userControllers.length) return true;
-    return current.some((v, i) => v !== userControllers[i]);
-  }, [rows, userControllers]);
-
-  function addRow() {
-    setRows(prev => [...prev, { key: `new-${nextKey}`, value: "" }]);
-    setNextKey(k => k + 1);
-  }
-
-  function removeRow(key: string) {
-    setRows(prev => prev.filter(r => r.key !== key));
-  }
-
-  function updateRow(key: string, value: string) {
-    setRows(prev => prev.map(r => r.key === key ? { ...r, value } : r));
-  }
-
-  function handleSave() {
-    // Send only non-empty user principals — backend will prepend the platform principal
-    const toSave = rows.map(r => r.value.trim()).filter(v => v !== "");
-    mutation.mutate(toSave);
-  }
-
-  return (
-    <div className="space-y-3">
-      {rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          No additional controllers. Only ICForge manages this canister.
-        </p>
-      ) : (
-        <div className="space-y-2">
-          {rows.map(row => (
-            <div key={row.key} className="flex items-center gap-2">
-              <Input
-                className="font-mono text-sm flex-1"
-                placeholder="e.g. rrkah-fqaaa-aaaaa-aaaaq-cai"
-                value={row.value}
-                onChange={e => updateRow(row.key, e.target.value)}
-              />
-              <Button
-                variant="ghost"
-                size="icon"
-                className="shrink-0 text-muted-foreground hover:text-destructive"
-                onClick={() => removeRow(row.key)}
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <div className="flex items-center gap-2 pt-1">
-        <Button variant="outline" size="sm" onClick={addRow}>
-          <Plus className="h-3.5 w-3.5 mr-1.5" />
-          Add Controller
-        </Button>
-        {isDirty && (
-          <Button size="sm" onClick={handleSave} disabled={mutation.isPending}>
-            {mutation.isPending && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />}
-            Save Changes
-          </Button>
-        )}
-      </div>
-
-      {mutation.isError && (
-        <p className="text-sm text-destructive">
-          Failed to save: {mutation.error?.message ?? "Unknown error"}
-        </p>
-      )}
-      {mutation.isSuccess && !isDirty && (
-        <p className="text-sm text-success">Controllers updated.</p>
-      )}
-
-      <p className="text-xs text-muted-foreground pt-2">
-        <Shield className="h-3 w-3 inline mr-1" />
-        Controllers have full admin access to this canister. Add your own principal to use dfx or icp-cli directly.
-      </p>
-    </div>
-  );
-}
-
 export default function CanisterDetail() {
   const { id, canisterId } = useParams();
   const { data, isLoading, error } = useProject(id ?? "");
+  const [tab, setTab] = useTabParam("health", CANISTER_TABS);
 
   const project = data?.project;
   const canister = project?.canisters?.find((c) => c.id === canisterId);
@@ -532,11 +85,17 @@ export default function CanisterDetail() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">
-            {canister.name}
-          </h1>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="min-w-0">
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-semibold tracking-tight truncate">
+              {canister.name}
+            </h1>
+            <StatusDot status={canister.status} />
+            {canister.canister_id && canister.cycles_balance != null && (
+              <HealthBadge health={healthFromCycles(canister.cycles_balance)} />
+            )}
+          </div>
           <div className="flex items-center gap-3 mt-1.5 text-sm text-muted-foreground">
             <Badge variant="outline" className="text-xs">
               {displayRecipe(canister.recipe)}
@@ -551,28 +110,22 @@ export default function CanisterDetail() {
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          {canister.canister_id &&
-            canister.cycles_balance != null && (
-              <HealthBadge health={healthFromCycles(canister.cycles_balance)} />
-            )}
-          <StatusDot status={canister.status} />
-          {subdomainUrl && (
-            <a
-              href={subdomainUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs font-mono text-muted-foreground hover:text-primary inline-flex items-center gap-1"
-            >
+        {subdomainUrl && (
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="font-mono text-xs text-muted-foreground hidden sm:inline">
               {project.slug}-{canister.name}.icforge.dev
-              <ExternalLink className="h-3 w-3" />
-            </a>
-          )}
-        </div>
+            </span>
+            <Button asChild size="sm" variant="outline">
+              <a href={subdomainUrl} target="_blank" rel="noopener noreferrer">
+                Visit <ExternalLink className="h-3.5 w-3.5 ml-1" />
+              </a>
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Tabs */}
-      <Tabs defaultValue="health">
+      <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
           <TabsTrigger value="health">Health</TabsTrigger>
           <TabsTrigger value="logs">Logs</TabsTrigger>
@@ -588,27 +141,19 @@ export default function CanisterDetail() {
         </TabsContent>
 
         <TabsContent value="logs">
-          <CanisterLogsTab canisterId={canister.canister_id!} projectId={id!} />
+          <CanisterLogsPanel canisterId={canister.canister_id!} projectId={id!} />
         </TabsContent>
 
         <TabsContent value="deployments">
-          {deployments.length === 0 ? (
-            <Card className="p-8 text-center border-border/50">
-              <p className="text-sm text-muted-foreground">
-                No deployments for this canister yet.
-              </p>
-            </Card>
-          ) : (
-            <Card className="divide-y divide-border/50 border-border/50 overflow-hidden">
-              {deployments.map((d) => (
-                <DeployRow key={d.id} deploy={d} projectId={project.id} />
-              ))}
-            </Card>
-          )}
+          <DeployList
+            deployments={deployments}
+            projectId={project.id}
+            emptyMessage="No deployments for this canister yet."
+          />
         </TabsContent>
 
         <TabsContent value="env">
-          <Card className="border-border/50 p-5">
+          <Card className="border-border/50 p-5 gap-0">
             {!canister.canister_id ? (
               <p className="text-sm text-muted-foreground">
                 Canister not deployed yet — no environment variables available.
@@ -629,7 +174,7 @@ export default function CanisterDetail() {
         </TabsContent>
 
         <TabsContent value="controllers">
-          <Card className="border-border/50 p-5">
+          <Card className="border-border/50 p-5 gap-0">
             {!canister.canister_id ? (
               <p className="text-sm text-muted-foreground">
                 Canister not deployed yet — no controllers available.

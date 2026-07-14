@@ -126,7 +126,6 @@ export interface BillingBalance {
   auto_topup_enabled: boolean;
   auto_topup_threshold_cents: number | null;
   auto_topup_amount_cents: number | null;
-  credits_expire_at: string | null;
   /** ISO start of the usage_this_month window (1st of current month, UTC) */
   usage_period_start: string;
   usage_this_month: UsageBreakdown;

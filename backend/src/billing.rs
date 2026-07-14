@@ -1,7 +1,8 @@
 use axum::{
-    extract::State,
+    extract::{Query, State},
     Json,
 };
+use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::auth::AuthUser;
@@ -562,6 +563,7 @@ pub async fn billing_balance(
         "auto_topup_threshold_cents": bal.auto_topup_threshold_cents,
         "auto_topup_amount_cents": bal.auto_topup_amount_cents,
         "credits_expire_at": bal.credits_expire_at,
+        "usage_period_start": month_start,
         "usage_this_month": {
             "total_cents": total_cents,
             "cycles_cents": cycles_cents,
@@ -604,19 +606,141 @@ pub async fn billing_auto_topup(
 }
 
 /// GET /api/v1/billing/transactions — Transaction history
+#[derive(Debug, Deserialize)]
+pub struct TransactionsQuery {
+    /// Page size (default 25, max 100)
+    pub limit: Option<i64>,
+    /// Cursor: created_at of the last row from the previous page
+    pub before: Option<String>,
+    /// Cursor tiebreak: id of the last row from the previous page
+    pub before_id: Option<String>,
+    /// Filter: 'credit' or 'debit'
+    #[serde(rename = "type")]
+    pub tx_type: Option<String>,
+    /// Filter: debit category (execution, provision, builds, logging)
+    pub category: Option<String>,
+}
+
 pub async fn billing_transactions(
     State(state): State<AppState>,
     auth_user: AuthUser,
+    Query(params): Query<TransactionsQuery>,
 ) -> Result<Json<Value>, AppError> {
-    let txns: Vec<ComputeTransaction> = sqlx::query_as(
-        "SELECT * FROM compute_transactions WHERE user_id = $1 ORDER BY created_at DESC LIMIT 100",
-    )
-    .bind(&auth_user.user.id)
-    .fetch_all(&state.db)
-    .await
-    .map_err(AppError::Database)?;
+    let limit = params.limit.unwrap_or(25).clamp(1, 100);
 
-    Ok(Json(json!({ "transactions": txns })))
+    let mut qb = sqlx::QueryBuilder::new(
+        "SELECT * FROM compute_transactions WHERE user_id = ",
+    );
+    qb.push_bind(&auth_user.user.id);
+
+    if let Some(tx_type) = &params.tx_type {
+        if tx_type != "credit" && tx_type != "debit" {
+            return Err(AppError::BadRequest("type must be 'credit' or 'debit'".into()));
+        }
+        qb.push(" AND type = ").push_bind(tx_type);
+    }
+    if let Some(category) = &params.category {
+        qb.push(" AND category = ").push_bind(category);
+    }
+    // Keyset cursor: strictly older than (created_at, id) of the previous page's last row
+    if let Some(before) = &params.before {
+        let before_id = params.before_id.clone().unwrap_or_default();
+        qb.push(" AND (created_at, id) < (")
+            .push_bind(before)
+            .push(", ")
+            .push_bind(before_id)
+            .push(")");
+    }
+
+    qb.push(" ORDER BY created_at DESC, id DESC LIMIT ");
+    // Fetch one extra row to know whether another page exists
+    qb.push_bind(limit + 1);
+
+    let mut txns: Vec<ComputeTransaction> = qb
+        .build_query_as()
+        .fetch_all(&state.db)
+        .await
+        .map_err(AppError::Database)?;
+
+    let has_more = txns.len() as i64 > limit;
+    if has_more {
+        txns.truncate(limit as usize);
+    }
+    let cursor = txns
+        .last()
+        .filter(|_| has_more)
+        .map(|t| (t.created_at.clone(), t.id.clone()));
+
+    Ok(Json(json!({
+        "transactions": txns,
+        "next_before": cursor.as_ref().map(|(c, _)| c),
+        "next_before_id": cursor.as_ref().map(|(_, i)| i),
+    })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CostsByCanisterQuery {
+    /// Inclusive ISO-8601 lower bound (default: start of current month, UTC)
+    pub from: Option<String>,
+    /// Exclusive ISO-8601 upper bound (default: none)
+    pub to: Option<String>,
+}
+
+/// GET /api/v1/billing/costs-by-canister — top-up spend per canister over a date range
+pub async fn billing_costs_by_canister(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+    Query(params): Query<CostsByCanisterQuery>,
+) -> Result<Json<Value>, AppError> {
+    let from = params.from.unwrap_or_else(|| {
+        chrono::Utc::now().format("%Y-%m-01T00:00:00Z").to_string()
+    });
+
+    let mut qb = sqlx::QueryBuilder::new(
+        r#"SELECT t.ic_canister_id,
+                  COALESCE(c.name, '') AS canister_name,
+                  COALESCE(p.name, '') AS project_name,
+                  SUM(t.cost_cents)::BIGINT AS total_cents,
+                  COUNT(*)::BIGINT AS topup_count
+           FROM canister_topups t
+           LEFT JOIN canisters c ON c.id = t.canister_id
+           LEFT JOIN projects p ON p.id = c.project_id
+           WHERE t.user_id = "#,
+    );
+    qb.push_bind(&auth_user.user.id);
+    qb.push(" AND t.created_at >= ").push_bind(&from);
+    if let Some(to) = &params.to {
+        qb.push(" AND t.created_at < ").push_bind(to);
+    }
+    qb.push(" GROUP BY t.ic_canister_id, c.name, p.name ORDER BY total_cents DESC");
+
+    let rows: Vec<(String, String, String, i64, i64)> = qb
+        .build_query_as()
+        .fetch_all(&state.db)
+        .await
+        .map_err(AppError::Database)?;
+
+    let canisters: Vec<Value> = rows
+        .iter()
+        .map(|(ic_id, cname, pname, total, count)| {
+            json!({
+                "ic_canister_id": ic_id,
+                "canister_name": cname,
+                "project_name": pname,
+                "total_cents": total,
+                "topup_count": count,
+            })
+        })
+        .collect();
+
+    let total_cents: i64 = rows.iter().map(|(_, _, _, t, _)| t).sum();
+
+    Ok(Json(json!({
+        "from": from,
+        "to": params.to,
+        "canisters": canisters,
+        "total_cents": total_cents,
+    })))
 }
 
 /// POST /api/v1/billing/webhook — Stripe webhook handler

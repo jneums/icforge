@@ -1,12 +1,19 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+  useQuery,
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+} from '@tanstack/react-query';
 import {
   getBillingBalance,
   createCheckout,
   getBillingPortal,
   updateAutoTopup,
   getTransactions,
+  getCostsByCanister,
 } from '@/api';
-import type { AutoTopupSettings } from '@/api';
+import type { AutoTopupSettings, TransactionFilters } from '@/api';
+import type { TransactionsPage } from '@/api/types';
 
 export function useBillingBalance() {
   return useQuery({
@@ -15,10 +22,22 @@ export function useBillingBalance() {
   });
 }
 
-export function useTransactions() {
+export function useTransactions(filters: TransactionFilters = {}) {
+  return useInfiniteQuery({
+    queryKey: ['billing', 'transactions', filters],
+    queryFn: ({ pageParam }) => getTransactions(filters, pageParam),
+    initialPageParam: undefined as { before: string; before_id: string } | undefined,
+    getNextPageParam: (last: TransactionsPage) =>
+      last.next_before && last.next_before_id
+        ? { before: last.next_before, before_id: last.next_before_id }
+        : undefined,
+  });
+}
+
+export function useCostsByCanister(range: { from?: string; to?: string }) {
   return useQuery({
-    queryKey: ['billing', 'transactions'],
-    queryFn: getTransactions,
+    queryKey: ['billing', 'costs-by-canister', range],
+    queryFn: () => getCostsByCanister(range),
   });
 }
 

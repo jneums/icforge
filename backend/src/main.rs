@@ -73,7 +73,7 @@ async fn main() {
     // Start the background build worker
     deploy_worker::spawn_worker(pool.clone(), config.clone(), state.log_channels.clone(), state.exchange_rate.clone());
 
-    // Start the background cycles poller (checks every 6h)
+    // Start the background cycles poller (snapshots every 60s, hourly retention maintenance)
     compute_poller::spawn_poller(pool.clone(), config.clone(), state.exchange_rate.clone());
 
     // Start the background canister log poller (fetches IC logs every 30s)

@@ -1,5 +1,11 @@
 //! Background poller: checks canister cycles balances every 60 seconds,
 //! records snapshots, and auto-tops-up low canisters.
+//!
+//! Snapshot retention (applied hourly by `run_maintenance`):
+//!   - full 60s resolution for the last `SNAPSHOT_FULL_RES_HOURS`
+//!   - one row per canister per hour beyond that
+//!   - nothing older than `SNAPSHOT_RETENTION_DAYS`
+//! Without this, 60s polling costs ~20 MB per canister per 30 days.
 
 use sqlx::PgPool;
 use tokio::time::{interval, Duration};
@@ -21,6 +27,15 @@ fn nat_to_i64(n: &Nat) -> i64 {
 pub const THRESHOLD_HEALTHY: u128 = 4_000_000_000_000; // 4T — target level
 pub const THRESHOLD_WARNING: u128 = 3_000_000_000_000; // 3T — low watermark
 
+/// Keep every 60s snapshot for this long; older rows are thinned to hourly.
+pub const SNAPSHOT_FULL_RES_HOURS: i64 = 48;
+/// Drop snapshots older than this.
+pub const SNAPSHOT_RETENTION_DAYS: i64 = 7;
+/// Drop deploy logs for deployments older than this.
+pub const DEPLOY_LOG_RETENTION_DAYS: i64 = 30;
+/// Run retention maintenance every N poll ticks (60 ticks = hourly).
+const MAINTENANCE_EVERY_TICKS: u32 = 60;
+
 /// Spawn the background poller task. Runs every 60 seconds.
 pub fn spawn_poller(db: PgPool, config: AppConfig, rate_cache: ExchangeRateCache) {
     tokio::spawn(async move {
@@ -28,6 +43,7 @@ pub fn spawn_poller(db: PgPool, config: AppConfig, rate_cache: ExchangeRateCache
         tokio::time::sleep(Duration::from_secs(30)).await;
 
         let mut tick = interval(Duration::from_secs(60)); // 60 seconds
+        let mut ticks_since_maintenance = MAINTENANCE_EVERY_TICKS; // run maintenance on first tick
 
         loop {
             tick.tick().await;
@@ -37,19 +53,81 @@ pub fn spawn_poller(db: PgPool, config: AppConfig, rate_cache: ExchangeRateCache
                 tracing::error!("Compute poller error: {e}");
             }
 
-            // Retention: delete snapshots older than 30 days
-            let cutoff = (chrono::Utc::now() - chrono::Duration::days(30))
-                .format("%Y-%m-%dT%H:%M:%SZ")
-                .to_string();
-            if let Err(e) = sqlx::query("DELETE FROM cycles_snapshots WHERE recorded_at < $1")
-                .bind(&cutoff)
-                .execute(&db)
-                .await
-            {
-                tracing::warn!("Snapshot retention cleanup error: {e}");
+            ticks_since_maintenance += 1;
+            if ticks_since_maintenance >= MAINTENANCE_EVERY_TICKS {
+                ticks_since_maintenance = 0;
+                if let Err(e) = run_maintenance(&db).await {
+                    tracing::warn!("Retention maintenance error: {e}");
+                }
             }
         }
     });
+}
+
+fn iso_hours_ago(hours: i64) -> String {
+    (chrono::Utc::now() - chrono::Duration::hours(hours))
+        .format("%Y-%m-%dT%H:%M:%SZ")
+        .to_string()
+}
+
+/// Retention maintenance for time-series tables. Safe to run repeatedly.
+pub async fn run_maintenance(db: &PgPool) -> Result<(), sqlx::Error> {
+    // 1. Drop snapshots past the retention window.
+    let dropped = sqlx::query("DELETE FROM cycles_snapshots WHERE recorded_at < $1")
+        .bind(iso_hours_ago(SNAPSHOT_RETENTION_DAYS * 24))
+        .execute(db)
+        .await?
+        .rows_affected();
+
+    // 2. Thin snapshots older than the full-resolution window to one per
+    //    canister per hour (keep the earliest row in each hour bucket).
+    //    recorded_at is ISO 8601 text, so the first 13 chars = "YYYY-MM-DDTHH".
+    let thinned = sqlx::query(
+        r#"DELETE FROM cycles_snapshots s
+           USING (
+               SELECT id FROM (
+                   SELECT id,
+                          row_number() OVER (
+                              PARTITION BY canister_id, substr(recorded_at, 1, 13)
+                              ORDER BY recorded_at
+                          ) AS rn
+                   FROM cycles_snapshots
+                   WHERE recorded_at < $1
+               ) ranked
+               WHERE rn > 1
+           ) extra
+           WHERE s.id = extra.id"#,
+    )
+    .bind(iso_hours_ago(SNAPSHOT_FULL_RES_HOURS))
+    .execute(db)
+    .await?
+    .rows_affected();
+
+    // 3. Drop deploy logs for old deployments. deployments.created_at is
+    //    'YYYY-MM-DD HH24:MI:SS' text (space separator, no zone).
+    let deploy_cutoff = (chrono::Utc::now() - chrono::Duration::days(DEPLOY_LOG_RETENTION_DAYS))
+        .format("%Y-%m-%d %H:%M:%S")
+        .to_string();
+    let deploy_logs_dropped = sqlx::query(
+        r#"DELETE FROM deploy_logs
+           WHERE deployment_id IN (
+               SELECT id FROM deployments WHERE created_at < $1
+           )"#,
+    )
+    .bind(&deploy_cutoff)
+    .execute(db)
+    .await?
+    .rows_affected();
+
+    if dropped + thinned + deploy_logs_dropped > 0 {
+        tracing::info!(
+            snapshots_expired = dropped,
+            snapshots_thinned = thinned,
+            deploy_logs_expired = deploy_logs_dropped,
+            "Retention maintenance complete"
+        );
+    }
+    Ok(())
 }
 
 async fn run_poll_cycle(
@@ -70,9 +148,10 @@ async fn run_poll_cycle(
         .await
         .map_err(|e| format!("Failed to create IcClient: {e}"))?;
 
-    // Fetch all canisters with an IC canister ID that are running
+    // Fetch all running canisters with an IC canister ID. Stopped canisters
+    // don't burn cycles meaningfully and don't need a snapshot every minute.
     let canisters: Vec<CanisterRecord> = sqlx::query_as(
-        "SELECT * FROM canisters WHERE canister_id IS NOT NULL AND status IN ('running', 'stopped')",
+        "SELECT * FROM canisters WHERE canister_id IS NOT NULL AND status = 'running'",
     )
     .fetch_all(db)
     .await?;

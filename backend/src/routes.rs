@@ -1378,18 +1378,35 @@ pub async fn canister_cycles(
         .format("%Y-%m-%dT%H:%M:%SZ")
         .to_string();
 
-    // Cap at 1500 points — for 1-minute polling this covers 25h without downsampling
-    let snapshots: Vec<crate::models::CyclesSnapshot> = sqlx::query_as(
-        r#"SELECT * FROM cycles_snapshots
-           WHERE ic_canister_id = $1 AND recorded_at >= $2
-           ORDER BY recorded_at ASC
-           LIMIT 1500"#,
-    )
-    .bind(&canister_id)
-    .bind(&since)
-    .fetch_all(&state.db)
-    .await
-    .map_err(AppError::Database)?;
+    // Snapshots are stored at 60s resolution for the last 48h and hourly
+    // beyond that (see compute_poller::run_maintenance). For periods longer
+    // than 24h return one point per hour so the series stays under the cap.
+    let snapshots: Vec<crate::models::CyclesSnapshot> = if hours > 24 {
+        sqlx::query_as(
+            r#"SELECT DISTINCT ON (substr(recorded_at, 1, 13)) *
+               FROM cycles_snapshots
+               WHERE ic_canister_id = $1 AND recorded_at >= $2
+               ORDER BY substr(recorded_at, 1, 13) ASC, recorded_at ASC
+               LIMIT 1500"#,
+        )
+        .bind(&canister_id)
+        .bind(&since)
+        .fetch_all(&state.db)
+        .await
+        .map_err(AppError::Database)?
+    } else {
+        sqlx::query_as(
+            r#"SELECT * FROM cycles_snapshots
+               WHERE ic_canister_id = $1 AND recorded_at >= $2
+               ORDER BY recorded_at ASC
+               LIMIT 1500"#,
+        )
+        .bind(&canister_id)
+        .bind(&since)
+        .fetch_all(&state.db)
+        .await
+        .map_err(AppError::Database)?
+    };
 
     // Recent top-ups
     let topups: Vec<crate::models::CanisterTopup> = sqlx::query_as(

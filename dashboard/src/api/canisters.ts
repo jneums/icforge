@@ -18,7 +18,7 @@ export async function setCanisterEnv(
   });
 }
 
-export type ComputePeriod = '1h' | '6h' | '24h' | '7d' | '30d';
+export type ComputePeriod = '1h' | '6h' | '24h' | '7d';
 
 export async function fetchCanisterCompute(canisterId: string, period: ComputePeriod = '24h'): Promise<CanisterComputeInfo> {
   return apiFetch<CanisterComputeInfo>(`/api/v1/canisters/${canisterId}/cycles?period=${period}`);
